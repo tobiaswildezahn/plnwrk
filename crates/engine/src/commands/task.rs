@@ -7,7 +7,7 @@ use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
 pub(crate) const TASK_STATUS: &[&str] = &["todo", "in_progress", "blocked", "review", "done"];
-pub(crate) const PRIORITY: &[&str] = &["low", "normal", "high", "critical"];
+const PRIORITY: &[&str] = &["low", "normal", "high", "critical"];
 const CLASSIFICATION: &[&str] = &["open", "vs_nfd"];
 
 pub(crate) fn load(tx: &Tx<'_>, id: TaskId) -> Result<Task, CommandError> {

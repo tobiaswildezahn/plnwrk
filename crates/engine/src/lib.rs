@@ -6,7 +6,9 @@ pub mod command;
 pub mod commands;
 mod error;
 mod event;
+pub mod fixture;
 pub mod params;
+pub mod query;
 mod session;
 mod tx;
 

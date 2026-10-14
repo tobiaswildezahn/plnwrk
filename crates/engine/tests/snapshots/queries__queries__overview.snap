@@ -1,0 +1,62 @@
+---
+source: crates/engine/tests/queries.rs
+expression: "snapshot_value(&s, \"overview\", json!({}))"
+---
+[
+  {
+    "classification": "open",
+    "days_left": 5,
+    "due": "2026-10-19",
+    "id": "0000000000000000000000000P",
+    "kind": "SKA",
+    "next_milestone": {
+      "date": "2026-10-19",
+      "id": "0000000000000000000000000V",
+      "state": "open",
+      "title": "Abgabe Senatskanzlei"
+    },
+    "open_tasks": 3,
+    "overdue_tasks": 0,
+    "owner": {
+      "id": "00000000000000000000000002",
+      "initials": "AB",
+      "name": "Anna Berg"
+    },
+    "progress": {
+      "done": 1,
+      "percent": 33,
+      "tasks": 3
+    },
+    "reference": "23/1234",
+    "status": "active",
+    "title": "SKA 23/1234 Sirenenwarnung"
+  },
+  {
+    "classification": "open",
+    "days_left": 62,
+    "due": "2026-12-15",
+    "id": "00000000000000000000000003",
+    "kind": "Projekt",
+    "next_milestone": {
+      "date": "2026-10-12",
+      "id": "0000000000000000000000000C",
+      "state": "missed",
+      "title": "Zuschlag erteilt"
+    },
+    "open_tasks": 4,
+    "overdue_tasks": 1,
+    "owner": {
+      "id": "00000000000000000000000001",
+      "initials": "TW",
+      "name": "Tobias Wildezahn"
+    },
+    "progress": {
+      "done": 2,
+      "percent": 40,
+      "tasks": 5
+    },
+    "reference": null,
+    "status": "active",
+    "title": "Digitalfunk Umrüstung Wachen"
+  }
+]

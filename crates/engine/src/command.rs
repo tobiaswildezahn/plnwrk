@@ -84,13 +84,18 @@ pub fn find(id: &str) -> Option<&'static CommandSpec> {
     REGISTRY.iter().find(|spec| spec.id == id)
 }
 
-/// Commands matching the words of `query` in id, summary or parameter names, best first.
-pub fn search(query: &str) -> Vec<&'static CommandSpec> {
-    let words: Vec<String> = query
+/// The lower-case words of a search text.
+pub(crate) fn search_words(query: &str) -> Vec<String> {
+    query
         .split(|c: char| !c.is_alphanumeric() && c != '.' && c != '_')
         .filter(|w| !w.is_empty())
         .map(str::to_lowercase)
-        .collect();
+        .collect()
+}
+
+/// Commands matching the words of `query` in id, summary or parameter names, best first.
+pub fn search(query: &str) -> Vec<&'static CommandSpec> {
+    let words = search_words(query);
     let mut scored: Vec<(usize, &'static CommandSpec)> = REGISTRY
         .iter()
         .filter_map(|spec| {
