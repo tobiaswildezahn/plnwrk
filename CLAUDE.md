@@ -65,6 +65,12 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   `pick(deutsch, englisch)`. Ein Wächtertest verbietet deutsche Textliterale anderswo, ein
   englischer Rundgangtest sucht deutsche Wörter. Nur Zeichen verwenden, die die eingebauten Schriften
   haben (Ubuntu-Light, NotoEmoji, emoji-icon-font) – z. B. ♦ • 🗙 statt ◆ ● ✕.
+- Browser: Logik für Dateien/Zwischenstand gehört in `plnwrk-ui` (Host-Methoden, nativ mit
+  `TestBrowser` testbar), nur die JavaScript-Anbindung nach `apps/plnwrk-web/src/host.rs`.
+  Nichts in `plnwrk-ui` darf im Browser anhalten: `std::process::id` ist dort per Clippy
+  verboten (`plnwrk_platform::instance()` nehmen); `std::fs`/Threads nur hinter
+  `cfg(not(target_arch = "wasm32"))`. Die CI baut das Web-Paket nur – ausprobieren mit
+  `trunk serve` (Browser-Vorschau `plnwrk-web`).
 - Neuer Befehl im Register → Eintrag in der Befehlspalette (`crates/ui/src/palette.rs`) oder
   mit Begründung in `palette::ELSEWHERE`; ein Test prüft das.
 - kittest: Untermenü-Knöpfe heißen „Name⏵“ (Hilfsfunktion `submenu` in `tests.rs`); Tippen in
