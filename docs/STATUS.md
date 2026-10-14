@@ -17,7 +17,7 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, gemergt, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
 | 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Meilensteine, Details, Vorlagen) | **fertig**, gemergt, Review + Nachreview, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
 | 3b-1 Termine und Meilensteine (Datumsauswahl, Uhrzeiten, Meilenstein = Aufgabe; Format 2) | **fertig**, gemergt, Review + Nachreview | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
-| 3b-2 Nichts verlieren (Autosave, Liste bearbeiten, Schutz aus der App, Barrierefreiheit) | **in Arbeit** | Branch `phase-3b-2` |
+| 3b-2 Nichts verlieren (Autosave, Liste bearbeiten, Schutz aus der App, Barrierefreiheit) | **umgesetzt, PR offen** | Branch `phase-3b-2` |
 | 3b-3 Befehlspalette, Englisch, Theme | offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
@@ -100,9 +100,9 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
   de/en (Texte stehen zentral in `crates/ui/src/text.rs`), Befehlspalette, Verschlüsseln aus
   der App, Doppelklick auf `.plnwrk`-Dateien im Finder (macOS liefert Dateien per Apple Event,
   nicht als Argument), App-Symbol.
-- **Bekannte MVP-Grenzen**: Notkopien (beim Beenden über Dock/Abmelden) liegen in
-  `~/Library/Application Support/plnwrk/Notkopien` und stehen auf der Startseite; löschen muss
-  man sie noch von Hand; Cmd+Q ruht, solange ein Dialog offen ist; ohne macOS-Standardmenü
+- **Bekannte Grenzen**: Wiederherstellungskopien (Autosave, Beenden über Dock/Abmelden) liegen
+  in `~/Library/Application Support/plnwrk/Notkopien` und stehen auf der Startseite; Kopien, die
+  man nie öffnet, bleiben dort liegen (Aufräumen von Hand); Cmd+Q ruht, solange ein Dialog offen ist; ohne macOS-Standardmenü
   fehlen Cmd+H/Cmd+M; Dateien in schreibgeschützten Ordnern lassen
   sich nicht öffnen (Sperrdatei); Speichern verschlüsselter Dateien dauert ≈ 1 s und blockiert
   kurz die Oberfläche; Kommentare/Verlauf zeigen Feldnamen technisch (`due`); die Liste ist noch

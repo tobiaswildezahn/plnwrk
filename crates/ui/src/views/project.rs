@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::doc::OpenDoc;
 use crate::state::{ProjectForm, State, Tab};
-use crate::views::{board, date, due_label, enter_field, status_tag};
+use crate::views::{board, date, due_label, enter_field, icon_button, status_tag};
 use crate::{Clear, Intent, Then, dates, text};
 
 pub fn show(
@@ -328,11 +328,7 @@ fn list(
                 }
                 due_label(ui, task.due, task.due_time, overdue);
                 status_tag(ui, task.status);
-                if ui
-                    .small_button("+")
-                    .on_hover_text(text::ADD_SUBTASK)
-                    .clicked()
-                {
+                if icon_button(ui, "+", text::ADD_SUBTASK).clicked() {
                     state.forms.new_subtask = Some((task.id, String::new()));
                 }
             });
@@ -354,7 +350,7 @@ fn list(
                             clear: Some(Clear::NewSubtask),
                         });
                     }
-                    cancel = ui.small_button("🗙").on_hover_text(text::CANCEL).clicked();
+                    cancel = icon_button(ui, "🗙", text::CANCEL).clicked();
                 });
             }
             if cancel {
@@ -437,7 +433,7 @@ fn milestones(
                 {
                     out.push(Intent::Select(Some(milestone.id)));
                 }
-                if ui.small_button("🗑").on_hover_text(text::DELETE).clicked() {
+                if icon_button(ui, "🗑", text::DELETE_MILESTONE).clicked() {
                     out.push(Intent::Open(crate::state::Dialog::DeleteTask(milestone.id)));
                 }
                 ui.end_row();

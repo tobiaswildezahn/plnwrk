@@ -144,7 +144,11 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     let parent = task_named(harness.state(), "Lage vorbereiten").unwrap();
     assert!(task_named(harness.state(), "Einladung").is_some());
 
-    harness.get_all_by_label("+").next().unwrap().click();
+    harness
+        .get_all_by_label(text::ADD_SUBTASK)
+        .next()
+        .unwrap()
+        .click();
     harness.run();
     type_into(&mut harness, text::NEW_SUBTASK_HINT, "Karten drucken", true);
     let child = task_named(harness.state(), "Karten drucken").unwrap();
@@ -969,7 +973,11 @@ fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
     click(&mut harness, text::NEW_PROJECT);
     type_into(&mut harness, text::TITLE, "Übung", false);
     // Start and deadline each have a calendar button; the deadline's is the second.
-    harness.get_all_by_label("📅").nth(1).unwrap().click();
+    harness
+        .get_all_by_label(text::PICK_DATE)
+        .nth(1)
+        .unwrap()
+        .click();
     harness.run();
     click(&mut harness, "15");
     let today = jiff::Zoned::now().date();
@@ -985,7 +993,7 @@ fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
             .query_by(|n| n.placeholder() == Some(text::TIME_HINT))
             .is_none()
     );
-    harness.get_by_label("🕑").click();
+    harness.get_by_label(text::ADD_TIME).click();
     harness.run();
     type_into(&mut harness, text::TIME_HINT, "14:30", false);
     click(&mut harness, text::CREATE);
@@ -1034,7 +1042,11 @@ fn a_task_becomes_a_milestone_but_not_a_subtask() {
     let mut harness = with_project("Umzug");
     type_into(&mut harness, text::NEW_TASK_HINT, "Übergabe", true);
     type_into(&mut harness, text::NEW_TASK_HINT, "Packen", true);
-    harness.get_all_by_label("+").last().unwrap().click();
+    harness
+        .get_all_by_label(text::ADD_SUBTASK)
+        .last()
+        .unwrap()
+        .click();
     harness.run();
     type_into(&mut harness, text::NEW_SUBTASK_HINT, "Kartons", true);
     click(&mut harness, "Übergabe");
@@ -1121,7 +1133,11 @@ fn clearing_a_deadline_in_the_calendar_clears_its_time_too() {
             .is_some()
     );
     // Start and deadline each have a calendar button; the deadline's is the second.
-    harness.get_all_by_label("📅").nth(1).unwrap().click();
+    harness
+        .get_all_by_label(text::PICK_DATE)
+        .nth(1)
+        .unwrap()
+        .click();
     harness.run();
     click(&mut harness, text::CLEAR);
     let task = task_named(harness.state(), "Antwort").unwrap();
@@ -1139,7 +1155,11 @@ fn the_calendar_opens_at_the_month_of_its_value_again() {
     click(&mut harness, text::NEW_PROJECT);
     type_into(&mut harness, text::DUE, "15.03.2027", false);
     let open_due_calendar = |harness: &mut Harness<'static, PlnwrkApp>| {
-        harness.get_all_by_label("📅").nth(1).unwrap().click();
+        harness
+            .get_all_by_label(text::PICK_DATE)
+            .nth(1)
+            .unwrap()
+            .click();
         harness.run();
     };
     open_due_calendar(&mut harness);
@@ -1284,15 +1304,25 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     type_password(&mut harness, 0, "kurz");
     type_password(&mut harness, 1, "kurz");
     click(&mut harness, text::PROTECT_BUTTON);
-    assert_eq!(harness.state().state.message.clone().unwrap().text, text::PASSPHRASE_TOO_SHORT);
-    assert!(!plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::PASSPHRASE_TOO_SHORT
+    );
+    assert!(
+        !plnwrk_store::peek(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .encrypted
+    );
     harness.state_mut().state.close_dialog();
     open_file_menu(&mut harness);
     click(&mut harness, text::PROTECT);
     type_password(&mut harness, 0, "richtig-lange-passphrase");
     type_password(&mut harness, 1, "richtig-lange-passphrasE");
     click(&mut harness, text::PROTECT_BUTTON);
-    assert_eq!(harness.state().state.message.clone().unwrap().text, text::PASSPHRASES_DIFFER);
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::PASSPHRASES_DIFFER
+    );
     harness.state_mut().state.close_dialog();
     // Right: saved encrypted at once.
     open_file_menu(&mut harness);
@@ -1303,13 +1333,24 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     let app = harness.state();
     assert_eq!(app.state.message.clone().unwrap().text, text::PROTECTED);
     assert!(app.doc().unwrap().encrypted() && !app.has_unsaved_changes());
-    assert!(plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+    assert!(
+        plnwrk_store::peek(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .encrypted
+    );
     // And off again.
     open_file_menu(&mut harness);
     click(&mut harness, text::UNPROTECT);
     click(&mut harness, text::UNPROTECT_BUTTON);
-    assert_eq!(harness.state().state.message.clone().unwrap().text, text::UNPROTECTED);
-    assert!(!plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::UNPROTECTED
+    );
+    assert!(
+        !plnwrk_store::peek(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .encrypted
+    );
 }
 
 #[test]
@@ -1341,7 +1382,11 @@ fn classified_files_keep_their_protection() {
     let message = harness.state().state.message.clone().unwrap();
     assert!(message.error, "{message:?}");
     assert!(harness.state().doc().unwrap().encrypted());
-    assert!(plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+    assert!(
+        plnwrk_store::peek(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .encrypted
+    );
 }
 
 #[test]
@@ -1354,6 +1399,29 @@ fn protecting_an_unsaved_workspace_needs_a_place_or_changes_nothing() {
     click(&mut harness, text::PROTECT_BUTTON);
     // No dialogs in this test: the save dialog is cancelled.
     let app = harness.state();
-    assert_eq!(app.state.message.clone().unwrap().text, text::PROTECTION_UNCHANGED);
+    assert_eq!(
+        app.state.message.clone().unwrap().text,
+        text::PROTECTION_UNCHANGED
+    );
     assert!(!app.doc().unwrap().encrypted());
+}
+
+#[test]
+fn symbol_buttons_have_spoken_names() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    click(&mut harness, "Kisten");
+    for name in [text::PICK_DATE, text::ADD_SUBTASK, text::CLOSE_DETAILS] {
+        assert!(
+            harness
+                .query_all_by_role_and_label(egui::accesskit::Role::Button, name)
+                .next()
+                .is_some(),
+            "{name}"
+        );
+    }
+    // No button is announced by its symbol alone.
+    for symbol in ["📅", "🕑", "🗑", "🗙", "+"] {
+        assert!(harness.query_by_label(symbol).is_none(), "{symbol}");
+    }
 }

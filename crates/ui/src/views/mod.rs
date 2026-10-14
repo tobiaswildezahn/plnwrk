@@ -331,6 +331,15 @@ fn status_tag(ui: &mut egui::Ui, status: TaskStatus) {
     }
 }
 
+/// A small button showing only a symbol, with a spoken name for screen readers (and as
+/// tooltip): "📅" is read as "Im Kalender wählen", not as "calendar emoji".
+pub fn icon_button(ui: &mut egui::Ui, icon: &str, name: &str) -> egui::Response {
+    let response = ui.small_button(icon).on_hover_text(name);
+    let enabled = ui.is_enabled();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+    response
+}
+
 /// A text field that commits on Enter or when it loses focus; returns whether to commit.
 fn commit_field(response: &egui::Response) -> bool {
     response.lost_focus()

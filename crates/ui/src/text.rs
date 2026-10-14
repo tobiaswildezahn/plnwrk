@@ -40,7 +40,6 @@ pub const APPLY: &str = "Übernehmen";
 pub const CANCEL: &str = "Abbrechen";
 pub const CREATE: &str = "Anlegen";
 pub const DELETE: &str = "Löschen";
-pub const CLOSE: &str = "Schließen";
 
 pub const TITLE: &str = "Titel";
 pub const KIND: &str = "Art";
@@ -59,7 +58,9 @@ pub const NOBODY: &str = "–";
 
 pub const NEW_TASK_HINT: &str = "Neue Aufgabe … (Enter)";
 pub const NEW_SUBTASK_HINT: &str = "Neue Unteraufgabe … (Enter)";
-pub const ADD_SUBTASK: &str = "+ Unteraufgabe";
+pub const ADD_SUBTASK: &str = "Unteraufgabe hinzufügen";
+pub const DELETE_MILESTONE: &str = "Meilenstein löschen";
+pub const CLOSE_DETAILS: &str = "Details schließen";
 pub const RENAME_HINT: &str = "Doppelklick: umbenennen";
 pub const NO_TASKS: &str = "Noch keine Aufgaben.";
 pub const NEW_MILESTONE: &str = "+ Meilenstein";
