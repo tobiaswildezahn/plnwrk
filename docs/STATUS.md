@@ -1,47 +1,59 @@
 # plnwrk – Stand und offene Punkte
 
-> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14**.
-> Verbindlich bleibt [PLAN.md](PLAN.md); dieses Dokument fasst den Ist-Zustand und alles Offene
-> zusammen. Nach jeder Phase aktualisieren.
+> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14, nach dem
+> Merge von Phase 3b-2**. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
 
 plnwrk („Planwerk“) ist eine Projekt- und Vorgangsmanagement-Software komplett in Rust, nach
 dem Vorbild RustGIS: Desktop + Browser, Datenhoheit (eine Datei je Arbeitsbereich), offline,
-voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell.
+voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell; Meilensteine
+sind Aufgaben mit Merkmal `milestone`.
 
 | Phase | Stand | PR |
 | --- | --- | --- |
-| 0 Fundament | **fertig**, gemergt | [#1](https://github.com/tobiaswildezahn/plnwrk/pull/1) |
-| 1 Kern (Modell, 23 Befehle, 9 Abfragen, Undo/Redo, CLI) | **fertig**, gemergt, 2 Reviews | [#2](https://github.com/tobiaswildezahn/plnwrk/pull/2) |
-| 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, gemergt, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
-| 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Meilensteine, Details, Vorlagen) | **fertig**, gemergt, Review + Nachreview, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
-| 3b-1 Termine und Meilensteine (Datumsauswahl, Uhrzeiten, Meilenstein = Aufgabe; Format 2) | **fertig**, gemergt, Review + Nachreview | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
-| 3b-2 Nichts verlieren (Autosave, Liste bearbeiten, Schutz aus der App, Barrierefreiheit) | **umgesetzt, PR offen** | Branch `phase-3b-2` |
-| 3b-3 Befehlspalette, Englisch, Theme | offen | – |
+| 0 Fundament | **fertig** | [#1](https://github.com/tobiaswildezahn/plnwrk/pull/1) |
+| 1 Kern (Modell, Befehle, Abfragen, Undo/Redo, CLI) | **fertig**, 2 Reviews | [#2](https://github.com/tobiaswildezahn/plnwrk/pull/2) |
+| 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
+| 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Details, Vorlagen, Personen) | **fertig**, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
+| 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
+| 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
+| 3b-3 Befehlspalette, Englisch, Theme-Umschalter | offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
 
+Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
+Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
+
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–3b-1 (Merge `28e16d4`). Neue Phase immer auf eigenem Branch `phase-N`.
+  Phase 0–3b-2 (Merge `a542f95`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
-  wasm32 mit `forbid`-Lints, WASM-Build, Tests, Abdeckung core+engine+store ≥ 90 % (aktuell
-  ≈ 95 %), cargo-deny. Letzter lokaler Lauf: grün.
+  wasm32 mit `forbid`-Lints, WASM-Build, alle Tests, Abdeckung core+engine+store ≥ 90 % (aktuell
+  ≈ 94 %), cargo-deny. Letzter Lauf: grün.
 - **CI:** GitHub Actions. Linux, macOS und Web-Bundle bei jedem Push (1–3 min); **Windows
-  (≈ 15 min) nur vor dem Merge**, ausgelöst durch das PR-Label `merge` (Entscheidung Tobi
-  2026-10-14).
-- **Crates:** `core` (Modell, Invarianten, Rang, Policy), `engine` (Befehle, Events, Undo/Redo,
-  Abfragen, Fixture), `store` (Dateiformat, Krypto, Export, Dateien), `schedule`/`assistant`/
-  `platform` (echte Uhr, Zufalls-IDs), `ui` (egui-Oberfläche, Desktop-MVP),
-  `schedule`/`assistant`/`mcp` (Gerüste), Apps `plnwrk` (Desktop mit Systemdialogen),
-  `plnwrk-web` (dieselbe Oberfläche im Browser, noch ohne Dateien), `plnwrk-cli`.
+  (≈ 15–25 min) nur vor dem Merge**: PR-Label `merge` setzen (`gh pr edit <nr> --add-label
+  merge`), grün abwarten, dann `gh pr merge <nr> --squash --match-head-commit <sha>`.
+  Direktes Pushen auf `main` ist für Agenten gesperrt (Freigabe-Regel); Doku-Nachträge gehen über
+  den nächsten Phasen-Branch oder Tobi pusht selbst.
+- **Dateiformat:** Version 2 (`manifest::VERSION`). Version 1 wird gelesen; echte v1-Dateien
+  liegen als Testmaterial in `crates/store/tests/fixtures/` (im Repo, `.gitignore`-Ausnahme).
+- **Crates:** `core` (Modell, Invarianten, Rang, Policy, Uhr-Trait), `engine` (Befehle, Events,
+  Undo/Redo, Abfragen, Fixture, `workspace.upgrade`), `store` (Dateiformat, Krypto,
+  Passphrasen-Regel, Export, Dateien, `Document::open_session`), `platform` (echte Uhr,
+  Zufalls-IDs), `ui` (egui-Oberfläche inkl. Autosave), `schedule`/`assistant`/`mcp` (Gerüste);
+  Apps `plnwrk` (Desktop, Systemdialoge, ohne macOS-Standardmenü), `plnwrk-web` (dieselbe
+  Oberfläche im Browser, noch ohne Dateien), `plnwrk-cli`.
+- **Tests:** u. a. 76 Oberflächentests ohne Fenster (egui_kittest über den
+  Barrierefreiheitsbaum), Angriffs-/Schadenstests des Dateiformats, Müll-Parameter-Fuzzer für
+  jeden Befehl, Snapshot-Tests der Abfragen.
 - **App ausprobieren (Mac):** `cd ~/projekte/plnwrk && cargo xtask app`, dann
   `open target/plnwrk.app` (oder im Finder doppelklicken; nach `/Programme` ziehen geht auch).
 - **CLI ausprobieren:**
@@ -56,12 +68,17 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-1. **Tobi testet den MVP** (Demo-Schritt in `docs/plans/2026-10-14-phase-3.md`, Abschnitt
-   „Demo“) und meldet, was fehlt oder stört → Rückmeldungen priorisieren 3b.
-2. PR `phase-3` nach Review und grüner CI mergen.
-3. Phase 3b planen (Befehlspalette, Englisch, Autosave/Wiederherstellung, Inline-Bearbeitung,
-   Verschlüsseln aus der App) – Reihenfolge nach Tobis Rückmeldung.
-4. Optional: `cargo xtask mutants` (siehe 5.1).
+1. **Tobi testet 3b-2**: Etwas ändern, plnwrk minimieren, nach 2 min hart beenden
+   (Aktivitätsanzeige → Sofort beenden) → beim Neustart steht die Kopie unter „Wiederherstellen“.
+   Das ist der eine Ablauf, der nur aus dem eframe-Quelltext belegt ist (Autosave aus
+   `App::logic`). Außerdem: eine Datei aus dem MVP-Test öffnen (Umstellung auf Format 2).
+2. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
+   Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10).
+3. **Phase 3b-3 planen** (`docs/plans/`): vorgeschlagene Reihenfolge –
+   Zustandsautomat-/Property-Test für Autosave und „ungespeichert“ (drei Review-Runden fanden dort
+   Randfälle), dann Befehlspalette (Cmd+K über das Befehlsregister), Englisch (Texte stehen in
+   `crates/ui/src/text.rs`), Theme-Umschalter. Reihenfolge nach Tobis Testrückmeldung.
+4. Optional: `cargo xtask mutants` (5.1).
 
 ## 4. Offene Entscheidungen des Nutzers
 
@@ -70,59 +87,69 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | 4.1 | Soll der **Browser VS-NfD-Dateien grundsätzlich nicht öffnen**? | Ja, harte Sperre (Browser gilt laut §3.8 nicht als VS-geeignet; löst auch den scrypt-Speicherkonflikt) | vor Phase 4 |
 | 4.2 | **Herabstufung**: Wer darf eine Datei herabstufen, braucht es vier Augen? Herabstufung erzeugt eine neue Datei ohne Geschichte. | Eigener, protokollierter Vorgang mit Begründung; Vier-Augen-Prinzip | vor Phase 7 |
 | 4.3 | **Passphrase vergessen = Daten verloren.** Hinterlegung oder zweiter Schlüssel (age kann mehrere Empfänger)? Wer entscheidet in der Organisation? | Zweiter Empfänger (Behördenschlüssel) als Option | vor echtem VS-Einsatz |
-| 4.4 | ~~Tempo vs. VS-Niveau in Phase 3~~ **entschieden 2026-10-14:** früh zeigbar (MVP), VS später | – | erledigt |
+| 4.4 | ~~Tempo vs. VS-Niveau in Phase 3~~ **entschieden:** früh zeigbar, VS später | – | erledigt |
 | 4.5 | **Lizenz**: Apache-2.0 (wie RustGIS) oder EUPL-1.2 (öffentliche Hand, openCode)? | EUPL-1.2 prüfen | vor Phase 8 |
-| 4.6 | **KI früher?** MCP-Server (Phase 6) könnte schon auf Dateien aus Phase 2 laufen und plnwrk vor der UI aus Claude bedienbar machen. | Option, ändert Phasenfolge | jederzeit |
-| 4.7 | **Identität im Protokoll**: Der Bearbeiter ist frei wählbar, nicht nachgewiesen. Signatur (Dienstausweis, Schlüsseldatei)? | Klären vor Phase 7 | vor Phase 7 |
+| 4.6 | **KI früher?** MCP-Server (Phase 6) könnte schon auf Dateien laufen und plnwrk vor weiterer UI-Arbeit aus Claude bedienbar machen. | Option, ändert Phasenfolge | jederzeit |
+| 4.7 | **Identität im Protokoll**: „Ich arbeite als“ ist frei wählbar, nicht nachgewiesen – der Verlauf wirkt wie ein Nachweis, ist aber keiner. Signatur (Dienstausweis, Schlüsseldatei)? Bis dahin in der App kennzeichnen? | Klären vor Phase 7; Hinweis in der App erwägen | vor Phase 7 |
+| 4.8 | **VS-NfD ohne Passphrase**: Beim Anlegen eines VS-NfD-Projekts sofort zum Schützen zwingen? Heute lässt sich unverschlüsselt weiterarbeiten; Speichern und Autosave scheitern dann (Statuszeile rot). | Beim Einstufen direkt den Schutz-Dialog öffnen | vor Phase 7 |
+| 4.9 | **Wiederherstellungskopien von VS-Dateien** liegen (verschlüsselt) in einem Systemordner, den IT-Sicherheit kaum im Blick hat. Autosave bei VS aus, oder Kopie neben der Datei? | Für VS: Kopie im Ordner der Datei | vor echtem VS-Einsatz |
+| 4.10 | **Wer testet außer Tobi**, mit welchem realistischen (erfundenen) Vorgang? | Eine Person aus der Abteilung, SKA-Ablauf | vor 3b-3 |
+| 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte
 
 ### 5.1 Vorgeschlagen, noch nicht beauftragt
-- **`cargo xtask mutants`** (cargo-mutants, nicht blockierend) für `store` und `engine`: macht
-  die bisher von Hand geführten Mutationsproben systematisch.
-- **Echte Vorgangsvorlagen** der Abteilung (SKA, Beschaffung, Übung) als Testdaten/Vorlagendatei.
-- **Eingangskanäle** (Mail, Drucksache/parldok-Import) als spätere Erweiterung – in PLAN.md §9
-  als Kandidat vermerken, sobald gewünscht.
+- **Zustandsautomat-Test** (proptest) über Ändern/Warten/Rückgängig/Speichern/Verwerfen/
+  Wiederherstellen für Autosave und „ungespeichert“.
+- **`cargo xtask mutants`** (cargo-mutants, nicht blockierend) für `store`, `engine`, `ui`.
+- **Prüfschritt „ignorierte Testdateien“** in `cargo xtask ci` (die v1-Fixtures fehlten einmal
+  unbemerkt im Repo, weil `.gitignore` sie ausschloss).
+- **Aufräumen alter Wiederherstellungskopien** auf der Startseite (z. B. älter als 30 Tage).
+- **Echte Vorgangsvorlagen** der Abteilung (SKA, Beschaffung, Übung) als Vorlagendatei.
+- **Wiederkehrende Fristen** (z. B. Lagemeldung täglich 10:00) – Kandidat für Phase 5.
+- **Eingangskanäle** (Mail, Drucksache/parldok-Import) als spätere Erweiterung.
 
-### 5.2 Bekannte, bewusst akzeptierte Grenzen (PLAN.md §9)
-- **Rollback**: Ersetzen einer verschlüsselten Datei durch eine ältere Fassung mit derselben
-  Passphrase wird nicht erkannt (Abhilfe: Signatur/Zähler außerhalb der Datei, Phase 7).
-- **Unverschlüsselte Datei** kann bei vollständiger Neuberechnung von Kette und Zustand
-  unbemerkt verändert werden (Abhilfe: Signatur, Phase 7).
-- „Reproduzierbares Speichern“ gilt nur innerhalb eines Builds (Kompressions-Backend).
-- Sperrdateien `.<name>.lock` und nach Absturz ggf. `*.tmp`-Reste bleiben im Ordner liegen.
-- Rechte „nur Eigentümer“ (0600) gelten unter Unix; unter Windows keine ACL-Härtung.
-- `SaveOptions.work_factor` erlaubt API-Aufrufern niedrigere scrypt-Faktoren (für Tests gedacht).
-- Abdeckungszahl enthält In-Datei-Testmodule (Werkzeuggrenze).
+### 5.2 Bekannte, bewusst akzeptierte Grenzen (Details PLAN.md §9)
+- **Datei:** Rollback einer verschlüsselten Datei auf eine ältere Fassung mit derselben
+  Passphrase wird nicht erkannt; eine unverschlüsselte Datei kann bei vollständiger Neuberechnung
+  von Kette und Zustand unbemerkt verändert werden (beides: Signatur in Phase 7).
+  „Reproduzierbares Speichern“ nur innerhalb eines Builds. Sperrdateien `.<name>.lock` bleiben
+  liegen; Dateien in schreibgeschützten Ordnern lassen sich nicht öffnen. 0600-Rechte nur unter
+  Unix. `SaveOptions.work_factor` erlaubt niedrigere scrypt-Faktoren (für Tests).
+- **App:** Speichern verschlüsselter Dateien blockiert ≈ 1 s. Ohne macOS-Standardmenü fehlen
+  Cmd+H/Cmd+M; Cmd+Q ruht, solange ein Dialog offen ist. Doppelklick auf `.plnwrk` im Finder
+  öffnet noch nichts (Apple Event). Verlauf zeigt Feldnamen technisch (`due`). Einige
+  Dialog-Hinweise stehen noch direkt in den Ansichten statt in `text.rs`. Uhrzeiten werden intern
+  als `HH:MM:SS` gespeichert (Eingabe `HH:MM`). Frist „00:00“ liest sich am Vorabend als
+  „morgen fällig“.
+- **Autosave:** macOS „App Nap“ kann den Takt eines verdeckten Programms verzögern; nach
+  Rückgängig bis zum gespeicherten Stand und Wiederholen entsteht die Kopie erst 60 s später neu;
+  Entschützen einer ungespeicherten VS-NfD-Datei fragt erst nach dem Ort und lehnt dann ab.
+  Passphrasen können im Undo-Puffer von Textfeldern (nur RAM) verbleiben.
+- **Werkzeug:** Abdeckungszahl enthält In-Datei-Testmodule.
 
 ### 5.3 Für spätere Phasen vorgemerkt
-- **Phase 3b**: Autosave-Auslöser (Pfad-Konvention `.<name>.autosave.plnwrk` steht), i18n
-  de/en (Texte stehen zentral in `crates/ui/src/text.rs`), Befehlspalette, Verschlüsseln aus
-  der App, Doppelklick auf `.plnwrk`-Dateien im Finder (macOS liefert Dateien per Apple Event,
-  nicht als Argument), App-Symbol.
-- **Bekannte Grenzen**: Wiederherstellungskopien (Autosave, Beenden über Dock/Abmelden) liegen
-  in `~/Library/Application Support/plnwrk/Notkopien` und stehen auf der Startseite; Kopien, die
-  man nie öffnet, bleiben dort liegen (Aufräumen von Hand); Cmd+Q ruht, solange ein Dialog offen ist; ohne macOS-Standardmenü
-  fehlen Cmd+H/Cmd+M; Dateien in schreibgeschützten Ordnern lassen
-  sich nicht öffnen (Sperrdatei); Speichern verschlüsselter Dateien dauert ≈ 1 s und blockiert
-  kurz die Oberfläche; Kommentare/Verlauf zeigen Feldnamen technisch (`due`); die Liste ist noch
-  nicht direkt editierbar (Details rechts).
-- **Phase 4**: Web-App braucht `getrandom` 0.2 `js` / 0.4 `wasm_js` (im store bereits gesetzt);
-  Entscheidung 4.1.
-- **Phase 7**: Herabstufung (4.2), Signatur (4.7), Export-Verweigerung bei Herabstufung,
-  Audit-Bericht.
+- **Phase 4 (Web):** Upload/Download, Zwischenstand in IndexedDB, `beforeunload`-Warnung;
+  Entscheidung 4.1; getrandom/jiff für wasm sind gesetzt.
+- **Phase 7 (VS):** Herabstufung (4.2), Signatur (4.7), Export-Verweigerung bei Herabstufung,
+  Audit-Bericht, Entscheidungen 4.8/4.9.
 
 ## 6. Arbeitsweise, die sich bewährt hat
 
-- Phase → Phasenplan → TDD → `cargo xtask ci` grün → PR → **unabhängiger Review-Agent (Opus)**
-  → Befunde einarbeiten → **Nachreview** → CI grün auf allen Plattformen → Merge.
-- Reviews fanden in **jeder** Phase echte Fehler (Phase 0: Schranke umgehbar; Phase 1:
-  Rangraum, quadratische Laufzeit, ungetestete Sicherheitsnetze; Phase 2: VS-Inhalt im Log einer
-  entschlüsselbaren Datei). Testlücken (überlebende Mutationen) Phase 2: 14 → 8 → 0.
-- Jede Aussage „Test fängt X“ per Mutationsprobe belegen; Skript-Ersetzungen mit
-  `assert old in s` absichern (nach `cargo fmt` passen Muster oft nicht – zwei Tests waren sonst
-  unbemerkt nicht in der Datei gelandet).
-- Windows-only-Probleme zeigt nur die CI (lokal kein Windows-Target).
+- Phase → Phasenplan (`docs/plans/`) → TDD → `cargo xtask ci` grün → PR → **unabhängiger
+  Review-Agent (Opus)** → Befunde einarbeiten → **Nachreview** → CI grün (Windows per Label
+  `merge`) → Squash-Merge.
+- Reviews fanden in **jeder** Phase echte Fehler. In der Oberfläche fast immer dieselbe Klasse:
+  getippte, noch nicht übernommene Eingaben gehen bei Speichern/Schließen verloren → zentrale
+  Stelle `has_unsaved_changes` + `flush_draft` (Regel in `CLAUDE.md`). Bei Formatänderungen:
+  alte Dateien, Undo über Umbauten, stabile IDs.
+- Jede Aussage „Test fängt X“ per Mutationsprobe belegen (Skript, das eine Zeile ändert, Tests
+  laufen lässt, zurücksetzt); Skript-Ersetzungen mit `assert old in s` absichern.
+- Oberflächentests mit egui_kittest: Felder per `labelled_by` mit Beschriftung verknüpfen,
+  Symbol-Knöpfe per `views::icon_button` benennen; Text von Labels steht im Knoten unter `value`.
+- Die echte App lässt sich über die Computer-Use-Werkzeuge prüfen (Bundle-ID
+  `app.plnwrk.desktop`, `cargo xtask app`); Bildschirmaufnahmen fallen gelegentlich aus.
+- Windows-only-Probleme zeigt nur die CI.
 
 ## 7. Wichtige Dateien
 
@@ -130,7 +157,9 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | --- | --- |
 | `docs/PLAN.md` | verbindlicher Plan, Regeln, Architektur, Entscheidungsprotokoll §9 |
 | `docs/STATUS.md` | dieses Dokument |
-| `docs/plans/2026-10-14-phase-{0,1,2}.md` | Aufgabenpläne der Phasen |
-| `CLAUDE.md` | Agenten-Einstieg, Befehle, Stolperfallen |
-| `xtask/src/{ci,layers,purity}.rs` | die Schranke |
-| `crates/store/tests/store.rs` | Angriffs- und Schadenstests des Dateiformats |
+| `docs/plans/2026-10-14-phase-*.md` | Aufgabenpläne der Phasen (0, 1, 2, 3, 3b-1, 3b-2) mit Demo-Schritten |
+| `CLAUDE.md` | Agenten-Einstieg, Befehle, Stolperfallen, Regeln |
+| `xtask/src/{ci,layers,purity,app}.rs` | die Schranke und der App-Bau |
+| `crates/store/tests/store.rs`, `crates/store/tests/fixtures/` | Angriffs-/Schadenstests, echte v1-Dateien |
+| `crates/ui/src/tests.rs` | Oberflächentests (klicken und tippen wie eine Person) |
+| `crates/ui/src/autosave.rs` | Autosave und Wiederherstellung |

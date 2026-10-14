@@ -85,9 +85,9 @@ Die vollständigen Basics des Projektmanagements:
 
 | Entität | Felder (Kern) |
 | --- | --- |
-| `Project` | id, title, description (Markdown), **reference?** (Aktenzeichen, frei formatiert), **kind** (frei, z. B. „Projekt“, „SKA“, „Beschaffung“; dient Filter und Vorlagenwahl), owner?, start?, due?, status (draft/active/on_hold/done/archived), **template** (bool: dient als Vorlage), classification |
-| `Task` | id, project, parent? (Unteraufgaben beliebig tief), title, description (Markdown), status (todo/in_progress/blocked/review/done), priority (low/normal/high/critical), assignee?, due?, start?, estimate?, progress 0–100, tags, classification |
-| `Milestone` | id, project, title, date, status (open/reached/missed) |
+| `Project` | id, title, description (Markdown), **reference?** (Aktenzeichen, frei formatiert), **kind** (frei, z. B. „Projekt“, „SKA“, „Beschaffung“; dient Filter und Vorlagenwahl), owner?, start?, due?, **due_time?** (Uhrzeit der Frist, Ortszeit), status (draft/active/on_hold/done/archived), **template** (bool: dient als Vorlage), classification |
+| `Task` | id, project, parent? (Unteraufgaben beliebig tief), title, description (Markdown), status (todo/in_progress/blocked/review/done), priority (low/normal/high/critical), assignee?, due?, **due_time?**, start?, estimate?, progress 0–100, tags, classification, **milestone** (bool: Meilenstein – nur oberste Ebene, ohne Unteraufgaben; erreicht = erledigt, verpasst = Frist vorbei) |
+| `Milestone` | *nur Dateiformat 1:* id, project, title, date, status. Seit Format 2 sind Meilensteine Aufgaben mit `milestone`; alte werden beim Öffnen per `workspace.upgrade` umgewandelt (§9, 2026-10-14). |
 | `Dependency` | from_task, to_task, kind (finish_to_start, start_to_start, finish_to_finish), lag_days |
 | `Person` | id, name, email?, role, initials |
 | `Comment` | id, task, author, created, body |
@@ -95,13 +95,15 @@ Die vollständigen Basics des Projektmanagements:
 
 **Ein Modell für Projekt und Vorgang.** Es gibt keinen eigenen Vorgangstyp. Ein Vorgang ist ein
 `Project` mit `reference` und `due`, meist aus einer Vorlage erzeugt (`project.instantiate`
-kopiert Aufgaben, Meilensteine und Abhängigkeiten einer Vorlage mit relativen Terminen auf ein
-Startdatum). „Bearbeitungsschritte“ eines Vorgangs sind Aufgaben, „Frist“ ist `due`,
+kopiert Aufgaben samt Meilenstein-Aufgaben und Abhängigkeiten einer Vorlage mit relativen
+Terminen auf ein Startdatum; Uhrzeiten bleiben). „Bearbeitungsschritte“ eines Vorgangs sind Aufgaben, „Frist“ ist `due`,
 „Bearbeiter“ ist `owner`. Die UI darf je nach `kind` „Vorgang“ oder „Projekt“ anzeigen; das ist
 nur ein Label.
 
-Ids: ULID (zeitlich sortierbar, offline erzeugbar, später sync-fähig). Zeiten: `jiff` oder `time`,
-immer UTC in Daten, Lokalzeit nur in der UI.
+Ids: ULID (zeitlich sortierbar, offline erzeugbar, später sync-fähig). Zeiten: `jiff`.
+Zeitstempel (Anlage, Protokoll) in UTC; Fristen sind Kalendertage mit optionaler Uhrzeit in
+Ortszeit ohne Zeitzone („14:00“ bleibt 14:00, wo immer die Datei geöffnet wird); ohne Uhrzeit
+gilt der ganze Tag. Parameter `due`: `YYYY-MM-DD` oder `YYYY-MM-DDTHH:MM`.
 
 Validierung lebt in `core` (z. B. kein Zyklus in Abhängigkeiten, due ≥ start, Unteraufgabe nicht
 eigener Vorfahr) und gibt typisierte Fehler zurück, nie Panics.
@@ -130,15 +132,20 @@ pub struct CommandSpec {
 
 ### 3.4 Speicherung (`store`) und Offline-/Team-Vorbereitung
 
-- **Dateiformat `.plnwrk`:** eine Datei je Arbeitsbereich (`Workspace`: beliebig viele Projekte
-  und Vorgänge samt Vorlagen und Personen). ZIP-Container mit `manifest.json` (Formatversion, Einstufung,
-  Erstellt-mit), `snapshot.json` (aktueller Zustand) und `events.jsonl` (Log). Lesbar, diffbar,
-  langfristig archivierbar.
+- **Dateiformat `.plnwrk`** (aktuell Version 2): eine Datei je Arbeitsbereich (`Workspace`:
+  beliebig viele Projekte und Vorgänge samt Vorlagen und Personen). ZIP-Container mit
+  `manifest.json` (Formatversion, Einstufung, Erstellt-mit), `workspace.json` (aktueller Zustand,
+  byte-gleich zum Wiedereinspielen des Logs) und `log.jsonl` (Änderungen mit BLAKE3-Kette).
+  Lesbar, diffbar, langfristig archivierbar. Ältere Versionen werden gelesen; Datenumbauten
+  laufen als protokollierter Befehl (`workspace.upgrade`), nie durch Umschreiben der Geschichte.
 - **Verschlüsselung (optional, Pflicht bei Einstufung ≥ VS-NfD):** gesamter Container mit
   `age`-kompatiblem Verfahren (X25519/ChaCha20-Poly1305, Passphrase-Modus über scrypt).
   Im Klartext bleibt nur eine Kopfzeile mit Formatversion und Einstufung.
-- **Desktop:** Datei öffnen/speichern über `rfd`, Autosave in temporäre Datei, atomares
-  Umbenennen. **Web:** Datei per Upload/Download, Zwischenstand in IndexedDB (über `web-sys`,
+- **Desktop:** Datei öffnen/speichern über `rfd`, atomares Schreiben, Sperrdatei gegen zweite
+  Instanz. **Autosave:** je geöffneter Datei eine Wiederherstellungskopie im Ordner
+  `…/plnwrk/Notkopien` (macOS: `~/Library/Application Support`), spätestens 60 s nach einer
+  Änderung, im Hintergrund, mit demselben Schutz wie die Datei, nie in die Originaldatei;
+  gelöscht nach Speichern oder bewusstem Verwerfen; nach Absturz auf der Startseite angeboten. **Web:** Datei per Upload/Download, Zwischenstand in IndexedDB (über `web-sys`,
   bleibt Rust).
 - **Team später:** Weil alles Events mit ULIDs sind, kann ein künftiger `server`-Crate Event-Logs
   zusammenführen (Last-Writer-Wins je Feld, Konflikte als Kommentar sichtbar). Nichts im Kern
@@ -275,7 +282,11 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 - `apps/plnwrk` als eframe-App, Fenster-/Zustandspersistenz.
 - **DoD:** Tobi legt in der App ein Projekt mit Aufgaben, Unteraufgaben und Meilensteinen an,
   erzeugt aus einer Vorlage einen Vorgang mit Aktenzeichen und Frist, verschiebt Karten im Board,
-  speichert, schließt, öffnet wieder.
+  speichert, schließt, öffnet wieder. *(erfüllt mit 3a)*
+- Aufgeteilt nach Tobis Entscheidung „früh zeigbar“ (§9): **3a** Desktop-MVP · **3b-1**
+  Datumsauswahl, Fristen mit Uhrzeit, Meilensteine als Aufgaben (Format 2) · **3b-2** Autosave
+  und Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen ·
+  **3b-3** (offen) Befehlspalette, Englisch, Theme-Umschalter. Pläne: `docs/plans/2026-10-14-phase-3*.md`.
 
 ### Phase 4 – Web (≈ 1–2 Sessions)
 
@@ -373,7 +384,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 0 Fundament | fertig (2026-10-14) |
 | 1 Kern | fertig (2026-10-14, PR #2, zwei Reviews) |
 | 2 Speicherung | fertig (2026-10-14, PR #3, Security-Review + Nachreview, CI grün auf Linux/macOS/Windows/Web) |
-| 3 Desktop-UI | 3a Desktop-MVP fertig (2026-10-14, PR #4, Review + Nachreview); 3b-1 Termine und Meilensteine fertig (PR #5, Format 2); 3b-2 Nichts verlieren umgesetzt, Review + Nachreview, PR offen |
+| 3 Desktop-UI | 3a Desktop-MVP fertig (2026-10-14, PR #4); 3b-1 Termine und Meilensteine fertig (PR #5, Format 2); 3b-2 Nichts verlieren fertig (PR #6); je Review + Nachreview; 3b-3 Befehlspalette/Englisch/Theme offen |
 | 4 Web | offen |
 | 5 Zeitplanung | offen |
 | 6 KI | offen |
