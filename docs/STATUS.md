@@ -16,8 +16,9 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | 1 Kern (Modell, 23 Befehle, 9 Abfragen, Undo/Redo, CLI) | **fertig**, gemergt, 2 Reviews | [#2](https://github.com/tobiaswildezahn/plnwrk/pull/2) |
 | 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, gemergt, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
 | 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Meilensteine, Details, Vorlagen) | **fertig**, gemergt, Review + Nachreview, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
-| 3b-1 Termine und Meilensteine (Datumsauswahl, Uhrzeiten, Meilenstein = Aufgabe; Format 2) | **umgesetzt, PR offen** | Branch `phase-3b` |
-| 3b-2 Desktop-Ausbau (Autosave, Inline-Bearbeitung, Befehlspalette, Englisch …) | offen | – |
+| 3b-1 Termine und Meilensteine (Datumsauswahl, Uhrzeiten, Meilenstein = Aufgabe; Format 2) | **fertig**, gemergt, Review + Nachreview | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
+| 3b-2 Nichts verlieren (Autosave, Liste bearbeiten, Schutz aus der App, Barrierefreiheit) | **in Arbeit** | Branch `phase-3b-2` |
+| 3b-3 Befehlspalette, Englisch, Theme | offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
@@ -27,7 +28,7 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–3a (Merge `3e82c79`). Neue Phase immer auf eigenem Branch `phase-N`.
+  Phase 0–3b-1 (Merge `28e16d4`). Neue Phase immer auf eigenem Branch `phase-N`.
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
