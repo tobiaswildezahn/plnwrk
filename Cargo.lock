@@ -3337,6 +3337,7 @@ dependencies = [
  "plnwrk-engine",
  "plnwrk-platform",
  "plnwrk-store",
+ "proptest",
  "serde_json",
  "ulid",
  "zeroize",

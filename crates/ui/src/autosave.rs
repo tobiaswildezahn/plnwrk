@@ -81,6 +81,12 @@ impl Autosave {
         self.copy.as_deref()
     }
 
+    /// Waits for a copy being written in the background (tests).
+    #[cfg(test)]
+    pub fn settle(&mut self) {
+        self.finish();
+    }
+
     /// What the last write did, for the status bar.
     pub fn last(&self) -> Option<&Written> {
         self.last.as_ref()

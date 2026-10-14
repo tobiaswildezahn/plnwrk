@@ -21,6 +21,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true
+proptest.workspace = true
 ulid.workspace = true
 
 [lints]

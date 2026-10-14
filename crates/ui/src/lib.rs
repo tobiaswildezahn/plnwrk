@@ -309,10 +309,15 @@ impl PlnwrkApp {
     /// Lets the autosave write when due, and wakes the app up again when the next copy is due –
     /// also while the window is hidden (`eframe::App::logic`).
     fn autosave_tick(&mut self, ctx: &egui::Context) {
-        let before = self.autosave.last().cloned();
-        if let Some(wait) = self.autosave.tick(self.doc.as_ref(), ctx.input(|i| i.time)) {
+        if let Some(wait) = self.autosave_at(ctx.input(|i| i.time)) {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.1)));
         }
+    }
+
+    /// The autosave at this egui time (seconds); how long until it is due again, if it is.
+    fn autosave_at(&mut self, time: f64) -> Option<f64> {
+        let before = self.autosave.last().cloned();
+        let wait = self.autosave.tick(self.doc.as_ref(), time);
         let after = self.autosave.last().cloned();
         // Said once when it starts failing, without hiding another error that is shown.
         if after != before
@@ -325,6 +330,7 @@ impl PlnwrkApp {
             )));
         }
         self.state.recovery = after;
+        wait
     }
 
     /// Drops the selection or view of things that no longer exist (deleted, undone).
@@ -689,5 +695,7 @@ impl eframe::App for PlnwrkApp {
     }
 }
 
+#[cfg(test)]
+mod model_tests;
 #[cfg(test)]
 mod tests;
