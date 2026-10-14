@@ -1071,3 +1071,55 @@ fn the_calendar_opens_at_the_month_of_its_value_again() {
         "back at the value's month"
     );
 }
+
+#[test]
+fn templates_and_finished_projects_are_never_shown_as_overdue() {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::TEMPLATES);
+    // The template's deadline (08.01.2026, 12:00) lies in the past.
+    assert!(harness.query_all_by_label_contains("08.01.2026").count() >= 1);
+    assert!(
+        harness
+            .query_all_by(|n| n.value().is_some_and(|v| v.contains("überfällig")))
+            .next()
+            .is_none()
+    );
+    // A live project past its deadline is.
+    let id = projects(harness.state())
+        .into_iter()
+        .find(|p| p.title.starts_with("Digitalfunk"))
+        .unwrap()
+        .id;
+    let run = |harness: &mut Harness<'static, PlnwrkApp>, params: serde_json::Value| {
+        harness
+            .state_mut()
+            .doc
+            .as_mut()
+            .unwrap()
+            .session
+            .run("project.update", &params, plnwrk_engine::Origin::User)
+            .unwrap();
+        harness.run();
+    };
+    run(
+        &mut harness,
+        serde_json::json!({"project": id.to_string(), "due": "2026-10-02"}),
+    );
+    click(&mut harness, text::OVERVIEW);
+    let card_line = |h: &Harness<'static, PlnwrkApp>, overdue: bool| {
+        // A text line and its text run both carry the value.
+        h.query_all_by(|n| {
+            n.value()
+                .is_some_and(|v| v.contains("02.10.2026") && v.contains("überfällig") == overdue)
+        })
+        .next()
+        .is_some()
+    };
+    assert!(card_line(&harness, true));
+    run(
+        &mut harness,
+        serde_json::json!({"project": id.to_string(), "status": "done"}),
+    );
+    assert!(!card_line(&harness, true), "no longer overdue once done");
+}

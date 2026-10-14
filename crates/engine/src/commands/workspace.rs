@@ -11,15 +11,22 @@ use crate::params::Params;
 use crate::{CommandError, Session, Tx};
 
 /// The task that takes the place of a milestone: same title, its date as deadline, done when
-/// reached, placed at the end of `project`.
+/// reached, placed at the end of `project`. `id`: the task's id; a new one if `None`.
 pub(crate) fn milestone_task(
     tx: &mut Tx<'_>,
     milestone: &Milestone,
-    project: ProjectId,
+    (project, id): (ProjectId, Option<TaskId>),
     date: jiff::civil::Date,
     reached: bool,
 ) -> Result<Task, CommandError> {
-    let id: TaskId = tx.new_id();
+    let id: TaskId = match id {
+        Some(id) => id,
+        None => tx.new_id(),
+    };
+    let created = tx
+        .ws()
+        .project(project)
+        .map_or_else(|| tx.now(), |p| p.created);
     let rank = place(tx, project, None, (None, None), "project")?;
     Ok(Task {
         id,
@@ -43,17 +50,22 @@ pub(crate) fn milestone_task(
         tags: Vec::new(),
         classification: None,
         rank,
-        created: tx.now(),
+        created,
     })
 }
 
 fn upgrade(tx: &mut Tx<'_>, _params: &Params<'_>) -> Result<(), CommandError> {
     let milestones: Vec<Milestone> = tx.ws().milestones().cloned().collect();
     for milestone in milestones {
+        // The task keeps the milestone's id (ids are unique across kinds) and the project's
+        // creation time, so converting the same file twice gives the same result – reading
+        // commands convert a copy and must hand out stable ids.
+        let same_id = TaskId::from_ulid(milestone.id.ulid());
+        let id = tx.ws().task(same_id).is_none().then_some(same_id);
         let task = milestone_task(
             tx,
             &milestone,
-            milestone.project,
+            (milestone.project, id),
             milestone.date,
             milestone.status == MilestoneStatus::Reached,
         )?;

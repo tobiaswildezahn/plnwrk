@@ -188,7 +188,7 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
     // project gets milestone tasks instead.
     for milestone in milestones {
         let date = moved(Some(milestone.date))?.unwrap_or(start);
-        let task = milestone_task(tx, &milestone, id, date, false)?;
+        let task = milestone_task(tx, &milestone, (id, None), date, false)?;
         tx.insert(Entity::Task(task))?;
     }
     let dependencies: Vec<Dependency> = tx

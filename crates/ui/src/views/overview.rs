@@ -92,12 +92,14 @@ fn project_card(
             }
             if let Some(due) = card.due {
                 let (state, past) = text::deadline_state(due, card.due_time, now);
-                let line = format!(
-                    "{} {} · {state}",
-                    text::DUE,
-                    dates::format_deadline(due, card.due_time),
-                );
-                if past {
+                let shown = dates::format_deadline(due, card.due_time);
+                // Templates, finished projects: the date only, never "overdue".
+                let line = if card.deadlines_count {
+                    format!("{} {shown} · {state}", text::DUE)
+                } else {
+                    format!("{} {shown}", text::DUE)
+                };
+                if past && card.deadlines_count {
                     ui.label(RichText::new(line).color(ui.visuals().error_fg_color));
                 } else {
                     ui.label(line);

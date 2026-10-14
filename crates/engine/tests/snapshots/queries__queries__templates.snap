@@ -6,6 +6,7 @@ expression: "snapshot_value(&s, \"templates\", json!({}))"
   {
     "classification": "open",
     "days_left": -279,
+    "deadlines_count": false,
     "due": "2026-01-08",
     "due_time": "12:00:00",
     "id": "0000000000000000000000000F",

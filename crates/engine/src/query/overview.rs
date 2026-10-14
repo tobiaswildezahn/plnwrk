@@ -236,9 +236,14 @@ pub fn overdue(ws: &Workspace, now: DateTime) -> Vec<OverdueItem> {
             }
         }
     }
+    // Latest first; on the same day the earlier time has passed longer.
     items.sort_by(|a, b| {
         b.days_late
             .cmp(&a.days_late)
+            .then_with(|| {
+                deadline_order(Some(a.due), a.due_time)
+                    .cmp(&deadline_order(Some(b.due), b.due_time))
+            })
             .then_with(|| a.title.cmp(&b.title))
     });
     items
@@ -263,6 +268,8 @@ pub struct ProjectCard {
     pub due: Option<Date>,
     /// Its time of day, if set.
     pub due_time: Option<Time>,
+    /// Whether its deadlines still count (not for templates, finished or archived projects).
+    pub deadlines_count: bool,
     /// Days until the deadline (negative: late).
     pub days_left: Option<i64>,
     /// How far it is.
@@ -294,6 +301,7 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, now: DateTime)
         owner: person_ref(ws, project.owner),
         due: project.due,
         due_time: project.due_time,
+        deadlines_count: deadlines_count(project),
         days_left: project.due.map(|due| days_between(now.date(), due)),
         progress: progress_with(ws, index, project.id).unwrap_or(Progress {
             tasks: 0,
@@ -322,11 +330,10 @@ pub fn overview(ws: &Workspace, now: DateTime) -> Vec<ProjectCard> {
         .filter(|p| is_live(p))
         .map(|p| card(ws, &index, p, now))
         .collect();
-    cards.sort_by(|a, b| match (a.due, b.due) {
-        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.title.cmp(&b.title)),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => a.title.cmp(&b.title),
+    cards.sort_by(|a, b| {
+        deadline_order(a.due, a.due_time)
+            .cmp(&deadline_order(b.due, b.due_time))
+            .then_with(|| a.title.cmp(&b.title))
     });
     cards
 }

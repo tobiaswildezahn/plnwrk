@@ -253,7 +253,9 @@ fn encrypt(matches: &ArgMatches) -> Result<Output, Failure> {
         return Err(Failure::message("the file is already encrypted"));
     }
     let protection = Protection::Passphrase(files::passphrase(true)?);
-    files::save(&path, &open.doc, &protection)?;
+    // Written in the current format, so older data is brought up to date first.
+    let (session, _) = files::current(open.doc)?;
+    files::save(&path, &files::document(&session), &protection)?;
     Ok(Output::Json(json!({"encrypted": true})))
 }
 
@@ -263,7 +265,8 @@ fn decrypt(matches: &ArgMatches) -> Result<Output, Failure> {
     if !open.manifest.encrypted {
         return Err(Failure::message("the file is not encrypted"));
     }
-    files::save(&path, &open.doc, &Protection::None)?;
+    let (session, _) = files::current(open.doc)?;
+    files::save(&path, &files::document(&session), &Protection::None)?;
     Ok(Output::Json(json!({"encrypted": false})))
 }
 
