@@ -1,0 +1,4 @@
+target/
+dist/
+*.stabsplan
+.DS_Store
