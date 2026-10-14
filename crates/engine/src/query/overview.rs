@@ -1,9 +1,9 @@
 //! Progress, overdue items and project cards.
 
-use jiff::civil::Date;
+use jiff::civil::{Date, DateTime, Time};
 use plnwrk_core::{
-    Classification, EntityKey, Milestone, MilestoneId, MilestoneStatus, PersonId, Project,
-    ProjectId, ProjectStatus, Task, TaskStatus, Workspace,
+    Classification, EntityKey, PersonId, Project, ProjectId, ProjectStatus, Task, TaskId,
+    TaskStatus, Workspace,
 };
 use serde::Serialize;
 
@@ -49,7 +49,8 @@ pub fn effective_progress(task: &Task) -> u8 {
     }
 }
 
-/// Progress of a project over its leaf tasks; `None` if the project does not exist.
+/// Progress of a project over its leaf tasks (milestones mark dates, they are not work);
+/// `None` if the project does not exist.
 pub fn progress(ws: &Workspace, project: ProjectId) -> Option<Progress> {
     progress_with(ws, &TaskIndex::new(ws), project)
 }
@@ -64,7 +65,7 @@ pub(crate) fn progress_with(
         .tasks_of(project)
         .iter()
         .copied()
-        .filter(|t| index.is_leaf(t.id))
+        .filter(|t| !t.milestone && index.is_leaf(t.id))
         .collect();
     let done = leaves
         .iter()
@@ -98,26 +99,50 @@ pub enum MilestoneState {
     Missed,
 }
 
-/// Open milestones whose day has passed are missed.
-pub fn milestone_state(milestone: &Milestone, today: Date) -> MilestoneState {
-    match milestone.status {
-        MilestoneStatus::Reached => MilestoneState::Reached,
-        MilestoneStatus::Open if milestone.date < today => MilestoneState::Missed,
-        MilestoneStatus::Open => MilestoneState::Open,
+/// Whether a deadline has passed at `now` (local time). Without a time of day the whole day
+/// counts: overdue from the next day on.
+pub fn is_past(due: Date, time: Option<Time>, now: DateTime) -> bool {
+    match time {
+        Some(time) => due.to_datetime(time) < now,
+        None => due < now.date(),
+    }
+}
+
+/// A milestone (a task marked as such) is reached when done, missed when its deadline passed.
+pub fn milestone_state(task: &Task, now: DateTime) -> MilestoneState {
+    if task.status == TaskStatus::Done {
+        MilestoneState::Reached
+    } else if task.due.is_some_and(|due| is_past(due, task.due_time, now)) {
+        MilestoneState::Missed
+    } else {
+        MilestoneState::Open
     }
 }
 
 /// A milestone as shown on cards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MilestoneRef {
-    /// Identity.
-    pub id: MilestoneId,
+    /// Identity: the milestone task.
+    pub id: TaskId,
     /// Name.
     pub title: String,
-    /// The day.
-    pub date: Date,
+    /// The day, if set.
+    pub date: Option<Date>,
+    /// The time of day, if set.
+    pub time: Option<Time>,
     /// Open, reached or missed.
     pub state: MilestoneState,
+}
+
+/// The card of a milestone task in its project.
+pub fn milestone_ref(project: &Project, task: &Task, now: DateTime) -> MilestoneRef {
+    MilestoneRef {
+        id: task.id,
+        title: task.title.clone(),
+        date: task.due,
+        time: task.due_time,
+        state: milestone_state_in(project, task, now),
+    }
 }
 
 fn is_live(project: &Project) -> bool {
@@ -135,15 +160,15 @@ pub fn deadlines_count(project: &Project) -> bool {
 }
 
 /// Whether a task is past its deadline and that still counts.
-pub fn task_overdue(project: Option<&Project>, task: &Task, today: Date) -> bool {
+pub fn task_overdue(project: Option<&Project>, task: &Task, now: DateTime) -> bool {
     project.is_some_and(deadlines_count)
         && task.status != TaskStatus::Done
-        && task.due.is_some_and(|due| due < today)
+        && task.due.is_some_and(|due| is_past(due, task.due_time, now))
 }
 
 /// The state of a milestone inside its project: never "missed" where deadlines do not count.
-pub fn milestone_state_in(project: &Project, milestone: &Milestone, today: Date) -> MilestoneState {
-    match milestone_state(milestone, today) {
+pub fn milestone_state_in(project: &Project, milestone: &Task, now: DateTime) -> MilestoneState {
+    match milestone_state(milestone, now) {
         MilestoneState::Missed if !deadlines_count(project) => MilestoneState::Open,
         state => state,
     }
@@ -165,48 +190,42 @@ pub struct OverdueItem {
     pub title: String,
     /// The deadline that passed.
     pub due: Date,
+    /// Its time of day, if set.
+    pub due_time: Option<Time>,
     /// Days since the deadline.
     pub days_late: i64,
 }
 
 /// Every unfinished task, project and milestone past its date, latest first. Templates,
 /// archived and finished projects (with their tasks and milestones) are left out.
-pub fn overdue(ws: &Workspace, today: Date) -> Vec<OverdueItem> {
+pub fn overdue(ws: &Workspace, now: DateTime) -> Vec<OverdueItem> {
+    let today = now.date();
     let index = TaskIndex::new(ws);
     let mut items = Vec::new();
     for project in ws.projects().filter(|p| deadlines_count(p)) {
         if let Some(due) = project.due
-            && due < today
+            && is_past(due, project.due_time, now)
         {
             items.push(OverdueItem {
                 entity: EntityKey::Project(project.id),
                 project: project.id,
                 title: project.title.clone(),
                 due,
+                due_time: project.due_time,
                 days_late: days_between(due, today),
             });
         }
         for task in index.tasks_of(project.id) {
             if let Some(due) = task.due
-                && task_overdue(Some(project), task, today)
+                && task_overdue(Some(project), task, now)
             {
                 items.push(OverdueItem {
                     entity: EntityKey::Task(task.id),
                     project: project.id,
                     title: task.title.clone(),
                     due,
+                    due_time: task.due_time,
                     days_late: days_between(due, today),
-                });
-            }
-        }
-        for milestone in index.milestones_of(project.id) {
-            if milestone_state_in(project, milestone, today) == MilestoneState::Missed {
-                items.push(OverdueItem {
-                    entity: EntityKey::Milestone(milestone.id),
-                    project: project.id,
-                    title: milestone.title.clone(),
-                    due: milestone.date,
-                    days_late: days_between(milestone.date, today),
                 });
             }
         }
@@ -236,6 +255,8 @@ pub struct ProjectCard {
     pub owner: Option<PersonRef>,
     /// Deadline.
     pub due: Option<Date>,
+    /// Its time of day, if set.
+    pub due_time: Option<Time>,
     /// Days until the deadline (negative: late).
     pub days_left: Option<i64>,
     /// How far it is.
@@ -250,19 +271,14 @@ pub struct ProjectCard {
     pub classification: Classification,
 }
 
-fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -> ProjectCard {
+fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, now: DateTime) -> ProjectCard {
     let tasks = index.tasks_of(project.id);
     let next_milestone = index
         .milestones_of(project.id)
         .iter()
-        .filter(|m| m.status == MilestoneStatus::Open)
-        .min_by_key(|m| m.date)
-        .map(|m| MilestoneRef {
-            id: m.id,
-            title: m.title.clone(),
-            date: m.date,
-            state: milestone_state_in(project, m, today),
-        });
+        .filter(|m| m.status != TaskStatus::Done)
+        .min_by_key(|m| (m.due.is_none(), m.due, m.due_time))
+        .map(|m| milestone_ref(project, m, now));
     ProjectCard {
         id: project.id,
         title: project.title.clone(),
@@ -271,7 +287,8 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -
         status: project.status,
         owner: person_ref(ws, project.owner),
         due: project.due,
-        days_left: project.due.map(|due| days_between(today, due)),
+        due_time: project.due_time,
+        days_left: project.due.map(|due| days_between(now.date(), due)),
         progress: progress_with(ws, index, project.id).unwrap_or(Progress {
             tasks: 0,
             done: 0,
@@ -283,7 +300,7 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -
             .count(),
         overdue_tasks: tasks
             .iter()
-            .filter(|t| task_overdue(Some(project), t, today))
+            .filter(|t| task_overdue(Some(project), t, now))
             .count(),
         next_milestone,
         classification: project.classification,
@@ -291,12 +308,12 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -
 }
 
 /// All live projects and cases (no templates, nothing archived), soonest deadline first.
-pub fn overview(ws: &Workspace, today: Date) -> Vec<ProjectCard> {
+pub fn overview(ws: &Workspace, now: DateTime) -> Vec<ProjectCard> {
     let index = TaskIndex::new(ws);
     let mut cards: Vec<ProjectCard> = ws
         .projects()
         .filter(|p| is_live(p))
-        .map(|p| card(ws, &index, p, today))
+        .map(|p| card(ws, &index, p, now))
         .collect();
     cards.sort_by(|a, b| match (a.due, b.due) {
         (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.title.cmp(&b.title)),
@@ -308,12 +325,12 @@ pub fn overview(ws: &Workspace, today: Date) -> Vec<ProjectCard> {
 }
 
 /// All templates, by title.
-pub fn templates(ws: &Workspace, today: Date) -> Vec<ProjectCard> {
+pub fn templates(ws: &Workspace, now: DateTime) -> Vec<ProjectCard> {
     let index = TaskIndex::new(ws);
     let mut cards: Vec<ProjectCard> = ws
         .projects()
         .filter(|p| p.template)
-        .map(|p| card(ws, &index, p, today))
+        .map(|p| card(ws, &index, p, now))
         .collect();
     cards.sort_by(|a, b| a.title.cmp(&b.title));
     cards

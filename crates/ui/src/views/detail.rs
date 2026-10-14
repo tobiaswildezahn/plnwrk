@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::doc::OpenDoc;
 use crate::state::{Dialog, Message, State, TaskDraft, tags};
 use crate::views::project::person_choice;
-use crate::views::{commit_field, due_label, enter_field};
+use crate::views::{commit_field, date, due_label, enter_field};
 use crate::{Clear, Intent, Then, dates, text};
 
 /// A `task.update` with one field.
@@ -37,7 +37,8 @@ pub fn panel(
         }
         _ => TaskDraft::of(task),
     };
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
+    let today = now.date();
     let project = ws.project(task.project);
     egui::Panel::right("detail")
         .default_size(360.0)
@@ -112,30 +113,63 @@ pub fn panel(
                         }
                         ui.end_row();
 
-                        for (label, field, value, stored) in [
-                            (text::START, "start", &mut draft.start, task.start),
-                            (text::DUE, "due", &mut draft.due, task.due),
-                        ] {
-                            let caption = ui.label(label);
-                            let response = ui
-                                .add(
-                                    egui::TextEdit::singleline(value)
-                                        .id_salt((field, id))
-                                        .hint_text("TT.MM.JJJJ")
-                                        .desired_width(110.0),
-                                )
-                                .labelled_by(caption.id);
-                            if commit_field(&response) {
-                                match dates::parse(value) {
-                                    Ok(date) if date != stored => {
-                                        out.push(update(id, field, dates::param(date)));
-                                    }
-                                    Ok(_) => {}
-                                    Err(message) => state.message = Some(Message::error(message)),
+                        let caption = ui.label(text::START);
+                        let start = date::date_input(
+                            ui,
+                            ("task-start", id),
+                            &mut draft.start,
+                            today,
+                            Some(caption.id),
+                        );
+                        if start.commit() {
+                            match dates::parse(&draft.start) {
+                                Ok(date) if date != task.start => {
+                                    out.push(update(id, "start", dates::param(date)));
                                 }
+                                Ok(_) => {}
+                                Err(message) => state.message = Some(Message::error(message)),
                             }
-                            ui.end_row();
                         }
+                        ui.end_row();
+
+                        let caption = ui.label(text::DUE);
+                        let case = project.is_some_and(|p| p.reference.is_some());
+                        let due = date::deadline_input(
+                            ui,
+                            ("task-due", id),
+                            &mut draft.due,
+                            &mut draft.due_time,
+                            today,
+                            case,
+                            Some(caption.id),
+                        );
+                        if due.commit() {
+                            match dates::parse_deadline(&draft.due, &draft.due_time) {
+                                Ok(due) if due != task.due.map(|day| (day, task.due_time)) => {
+                                    out.push(update(id, "due", dates::deadline_param(due)));
+                                }
+                                Ok(_) => {}
+                                Err(message) => state.message = Some(Message::error(message)),
+                            }
+                        }
+                        ui.end_row();
+
+                        // Only top-level tasks without subtasks can be milestones.
+                        ui.label("♦");
+                        let has_children = ws.tasks_of(task.project).any(|t| t.parent == Some(id));
+                        let allowed = task.parent.is_none() && !has_children;
+                        let mut milestone = task.milestone;
+                        let checkbox = ui
+                            .add_enabled(
+                                allowed || milestone,
+                                egui::Checkbox::new(&mut milestone, text::MILESTONE),
+                            )
+                            .on_hover_text(text::MILESTONE_HINT)
+                            .on_disabled_hover_text(text::MILESTONE_HINT);
+                        if checkbox.changed() && milestone != task.milestone {
+                            out.push(update(id, "milestone", json!(milestone)));
+                        }
+                        ui.end_row();
 
                         let caption = ui.label(text::PROGRESS);
                         let slider = ui
@@ -165,7 +199,7 @@ pub fn panel(
                         ui.end_row();
                     });
                 if let Some(project) = project
-                    && query::task_overdue(Some(project), task, today)
+                    && query::task_overdue(Some(project), task, now)
                 {
                     ui.label(RichText::new(text::OVERDUE).color(ui.visuals().error_fg_color));
                 }
@@ -205,7 +239,7 @@ fn subtasks(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
     let Some(task) = ws.task(id) else { return };
     let index = TaskIndex::new(ws);
     let mut children = index.children(id).to_vec();
@@ -232,7 +266,8 @@ fn subtasks(
             due_label(
                 ui,
                 child.due,
-                query::task_overdue(ws.project(child.project), child, today),
+                child.due_time,
+                query::task_overdue(ws.project(child.project), child, now),
             );
         });
     }

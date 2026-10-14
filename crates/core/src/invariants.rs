@@ -33,6 +33,8 @@ pub enum Rule {
     SelfReference,
     /// Stored data does not fit together (e.g. an entry filed under another id).
     Corrupt,
+    /// A milestone is a subtask or has subtasks.
+    Milestone,
 }
 
 /// One broken rule.
@@ -105,6 +107,19 @@ impl Report {
     }
 }
 
+impl Report {
+    fn time(
+        &mut self,
+        entity: EntityKey,
+        due: Option<jiff::civil::Date>,
+        due_time: Option<jiff::civil::Time>,
+    ) {
+        if due.is_none() && due_time.is_some() {
+            self.add(entity, Rule::DateOrder, "due_time needs a due date");
+        }
+    }
+}
+
 impl Workspace {
     /// Every broken rule, in a stable order. Empty means the workspace is consistent.
     pub fn check(&self) -> Vec<Violation> {
@@ -130,6 +145,7 @@ impl Workspace {
             report.label(key, "kind", project.kind.as_deref());
             report.person(self, key, "owner", project.owner);
             report.dates(key, project.start, project.due);
+            report.time(key, project.due, project.due_time);
         }
     }
 
@@ -150,6 +166,10 @@ impl Workspace {
             }
             report.person(self, key, "assignee", task.assignee);
             report.dates(key, task.start, task.due);
+            report.time(key, task.due, task.due_time);
+            if task.milestone && task.parent.is_some() {
+                report.add(key, Rule::Milestone, "a milestone cannot be a subtask");
+            }
             if task.progress > 100 {
                 report.add(
                     key,
@@ -191,6 +211,9 @@ impl Workspace {
                     ),
                     Some(parent) if parent.project != task.project => {
                         report.add(key, Rule::CrossProject, "parent belongs to another project")
+                    }
+                    Some(parent) if parent.milestone => {
+                        report.add(key, Rule::Milestone, "a milestone cannot have subtasks")
                     }
                     Some(_) => {
                         if self.is_own_ancestor(task.id) {
@@ -387,6 +410,8 @@ mod tests {
             assignee: None,
             start: None,
             due: None,
+            due_time: None,
+            milestone: false,
             estimate_minutes: None,
             progress: 0,
             tags: Vec::new(),
@@ -427,6 +452,7 @@ mod tests {
             owner: Some(ids.person),
             start: Some(date(2026, 10, 1)),
             due: Some(date(2026, 12, 1)),
+            due_time: None,
             status: ProjectStatus::Active,
             template: false,
             classification: Classification::Open,
@@ -721,5 +747,29 @@ mod tests {
         ws.put(Entity::Project(project));
         let task = ws.task(ids.c).cloned().unwrap();
         assert_eq!(ws.effective_classification(&task), Classification::VsNfd);
+    }
+
+    #[test]
+    fn milestones_stand_alone_and_times_need_a_day() {
+        let (mut ws, ids) = valid();
+        // b is a subtask of a: neither may be a milestone.
+        let mut a = ws.task(ids.a).cloned().unwrap();
+        a.milestone = true;
+        ws.put(Entity::Task(a));
+        let rules: Vec<_> = ws.check().into_iter().map(|v| (v.entity, v.rule)).collect();
+        assert_eq!(rules, vec![(EntityKey::Task(ids.b), Rule::Milestone)]);
+        let (mut ws, ids) = valid();
+        let mut b = ws.task(ids.b).cloned().unwrap();
+        b.milestone = true;
+        ws.put(Entity::Task(b));
+        let rules: Vec<_> = ws.check().into_iter().map(|v| (v.entity, v.rule)).collect();
+        assert_eq!(rules, vec![(EntityKey::Task(ids.b), Rule::Milestone)]);
+        let (mut ws, ids) = valid();
+        let mut c = ws.task(ids.c).cloned().unwrap();
+        c.due = None;
+        c.due_time = Some(jiff::civil::Time::midnight());
+        ws.put(Entity::Task(c));
+        let rules: Vec<_> = ws.check().into_iter().map(|v| (v.entity, v.rule)).collect();
+        assert_eq!(rules, vec![(EntityKey::Task(ids.c), Rule::DateOrder)]);
     }
 }

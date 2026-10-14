@@ -101,7 +101,7 @@ fn spread(tx: &mut Tx<'_>, project: ProjectId, param: &str) -> Result<(), Comman
 
 /// The rank for a placed task. If the gap is too crowded, the project's order is spread out
 /// first (part of the same change, so one undo restores everything).
-fn place(
+pub(crate) fn place(
     tx: &mut Tx<'_>,
     project: ProjectId,
     me: Option<TaskId>,
@@ -126,6 +126,7 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     }
     let after = neighbour(tx, params, "after", project, None)?;
     let rank = place(tx, project, None, (after, None), "after")?;
+    let due = params.opt("due", p::deadline)?;
     let id: TaskId = tx.new_id();
     let task = Task {
         id,
@@ -137,7 +138,9 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         priority: params.opt("priority", p::choice)?.unwrap_or_default(),
         assignee: params.opt("assignee", p::id)?,
         start: params.opt("start", p::date)?,
-        due: params.opt("due", p::date)?,
+        due: due.map(|(day, _)| day),
+        due_time: due.and_then(|(_, time)| time),
+        milestone: params.opt("milestone", p::boolean)?.unwrap_or(false),
         estimate_minutes: params.opt("estimate_minutes", p::minutes)?,
         progress: params.opt("progress", p::percent)?.unwrap_or(0),
         tags: params.opt("tags", p::labels)?.unwrap_or_default(),
@@ -166,7 +169,14 @@ fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         .patch("assignee", p::id)?
         .apply_to(&mut task.assignee);
     params.patch("start", p::date)?.apply_to(&mut task.start);
-    params.patch("due", p::date)?.apply_to(&mut task.due);
+    p::apply_deadline(
+        params.patch("due", p::deadline)?,
+        &mut task.due,
+        &mut task.due_time,
+    );
+    if let Some(milestone) = params.patch_required("milestone", p::boolean)? {
+        task.milestone = milestone;
+    }
     params
         .patch("estimate_minutes", p::minutes)?
         .apply_to(&mut task.estimate_minutes);
@@ -298,7 +308,16 @@ pub const CREATE: CommandSpec = CommandSpec {
         P::optional("priority", K::Choice(PRIORITY), "Default: normal"),
         P::optional("assignee", K::Id(EntityKind::Person), "Who does it"),
         P::optional("start", K::Date, "First day"),
-        P::optional("due", K::Date, "Deadline"),
+        P::optional(
+            "due",
+            K::Deadline,
+            "Deadline, optionally with a time of day",
+        ),
+        P::optional(
+            "milestone",
+            K::Bool,
+            "A milestone (top-level only): a date that matters, reached when done",
+        ),
         P::optional(
             "estimate_minutes",
             K::Integer {
@@ -336,7 +355,12 @@ pub const UPDATE: CommandSpec = CommandSpec {
         P::optional("priority", K::Choice(PRIORITY), "How urgent"),
         P::clearable("assignee", K::Id(EntityKind::Person), "Who does it"),
         P::clearable("start", K::Date, "First day"),
-        P::clearable("due", K::Date, "Deadline"),
+        P::clearable(
+            "due",
+            K::Deadline,
+            "Deadline, optionally with a time of day",
+        ),
+        P::optional("milestone", K::Bool, "Make it a milestone or a normal task"),
         P::clearable(
             "estimate_minutes",
             K::Integer {

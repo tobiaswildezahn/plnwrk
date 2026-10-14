@@ -89,7 +89,6 @@ pub fn sample(session: &mut Session) -> Result<Sample, CommandError> {
             "description": "Umrüstung aller Wachen auf neue Digitalfunkgeräte."
         }),
     )?;
-    let p = project_id.to_string();
     task(
         session,
         project_id,
@@ -137,15 +136,17 @@ pub fn sample(session: &mut Session) -> Result<Sample, CommandError> {
         "dependency.add",
         json!({"from": install.to_string(), "to": training.to_string(), "lag_days": 3}),
     )?;
-    run(
+    task(
         session,
-        "milestone.create",
-        json!({"project": p, "title": "Zuschlag erteilt", "date": "2026-10-12"}),
+        project_id,
+        "Zuschlag erteilt",
+        json!({"milestone": true, "due": "2026-10-12"}),
     )?;
-    run(
+    task(
         session,
-        "milestone.create",
-        json!({"project": p, "title": "Inbetriebnahme", "date": "2026-12-15"}),
+        project_id,
+        "Inbetriebnahme",
+        json!({"milestone": true, "due": "2026-12-15T10:00"}),
     )?;
     run(
         session,
@@ -159,7 +160,7 @@ pub fn sample(session: &mut Session) -> Result<Sample, CommandError> {
         "project.create",
         json!({
             "title": "SKA beantworten", "kind": "SKA", "template": true,
-            "start": "2026-01-01", "due": "2026-01-08",
+            "start": "2026-01-01", "due": "2026-01-08T12:00",
             "description": "Ablauf für Schriftliche Kleine Anfragen der Bürgerschaft."
         }),
     )?;
@@ -192,10 +193,11 @@ pub fn sample(session: &mut Session) -> Result<Sample, CommandError> {
         "dependency.add",
         json!({"from": input.to_string(), "to": draft.to_string()}),
     )?;
-    run(
+    task(
         session,
-        "milestone.create",
-        json!({"project": template.to_string(), "title": "Abgabe Senatskanzlei", "date": "2026-01-08"}),
+        template,
+        "Abgabe Senatskanzlei",
+        json!({"milestone": true, "due": "2026-01-08T12:00"}),
     )?;
 
     // A case created from the template.

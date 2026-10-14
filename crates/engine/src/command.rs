@@ -61,10 +61,6 @@ static REGISTRY: &[CommandSpec] = &[
     commands::task::SET_STATUS,
     commands::task::SET_PROGRESS,
     commands::task::DELETE,
-    commands::milestone::CREATE,
-    commands::milestone::UPDATE,
-    commands::milestone::REACH,
-    commands::milestone::DELETE,
     commands::dependency::ADD,
     commands::dependency::REMOVE,
     commands::person::CREATE,
@@ -72,6 +68,16 @@ static REGISTRY: &[CommandSpec] = &[
     commands::comment::ADD,
     commands::history::UNDO,
     commands::history::REDO,
+    commands::workspace::UPGRADE,
+];
+
+/// Commands of older versions: never run any more, but found by [`find`] so that the history of
+/// older files can still be checked.
+static LEGACY: &[CommandSpec] = &[
+    commands::milestone::CREATE,
+    commands::milestone::UPDATE,
+    commands::milestone::REACH,
+    commands::milestone::DELETE,
 ];
 
 /// All commands.
@@ -81,7 +87,7 @@ pub fn registry() -> &'static [CommandSpec] {
 
 /// A command by id.
 pub fn find(id: &str) -> Option<&'static CommandSpec> {
-    REGISTRY.iter().find(|spec| spec.id == id)
+    REGISTRY.iter().chain(LEGACY).find(|spec| spec.id == id)
 }
 
 /// The lower-case words of a search text.
@@ -165,13 +171,21 @@ mod tests {
     fn search_ranks_exact_id_first() {
         let found = search("undo");
         assert_eq!(found.first().map(|s| s.id), Some("undo"));
-        assert!(
-            search("milestone date")
-                .iter()
-                .any(|s| s.id == "milestone.create")
-        );
+        // Milestones are tasks now: the search leads there, never to the retired commands.
+        let milestone = search("milestone");
+        assert!(milestone.iter().any(|s| s.id == "task.create"));
+        assert!(milestone.iter().all(|s| !s.id.starts_with("milestone.")));
         assert!(search("").is_empty());
         assert!(search("zzzzz").is_empty());
+    }
+
+    #[test]
+    fn retired_commands_are_found_but_never_listed() {
+        assert!(
+            find("milestone.create").is_some(),
+            "old histories stay checkable"
+        );
+        assert!(registry().iter().all(|s| !s.id.starts_with("milestone.")));
     }
 
     #[test]

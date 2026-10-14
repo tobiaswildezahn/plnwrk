@@ -12,11 +12,11 @@ const CARD_WIDTH: f32 = 270.0;
 
 pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(text::OVERVIEW);
         ui.add_space(8.0);
-        let cards = query::overview(ws, today);
+        let cards = query::overview(ws, now);
         if cards.is_empty() {
             ui.label(text::NOTHING_YET);
         }
@@ -27,7 +27,7 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
         });
         ui.add_space(16.0);
         ui.heading(text::OVERDUE);
-        let overdue = query::overdue(ws, today);
+        let overdue = query::overdue(ws, now);
         if overdue.is_empty() {
             ui.weak(text::NOTHING_OVERDUE);
         }
@@ -117,9 +117,12 @@ fn project_card(
             }
             ui.weak(facts.join(" · "));
             if let Some(milestone) = &card.next_milestone {
+                let when = milestone
+                    .date
+                    .map(|day| format!("{} ", dates::format_deadline(day, milestone.time)))
+                    .unwrap_or_default();
                 ui.weak(format!(
-                    "♦ {} {} ({})",
-                    dates::format(milestone.date),
+                    "♦ {when}{} ({})",
                     milestone.title,
                     text::milestone_state(milestone.state)
                 ));
@@ -136,12 +139,13 @@ fn project_card(
 /// The templates, each with a button to create a project or case from it.
 pub fn templates(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
+    let today = now.date();
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(text::TEMPLATES);
         ui.weak("Eine Vorlage ist ein Projekt mit festem Ablauf. Daraus entstehen neue Vorgänge.");
         ui.add_space(8.0);
-        let cards = query::templates(ws, today);
+        let cards = query::templates(ws, now);
         if cards.is_empty() {
             ui.label("Noch keine Vorlagen. Lege ein Projekt an und markiere es als Vorlage.");
         }

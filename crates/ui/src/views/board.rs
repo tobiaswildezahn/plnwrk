@@ -57,8 +57,8 @@ pub fn show(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
-    let Some(board) = query::board(ws, project.id, today) else {
+    let now = doc.session.clock().now_local();
+    let Some(board) = query::board(ws, project.id, now) else {
         return;
     };
     egui::ScrollArea::both().show(ui, |ui| {
@@ -121,7 +121,12 @@ pub fn show(
 fn card_ui(ui: &mut egui::Ui, card: &TaskCard, selected: bool, out: &mut Vec<Intent>) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(COLUMN_WIDTH - 24.0);
-        if ui.selectable_label(selected, &card.title).clicked() {
+        let title = if card.milestone {
+            format!("♦ {}", card.title)
+        } else {
+            card.title.clone()
+        };
+        if ui.selectable_label(selected, title).clicked() {
             out.push(Intent::Select(Some(card.id)));
         }
         ui.horizontal_wrapped(|ui| {
@@ -129,7 +134,7 @@ fn card_ui(ui: &mut egui::Ui, card: &TaskCard, selected: bool, out: &mut Vec<Int
                 ui.label(RichText::new(&person.initials).small().weak())
                     .on_hover_text(&person.name);
             }
-            due_label(ui, card.due, card.overdue);
+            due_label(ui, card.due, card.due_time, card.overdue);
             if card.subtasks > 0 {
                 ui.label(
                     RichText::new(format!("☑ {}/{}", card.subtasks_done, card.subtasks))

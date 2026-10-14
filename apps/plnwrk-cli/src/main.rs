@@ -200,8 +200,10 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
     let params = params(matches)?;
     let (open, _lock) = files::open_for_change(&path, true)?;
     let mut session: Session = files::session(open.doc);
+    let upgraded = files::upgrade(&mut session)?;
     let outcome = session.run(command, &params, Origin::User)?;
-    if outcome.change.is_some() {
+    let changed = outcome.change.is_some() || upgraded;
+    if changed {
         files::save(&path, &files::document(&session), &open.protection).map_err(
             |Failure(cause)| {
                 Failure(json!({
@@ -213,7 +215,7 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
         )?;
     }
     Ok(Output::Json(
-        json!({"outcome": outcome, "saved": outcome.change.is_some()}),
+        json!({"outcome": outcome, "saved": changed, "upgraded": upgraded}),
     ))
 }
 

@@ -17,6 +17,10 @@ impl Clock for SystemClock {
     fn today(&self) -> Date {
         jiff::Zoned::now().date()
     }
+
+    fn now_local(&self) -> jiff::civil::DateTime {
+        jiff::Zoned::now().datetime()
+    }
 }
 
 /// ULIDs from the current time and 80 random bits of the operating system, strictly

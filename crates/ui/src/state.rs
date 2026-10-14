@@ -105,6 +105,7 @@ pub struct ProjectForm {
     pub reference: String,
     pub start: String,
     pub due: String,
+    pub due_time: String,
     pub owner: Option<PersonId>,
     pub status: ProjectStatus,
     pub template: bool,
@@ -128,6 +129,7 @@ impl ProjectForm {
             reference: project.reference.clone().unwrap_or_default(),
             start: dates::format_opt(project.start),
             due: dates::format_opt(project.due),
+            due_time: dates::format_time_opt(project.due_time),
             owner: project.owner,
             status: project.status,
             template: project.template,
@@ -141,7 +143,10 @@ impl ProjectForm {
         map.insert("kind".to_owned(), optional(&self.kind));
         map.insert("reference".to_owned(), optional(&self.reference));
         map.insert("start".to_owned(), dates::param(dates::parse(&self.start)?));
-        map.insert("due".to_owned(), dates::param(dates::parse(&self.due)?));
+        map.insert(
+            "due".to_owned(),
+            dates::deadline_param(dates::parse_deadline(&self.due, &self.due_time)?),
+        );
         map.insert(
             "owner".to_owned(),
             self.owner.map_or(Value::Null, |id| json!(id.to_string())),
@@ -174,6 +179,7 @@ pub struct TemplateForm {
     pub reference: String,
     pub start: String,
     pub due: String,
+    pub due_time: String,
     pub owner: Option<PersonId>,
 }
 
@@ -189,8 +195,8 @@ impl TemplateForm {
         map.insert("template".to_owned(), json!(template.to_string()));
         map.insert("title".to_owned(), json!(self.title.trim()));
         map.insert("start".to_owned(), dates::param(Some(start)));
-        if let Some(due) = dates::parse(&self.due)? {
-            map.insert("due".to_owned(), dates::param(Some(due)));
+        if let Some(due) = dates::parse_deadline(&self.due, &self.due_time)? {
+            map.insert("due".to_owned(), dates::deadline_param(Some(due)));
         }
         if !self.reference.trim().is_empty() {
             map.insert("reference".to_owned(), json!(self.reference.trim()));
@@ -213,6 +219,7 @@ pub struct TaskDraft {
     pub tags: String,
     pub start: String,
     pub due: String,
+    pub due_time: String,
     pub progress: u8,
 }
 
@@ -235,9 +242,10 @@ impl TaskDraft {
         if start != stored.start {
             map.insert("start".to_owned(), dates::param(start));
         }
-        let due = dates::parse(&self.due)?;
-        if due != stored.due {
-            map.insert("due".to_owned(), dates::param(due));
+        let due = dates::parse_deadline(&self.due, &self.due_time)?;
+        let stored_due = stored.due.map(|day| (day, stored.due_time));
+        if due != stored_due {
+            map.insert("due".to_owned(), dates::deadline_param(due));
         }
         Ok(map)
     }
@@ -246,19 +254,19 @@ impl TaskDraft {
     /// Returns what was put back, for a message.
     pub fn drop_invalid_dates(&mut self) -> Option<String> {
         let mut dropped = Vec::new();
-        let stored = (self.source.start, self.source.due);
-        for (label, text, value) in [
-            (crate::text::START, &mut self.start, stored.0),
-            (crate::text::DUE, &mut self.due, stored.1),
-        ] {
-            if dates::parse(text).is_err() {
-                dropped.push(format!("„{}“ ({label})", text.trim()));
-                *text = dates::format_opt(value);
-            }
+        if dates::parse(&self.start).is_err() {
+            dropped.push(format!("„{}“ ({})", self.start.trim(), crate::text::START));
+            self.start = dates::format_opt(self.source.start);
+        }
+        if dates::parse_deadline(&self.due, &self.due_time).is_err() {
+            let typed = format!("{} {}", self.due.trim(), self.due_time.trim());
+            dropped.push(format!("„{}“ ({})", typed.trim(), crate::text::DUE));
+            self.due = dates::format_opt(self.source.due);
+            self.due_time = dates::format_time_opt(self.source.due_time);
         }
         (!dropped.is_empty()).then(|| {
             format!(
-                "Kein gültiges Datum, nicht übernommen: {}",
+                "Kein gültiges Datum oder keine gültige Uhrzeit, nicht übernommen: {}",
                 dropped.join(", ")
             )
         })
@@ -284,6 +292,7 @@ impl TaskDraft {
         keep(&mut self.tags, &old.tags, new.tags);
         keep(&mut self.start, &old.start, new.start);
         keep(&mut self.due, &old.due, new.due);
+        keep(&mut self.due_time, &old.due_time, new.due_time);
         if self.progress == old.progress {
             self.progress = new.progress;
         }
@@ -298,6 +307,7 @@ impl TaskDraft {
             tags: task.tags.join(", "),
             start: dates::format_opt(task.start),
             due: dates::format_opt(task.due),
+            due_time: dates::format_time_opt(task.due_time),
             progress: task.progress,
         }
     }
@@ -347,6 +357,7 @@ pub struct Forms {
     pub detail_subtask: String,
     pub milestone_title: String,
     pub milestone_date: String,
+    pub milestone_time: String,
     pub comment: String,
     pub person: PersonForm,
     pub task: Option<TaskDraft>,
@@ -419,6 +430,7 @@ impl State {
             Clear::Milestone => {
                 self.forms.milestone_title.clear();
                 self.forms.milestone_date.clear();
+                self.forms.milestone_time.clear();
             }
             Clear::Comment => self.forms.comment.clear(),
             Clear::Person => self.forms.person = PersonForm::default(),

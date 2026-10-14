@@ -2,14 +2,17 @@
 source: crates/store/tests/store.rs
 expression: csv
 ---
-﻿Projekt;Aktenzeichen;Aufgabe;Übergeordnet;Status;Priorität;Bearbeitung;Beginn;Frist;Fortschritt;Schlagworte;Einstufung
-Digitalfunk Umrüstung Wachen;;Bestandsaufnahme Geräte;;done;normal;;;2026-09-15;0;;open
-Digitalfunk Umrüstung Wachen;;Ausschreibung vorbereiten;;in_progress;high;Anna Berg;;2026-10-10;60;Vergabe;open
-Digitalfunk Umrüstung Wachen;;Leistungsverzeichnis;Ausschreibung vorbereiten;done;normal;;;;0;;open
-Digitalfunk Umrüstung Wachen;;Vergabevermerk;Ausschreibung vorbereiten;todo;normal;Anna Berg;;;0;;open
-Digitalfunk Umrüstung Wachen;;Einbau Wache 11;;todo;normal;;2026-11-02;2026-11-20;0;;open
-Digitalfunk Umrüstung Wachen;;Schulung Einsatzkräfte;;todo;normal;;;2026-12-10;0;;open
-SKA 23/1234 Sirenenwarnung;23/1234;Eingang erfassen und Federführung klären;;done;normal;;;2026-10-12;0;;open
-SKA 23/1234 Sirenenwarnung;23/1234;Zuarbeiten anfordern;;todo;normal;;;2026-10-16;0;;open
-SKA 23/1234 Sirenenwarnung;23/1234;Fachamt;Zuarbeiten anfordern;todo;normal;;;2026-10-15;0;;open
-SKA 23/1234 Sirenenwarnung;23/1234;Antwort entwerfen;;todo;high;;;2026-10-18;0;;open
+﻿Projekt;Aktenzeichen;Aufgabe;Meilenstein;Übergeordnet;Status;Priorität;Bearbeitung;Beginn;Frist;Uhrzeit;Fortschritt;Schlagworte;Einstufung
+Digitalfunk Umrüstung Wachen;;Bestandsaufnahme Geräte;;;done;normal;;;2026-09-15;;0;;open
+Digitalfunk Umrüstung Wachen;;Ausschreibung vorbereiten;;;in_progress;high;Anna Berg;;2026-10-10;;60;Vergabe;open
+Digitalfunk Umrüstung Wachen;;Leistungsverzeichnis;;Ausschreibung vorbereiten;done;normal;;;;;0;;open
+Digitalfunk Umrüstung Wachen;;Vergabevermerk;;Ausschreibung vorbereiten;todo;normal;Anna Berg;;;;0;;open
+Digitalfunk Umrüstung Wachen;;Einbau Wache 11;;;todo;normal;;2026-11-02;2026-11-20;;0;;open
+Digitalfunk Umrüstung Wachen;;Schulung Einsatzkräfte;;;todo;normal;;;2026-12-10;;0;;open
+Digitalfunk Umrüstung Wachen;;Zuschlag erteilt;ja;;todo;normal;;;2026-10-12;;0;;open
+Digitalfunk Umrüstung Wachen;;Inbetriebnahme;ja;;todo;normal;;;2026-12-15;10:00;0;;open
+SKA 23/1234 Sirenenwarnung;23/1234;Eingang erfassen und Federführung klären;;;done;normal;;;2026-10-12;;0;;open
+SKA 23/1234 Sirenenwarnung;23/1234;Zuarbeiten anfordern;;;todo;normal;;;2026-10-16;;0;;open
+SKA 23/1234 Sirenenwarnung;23/1234;Fachamt;;Zuarbeiten anfordern;todo;normal;;;2026-10-15;;0;;open
+SKA 23/1234 Sirenenwarnung;23/1234;Antwort entwerfen;;;todo;high;;;2026-10-18;;0;;open
+SKA 23/1234 Sirenenwarnung;23/1234;Abgabe Senatskanzlei;ja;;todo;normal;;;2026-10-19;12:00;0;;open

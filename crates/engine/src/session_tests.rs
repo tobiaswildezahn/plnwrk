@@ -369,6 +369,7 @@ fn undo_refuses_when_the_result_would_break_rules() {
         owner: Some(id),
         start: None,
         due: None,
+        due_time: None,
         status: plnwrk_core::ProjectStatus::Active,
         template: false,
         classification: plnwrk_core::Classification::Open,
@@ -424,4 +425,63 @@ fn undo_reverts_repeated_writes_to_one_entity_in_reverse_order() {
         .person(PersonId::from_ulid(ulid::Ulid(900)))
         .unwrap();
     assert_eq!(after.name, "dann");
+}
+
+#[test]
+fn upgrade_turns_old_milestones_into_milestone_tasks_and_undo_brings_them_back() {
+    use plnwrk_core::{Milestone, MilestoneId, MilestoneStatus, ProjectId};
+    let mut s = session();
+    let created = s
+        .run("project.create", &json!({"title": "P"}), Origin::User)
+        .unwrap()
+        .created;
+    let Some(plnwrk_core::EntityKey::Project(project)) = created.first().copied() else {
+        panic!("{created:?}");
+    };
+    s.run(
+        "task.create",
+        &json!({"project": project.to_string(), "title": "Arbeit"}),
+        Origin::User,
+    )
+    .unwrap();
+    // Milestones as format version 1 stored them.
+    for (n, title, status) in [
+        (7000, "Zuschlag", MilestoneStatus::Reached),
+        (7001, "Abnahme", MilestoneStatus::Open),
+    ] {
+        s.workspace_mut().put(Entity::Milestone(Milestone {
+            id: MilestoneId::from_ulid(ulid::Ulid(n)),
+            project,
+            title: title.into(),
+            date: "2026-11-01".parse().unwrap(),
+            status,
+        }));
+    }
+    let before = s.workspace().clone();
+    s.run("workspace.upgrade", &json!({}), Origin::Script)
+        .unwrap();
+    let ws = s.workspace();
+    assert_eq!(ws.milestones().count(), 0);
+    let milestones: Vec<_> = ws.tasks().filter(|t| t.milestone).collect();
+    assert_eq!(milestones.len(), 2);
+    let reached = milestones.iter().find(|t| t.title == "Zuschlag").unwrap();
+    assert_eq!(reached.status, plnwrk_core::TaskStatus::Done);
+    assert_eq!(reached.due.unwrap().to_string(), "2026-11-01");
+    assert!(
+        milestones
+            .iter()
+            .all(|t| t.parent.is_none() && t.project == project)
+    );
+    let mut ranks: Vec<_> = ws.tasks_of(project).collect();
+    ranks.sort_by(|a, b| a.rank.cmp(&b.rank));
+    assert_eq!(
+        ranks.first().map(|t| t.title.as_str()),
+        Some("Arbeit"),
+        "placed at the end"
+    );
+    assert!(ws.check().is_empty());
+    // One change; undo restores exactly the old state.
+    s.run("undo", &json!({}), Origin::User).unwrap();
+    assert_eq!(s.workspace(), &before);
+    let _ = ProjectId::from_ulid(ulid::Ulid(0));
 }

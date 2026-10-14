@@ -1,6 +1,7 @@
 //! The views. They read the workspace and push [`Intent`]s; they never change data themselves.
 
 mod board;
+mod date;
 mod detail;
 mod dialogs;
 mod overview;
@@ -229,7 +230,8 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
 
 fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
+    let today = now.date();
     egui::Panel::left("sidebar")
         .default_size(230.0)
         .show(ui, |ui| {
@@ -254,7 +256,7 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                 });
                 ui.separator();
                 ui.strong(text::PROJECTS);
-                for card in query::overview(ws, today) {
+                for card in query::overview(ws, now) {
                     let label = match &card.reference {
                         Some(reference) => format!("{} · {reference}", card.title),
                         None => card.title.clone(),
@@ -286,9 +288,22 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
 }
 
 /// A deadline, red when it has passed.
-fn due_label(ui: &mut egui::Ui, due: Option<jiff::civil::Date>, overdue: bool) {
+fn due_label(
+    ui: &mut egui::Ui,
+    due: Option<jiff::civil::Date>,
+    time: Option<jiff::civil::Time>,
+    overdue: bool,
+) {
     if let Some(due) = due {
-        let text = RichText::new(crate::dates::format(due)).small();
+        let shown = match time {
+            Some(time) => format!(
+                "{} {}",
+                crate::dates::format(due),
+                crate::dates::format_time(time)
+            ),
+            None => crate::dates::format(due),
+        };
+        let text = RichText::new(shown).small();
         if overdue {
             ui.label(text.color(ui.visuals().error_fg_color));
         } else {

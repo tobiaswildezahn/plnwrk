@@ -47,7 +47,6 @@ pub const KIND: &str = "Art";
 pub const REFERENCE: &str = "Aktenzeichen";
 pub const START: &str = "Beginn";
 pub const DUE: &str = "Frist";
-pub const DATE: &str = "Datum";
 pub const OWNER: &str = "Verantwortlich";
 pub const STATUS: &str = "Status";
 pub const PRIORITY: &str = "Priorität";
@@ -92,6 +91,17 @@ pub const ALREADY_OPEN: &str = "Diese Datei ist bereits geöffnet.";
 pub const NOT_SAVED: &str = "• ungespeichert";
 
 pub const VS_NFD: &str = "VS – NUR FÜR DEN DIENSTGEBRAUCH";
+
+pub const PICK_DATE: &str = "Im Kalender wählen";
+pub const TODAY: &str = "Heute";
+pub const CLEAR: &str = "Leeren";
+pub const TIME_HINT: &str = "HH:MM";
+pub const ADD_TIME: &str = "Uhrzeit hinzufügen";
+pub const MILESTONE: &str = "Meilenstein";
+pub const MILESTONE_HINT: &str =
+    "Ein Datum, das zählt: erreicht, wenn erledigt. Nur oberste Ebene, ohne Unteraufgaben.";
+pub const UPGRADED: &str =
+    "Datei auf das neue Format umgestellt: Meilensteine sind jetzt Aufgaben. Bitte speichern.";
 
 /// Name of a task status (board column).
 pub const fn task_status(status: TaskStatus) -> &'static str {

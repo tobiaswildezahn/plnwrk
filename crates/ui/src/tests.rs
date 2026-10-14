@@ -165,11 +165,10 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     click(&mut harness, text::MILESTONES);
     assert_eq!(harness.state().state.tab, Tab::Milestones);
     type_into(&mut harness, text::TITLE, "Übungstag", false);
-    let date_hint = format!("{} TT.MM.JJJJ", text::DATE);
-    type_into(&mut harness, &date_hint, "30.13.2026", false);
+    type_into(&mut harness, "TT.MM.JJJJ", "30.13.2026", false);
     click(&mut harness, text::NEW_MILESTONE);
-    let doc = harness.state().doc().unwrap();
-    assert_eq!(doc.session.workspace().milestones().count(), 0);
+    let milestones = |app: &PlnwrkApp| tasks(app).into_iter().filter(|t| t.milestone).count();
+    assert_eq!(milestones(harness.state()), 0);
     assert!(
         harness
             .state()
@@ -186,8 +185,15 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
 
     harness.state_mut().state.forms.milestone_date = "30.11.2026".to_owned();
     click(&mut harness, text::NEW_MILESTONE);
-    let doc = harness.state().doc().unwrap();
-    let milestone = doc.session.workspace().milestones().next().unwrap();
+    let milestone = tasks(harness.state())
+        .into_iter()
+        .find(|t| t.milestone)
+        .unwrap();
+    assert_eq!(
+        milestone.due.map(|d| d.to_string()),
+        Some("2026-11-30".to_owned())
+    );
+    assert_eq!(milestone.parent, None);
     assert_eq!(milestone.title, "Übungstag");
     assert!(harness.state().state.forms.milestone_title.is_empty());
 }
@@ -870,4 +876,128 @@ fn a_refused_typed_title_is_put_back_and_does_not_block_closing() {
         harness.state_mut().close_requested(),
         "nothing left that blocks"
     );
+}
+
+#[test]
+fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::NEW_FILE);
+    click(&mut harness, text::NEW_PROJECT);
+    type_into(&mut harness, text::TITLE, "Übung", false);
+    // Start and deadline each have a calendar button; the deadline's is the second.
+    harness.get_all_by_label("📅").nth(1).unwrap().click();
+    harness.run();
+    click(&mut harness, "15");
+    let today = jiff::Zoned::now().date();
+    let expected = format!("15.{:02}.{}", today.month(), today.year());
+    let crate::state::Dialog::NewProject(form) = harness.state().state.dialog.clone().unwrap()
+    else {
+        panic!("dialog")
+    };
+    assert_eq!(form.due, expected);
+    // No reference: the time field opens on request.
+    assert!(
+        harness
+            .query_by(|n| n.placeholder() == Some(text::TIME_HINT))
+            .is_none()
+    );
+    harness.get_by_label("🕑").click();
+    harness.run();
+    type_into(&mut harness, text::TIME_HINT, "14:30", false);
+    click(&mut harness, text::CREATE);
+    let project = projects(harness.state()).into_iter().next().unwrap();
+    assert_eq!(project.due.map(|d| d.day()), Some(15));
+    assert_eq!(
+        project.due_time.map(|t| t.to_string()).as_deref(),
+        Some("14:30:00")
+    );
+}
+
+#[test]
+fn cases_show_the_time_field_and_store_it_from_the_detail_panel() {
+    let mut harness = with_project("SKA 23/9");
+    let id = projects(harness.state()).first().unwrap().id;
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "project.update",
+            &serde_json::json!({"project": id.to_string(), "reference": "23/9"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    type_into(&mut harness, text::NEW_TASK_HINT, "Antwort", true);
+    click(&mut harness, "Antwort");
+    // A case: the time field is there right away.
+    type_into(&mut harness, text::DUE, "20.11.2026", false);
+    type_into(&mut harness, text::TIME_HINT, "12:00", true);
+    let task = task_named(harness.state(), "Antwort").unwrap();
+    assert_eq!(
+        task.due.map(|d| d.to_string()),
+        Some("2026-11-20".to_owned())
+    );
+    assert_eq!(
+        task.due_time.map(|t| t.to_string()).as_deref(),
+        Some("12:00:00")
+    );
+}
+
+#[test]
+fn a_task_becomes_a_milestone_but_not_a_subtask() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Übergabe", true);
+    type_into(&mut harness, text::NEW_TASK_HINT, "Packen", true);
+    harness.get_all_by_label("+").last().unwrap().click();
+    harness.run();
+    type_into(&mut harness, text::NEW_SUBTASK_HINT, "Kartons", true);
+    click(&mut harness, "Übergabe");
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
+        .click();
+    harness.run();
+    assert!(task_named(harness.state(), "Übergabe").unwrap().milestone);
+    // The list marks it.
+    assert!(harness.query_by_label("♦ Übergabe").is_some());
+    // A subtask cannot be one: the box is off.
+    click(&mut harness, "Kartons");
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
+        .click();
+    harness.run();
+    assert!(!task_named(harness.state(), "Kartons").unwrap().milestone);
+    // Nor a task with subtasks.
+    click(&mut harness, "Packen");
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
+        .click();
+    harness.run();
+    assert!(!task_named(harness.state(), "Packen").unwrap().milestone);
+}
+
+#[test]
+fn a_version_1_file_opens_upgraded_and_counts_as_changed() {
+    let dir = scratch("v1-open");
+    let path = dir.join("alt.plnwrk");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../store/tests/fixtures/v1-sample.plnwrk"),
+        &path,
+    )
+    .unwrap();
+    let host = Scripted {
+        open: vec![path],
+        save: Vec::new(),
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
+    harness.run();
+    let app = harness.state();
+    assert_eq!(app.state.message.clone().unwrap().text, text::UPGRADED);
+    assert!(app.has_unsaved_changes(), "save to keep the new format");
+    let ws = app.doc().unwrap().session.workspace();
+    assert_eq!(ws.milestones().count(), 0);
+    assert_eq!(ws.tasks().filter(|t| t.milestone).count(), 4);
 }

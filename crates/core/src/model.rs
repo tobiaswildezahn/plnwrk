@@ -2,7 +2,7 @@
 //! a reference number and a deadline is a case (docs/PLAN.md §3.2).
 
 use jiff::Timestamp;
-use jiff::civil::Date;
+use jiff::civil::{Date, Time};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -35,6 +35,10 @@ pub struct Project {
     pub start: Option<Date>,
     /// Deadline (Frist).
     pub due: Option<Date>,
+    /// Time of day of the deadline (local time); without it the whole day counts. Only with
+    /// `due`. Left out of JSON when absent, so files from before it existed stay byte-equal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_time: Option<Time>,
     /// Lifecycle.
     pub status: ProjectStatus,
     /// A template from which new projects or cases are created.
@@ -69,6 +73,13 @@ pub struct Task {
     pub start: Option<Date>,
     /// Deadline.
     pub due: Option<Date>,
+    /// Time of day of the deadline (local time); see [`Project::due_time`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_time: Option<Time>,
+    /// A milestone: a date that matters, reached when done. Only top-level tasks, never with
+    /// subtasks. Left out of JSON when false (files from before it existed stay byte-equal).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub milestone: bool,
     /// Expected effort in minutes.
     pub estimate_minutes: Option<u32>,
     /// Percent done, 0 to 100.
@@ -83,7 +94,16 @@ pub struct Task {
     pub created: Timestamp,
 }
 
-/// A date that matters in a project.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// A date that matters in a project. **Replaced by tasks with `milestone`** (format version 2);
+/// kept so that older files and their history can still be read and converted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Milestone {
@@ -276,6 +296,7 @@ mod tests {
                 owner: Some(PersonId::from_ulid(id(5))),
                 start: Some(day),
                 due: Some(day),
+                due_time: Some("14:30".parse().unwrap()),
                 status: ProjectStatus::OnHold,
                 template: true,
                 classification: Classification::VsNfd,
@@ -292,6 +313,8 @@ mod tests {
                 assignee: None,
                 start: None,
                 due: Some(day),
+                due_time: Some("09:00".parse().unwrap()),
+                milestone: true,
                 estimate_minutes: Some(5),
                 progress: 50,
                 tags: vec!["a".into()],
@@ -391,5 +414,21 @@ mod tests {
             let json = serde_json::to_value(key).unwrap();
             assert_eq!(json["kind"], word);
         }
+    }
+
+    #[test]
+    fn data_without_times_or_milestones_serializes_as_before() {
+        // A task as format version 1 wrote it: no `due_time`, no `milestone`.
+        let old = r#"{"entity":"task","id":"00000000000000000000000002","project":"00000000000000000000000001","parent":null,"title":"T","description":"","status":"todo","priority":"normal","assignee":null,"start":null,"due":"2026-10-14","estimate_minutes":null,"progress":0,"tags":[],"classification":null,"rank":"a0","created":"1970-01-01T00:00:00Z"}"#;
+        let entity: Entity = serde_json::from_str(old).unwrap();
+        let Entity::Task(task) = &entity else {
+            panic!("{entity:?}")
+        };
+        assert!(!task.milestone && task.due_time.is_none());
+        assert_eq!(
+            serde_json::to_string(&entity).unwrap(),
+            old,
+            "byte for byte"
+        );
     }
 }

@@ -7,15 +7,17 @@ expression: "snapshot_value(&s, \"overview\", json!({}))"
     "classification": "open",
     "days_left": 5,
     "due": "2026-10-19",
+    "due_time": "12:00:00",
     "id": "0000000000000000000000000P",
     "kind": "SKA",
     "next_milestone": {
       "date": "2026-10-19",
       "id": "0000000000000000000000000V",
       "state": "open",
+      "time": "12:00:00",
       "title": "Abgabe Senatskanzlei"
     },
-    "open_tasks": 3,
+    "open_tasks": 4,
     "overdue_tasks": 0,
     "owner": {
       "id": "00000000000000000000000002",
@@ -35,16 +37,18 @@ expression: "snapshot_value(&s, \"overview\", json!({}))"
     "classification": "open",
     "days_left": 62,
     "due": "2026-12-15",
+    "due_time": null,
     "id": "00000000000000000000000003",
     "kind": "Projekt",
     "next_milestone": {
       "date": "2026-10-12",
       "id": "0000000000000000000000000C",
       "state": "missed",
+      "time": null,
       "title": "Zuschlag erteilt"
     },
-    "open_tasks": 4,
-    "overdue_tasks": 1,
+    "open_tasks": 6,
+    "overdue_tasks": 2,
     "owner": {
       "id": "00000000000000000000000001",
       "initials": "TW",

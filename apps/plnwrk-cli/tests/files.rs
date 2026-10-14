@@ -400,4 +400,41 @@ mod files {
         assert!(json["workspace"]["projects"].is_object());
         assert_eq!(json["marking"], Value::Null);
     }
+
+    #[test]
+    fn changing_a_version_1_file_upgrades_it() {
+        let dir = Dir::new("v1");
+        let file = dir.file();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/store/tests/fixtures/v1-sample.plnwrk");
+        std::fs::copy(&fixture, &file).unwrap();
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 1);
+        // Reading leaves it as it is.
+        ok(&["verify", s(&file)], None);
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 1);
+        // Changing it converts the old milestones in the same save.
+        let project = project_id_any(s(&file), None);
+        let params = json!({"project": project, "title": "Neu"}).to_string();
+        let result = ok(&["run", s(&file), "task.create", &params], None);
+        assert_eq!(result["upgraded"], true);
+        assert_eq!(result["saved"], true);
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 2);
+        let tasks = ok(
+            &["query", s(&file), "tasks", r#"{"include_done": true}"#],
+            None,
+        );
+        let milestones = tasks[0]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["milestone"] == true)
+            .count();
+        assert_eq!(milestones, 3, "two in the project, one in the case");
+        // A second change has nothing more to convert.
+        let params = json!({"project": project, "title": "Noch eins"}).to_string();
+        assert_eq!(
+            ok(&["run", s(&file), "task.create", &params], None)["upgraded"],
+            false
+        );
+    }
 }

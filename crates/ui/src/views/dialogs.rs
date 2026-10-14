@@ -8,6 +8,7 @@ use serde_json::json;
 
 use crate::doc::OpenDoc;
 use crate::state::{Dialog, Message, State};
+use crate::views::date;
 use crate::views::project::person_choice;
 use crate::{Clear, Intent, Then, text};
 
@@ -25,6 +26,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 .collect()
         })
         .unwrap_or_default();
+    let today = doc.map_or_else(|| jiff::Zoned::now().date(), |d| d.session.clock().today());
     let mut message = None;
     let response = Modal::new(Id::new("dialog")).show(ctx, |ui| {
         ui.set_min_width(380.0);
@@ -53,12 +55,19 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         .labelled_by(label.id);
                     ui.end_row();
                     let label = ui.label(text::START);
-                    ui.add(egui::TextEdit::singleline(&mut form.start).hint_text("TT.MM.JJJJ"))
-                        .labelled_by(label.id);
+                    date::date_input(ui, "new-start", &mut form.start, today, Some(label.id));
                     ui.end_row();
                     let label = ui.label(text::DUE);
-                    ui.add(egui::TextEdit::singleline(&mut form.due).hint_text("TT.MM.JJJJ"))
-                        .labelled_by(label.id);
+                    let case = !form.reference.trim().is_empty();
+                    date::deadline_input(
+                        ui,
+                        "new-due",
+                        &mut form.due,
+                        &mut form.due_time,
+                        today,
+                        case,
+                        Some(label.id),
+                    );
                     ui.end_row();
                     ui.label(text::OWNER);
                     person_choice(ui, "new-owner", &mut form.owner, &people);
@@ -87,7 +96,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 ui.weak("Aufgaben und Meilensteine der Vorlage werden übernommen und auf den Beginn verschoben.");
                 ui.add_space(6.0);
                 let templates: Vec<_> = doc
-                    .map(|d| query::templates(d.session.workspace(), d.session.clock().today()))
+                    .map(|d| query::templates(d.session.workspace(), d.session.clock().now_local()))
                     .unwrap_or_default();
                 egui::Grid::new("from-template").num_columns(2).show(ui, |ui| {
                     ui.label(text::TEMPLATE);
@@ -116,12 +125,19 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         .labelled_by(label.id);
                     ui.end_row();
                     let label = ui.label(text::START);
-                    ui.add(egui::TextEdit::singleline(&mut form.start).hint_text("TT.MM.JJJJ"))
-                        .labelled_by(label.id);
+                    date::date_input(ui, "template-start", &mut form.start, today, Some(label.id));
                     ui.end_row();
                     let label = ui.label(text::DUE);
-                    ui.add(egui::TextEdit::singleline(&mut form.due).hint_text("TT.MM.JJJJ"))
-                        .labelled_by(label.id);
+                    let case = !form.reference.trim().is_empty();
+                    date::deadline_input(
+                        ui,
+                        "template-due",
+                        &mut form.due,
+                        &mut form.due_time,
+                        today,
+                        case,
+                        Some(label.id),
+                    );
                     ui.end_row();
                     ui.label(text::OWNER);
                     person_choice(ui, "template-owner", &mut form.owner, &people);

@@ -19,8 +19,9 @@ mod queries {
         (session, ids)
     }
 
-    fn today() -> jiff::civil::Date {
-        "2026-10-14".parse().unwrap()
+    /// Midnight at the start of the sample's "today" (local time).
+    fn today() -> jiff::civil::DateTime {
+        "2026-10-14T00:00".parse().unwrap()
     }
 
     #[test]
@@ -39,7 +40,8 @@ mod queries {
             ["SKA 23/1234 Sirenenwarnung", "Digitalfunk Umrüstung Wachen"]
         );
         let project = cards.iter().find(|c| c.id == ids.project).unwrap();
-        assert_eq!(project.overdue_tasks, 1);
+        // The missed milestone is a task now and counts as overdue too.
+        assert_eq!(project.overdue_tasks, 2);
         assert_eq!(project.days_left, Some(62));
         let next = project.next_milestone.as_ref().unwrap();
         assert_eq!(
@@ -90,8 +92,7 @@ mod queries {
             titles,
             [("Ausschreibung vorbereiten", 4), ("Zuschlag erteilt", 2)]
         );
-        assert!(matches!(items[0].entity, EntityKey::Task(_)));
-        assert!(matches!(items[1].entity, EntityKey::Milestone(_)));
+        assert!(items.iter().all(|i| matches!(i.entity, EntityKey::Task(_))));
     }
 
     #[test]
@@ -110,7 +111,9 @@ mod queries {
             [
                 "Vergabevermerk",
                 "Einbau Wache 11",
-                "Schulung Einsatzkräfte"
+                "Schulung Einsatzkräfte",
+                "Zuschlag erteilt",
+                "Inbetriebnahme",
             ]
         );
         let tender = &board.columns[1].tasks[0];
@@ -153,7 +156,8 @@ mod queries {
             .iter()
             .map(|g| (g.group.as_str(), g.tasks.len()))
             .collect();
-        assert_eq!(groups, [("todo", 3), ("in_progress", 1), ("done", 2)]);
+        // Three tasks and two milestones are open.
+        assert_eq!(groups, [("todo", 5), ("in_progress", 1), ("done", 2)]);
         let found = query::tasks(
             ws,
             &TaskQuery {
@@ -214,7 +218,8 @@ mod queries {
             today(),
         );
         assert!(all[0].tasks.iter().all(|t| t.project != ids.template));
-        assert_eq!(all[0].tasks.len(), 10);
+        // Ten tasks and three milestones (two in the project, one in the case).
+        assert_eq!(all[0].tasks.len(), 13);
         let template = query::tasks(
             s.workspace(),
             &TaskQuery {
@@ -223,7 +228,8 @@ mod queries {
             },
             today(),
         );
-        assert_eq!(template[0].tasks.len(), 4);
+        // Four tasks and the milestone "Abgabe Senatskanzlei".
+        assert_eq!(template[0].tasks.len(), 5);
         s.run(
             "project.archive",
             &json!({"project": ids.case.to_string()}),
@@ -419,5 +425,60 @@ mod queries {
         );
         let case = json!({"project": ids.case.to_string()});
         insta::assert_json_snapshot!("case", snapshot_value(&s, "project", case));
+    }
+}
+
+#[cfg(test)]
+mod deadline_times {
+    use plnwrk_core::{FixedClock, SequentialIds};
+    use plnwrk_engine::query::{self, is_past};
+    use plnwrk_engine::{Origin, Session};
+    use serde_json::json;
+
+    fn at(time: &str) -> jiff::civil::DateTime {
+        format!("2026-10-14T{time}").parse().unwrap()
+    }
+
+    #[test]
+    fn a_deadline_with_a_time_passes_at_that_minute_one_without_at_midnight() {
+        let day: jiff::civil::Date = "2026-10-14".parse().unwrap();
+        let two = Some("14:00".parse().unwrap());
+        assert!(!is_past(day, two, at("13:59")));
+        assert!(!is_past(day, two, at("14:00")));
+        assert!(is_past(day, two, at("14:01")));
+        assert!(!is_past(day, None, at("23:59")));
+        assert!(is_past(day, None, "2026-10-15T00:00".parse().unwrap()));
+    }
+
+    #[test]
+    fn the_overdue_list_follows_the_time_of_day() {
+        let clock = FixedClock::at("2026-10-14")
+            .unwrap()
+            .at_time("13:00")
+            .unwrap();
+        let mut s = Session::new(Box::new(clock), Box::new(SequentialIds::default()));
+        let created = s
+            .run("project.create", &json!({"title": "P"}), Origin::User)
+            .unwrap()
+            .created;
+        let Some(plnwrk_core::EntityKey::Project(p)) = created.first().copied() else {
+            panic!("{created:?}");
+        };
+        s.run(
+            "task.create",
+            &json!({"project": p.to_string(), "title": "Bis 14 Uhr", "due": "2026-10-14T14:00"}),
+            Origin::User,
+        )
+        .unwrap();
+        assert!(query::overdue(s.workspace(), at("13:59")).is_empty());
+        let late = query::overdue(s.workspace(), at("14:01"));
+        assert_eq!(late.len(), 1);
+        assert_eq!(
+            late[0].due_time.map(|t| t.to_string()).as_deref(),
+            Some("14:00:00")
+        );
+        // The query through the session uses the clock: 13:00, not yet overdue.
+        let through_session = s.query("overdue", &json!({})).unwrap();
+        assert_eq!(through_session, json!([]));
     }
 }

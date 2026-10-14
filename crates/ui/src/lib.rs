@@ -407,9 +407,9 @@ impl PlnwrkApp {
     }
 
     fn replace(&mut self, doc: OpenDoc) {
+        self.state.message = doc.upgraded.then(|| Message::info(text::UPGRADED));
         self.doc = Some(doc);
         self.state.reset_views();
-        self.state.message = None;
     }
 
     /// Whether this path is the file that is open now.
