@@ -173,13 +173,16 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
         ui.label(text::WELCOME);
         ui.weak(format!("Version {}", env!("CARGO_PKG_VERSION")));
         ui.add_space(16.0);
-        if ui.button(text::NEW_FILE).clicked() {
+        let big = |label: &str| {
+            egui::Button::new(RichText::new(label).size(16.0)).min_size(egui::vec2(220.0, 34.0))
+        };
+        if ui.add(big(text::NEW_FILE)).clicked() {
             out.push(Intent::File(FileAction::New));
         }
-        if ui.button(text::OPEN_FILE).clicked() {
+        if ui.add(big(text::OPEN_FILE)).clicked() {
             out.push(Intent::File(FileAction::Open));
         }
-        if ui.button(text::OPEN_SAMPLE).clicked() {
+        if ui.add(big(text::OPEN_SAMPLE)).clicked() {
             out.push(Intent::File(FileAction::Sample));
         }
         if !state.recent.is_empty() {

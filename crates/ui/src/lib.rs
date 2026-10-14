@@ -107,6 +107,8 @@ pub struct PlnwrkApp {
     doc: Option<OpenDoc>,
     host: Box<dyn Host>,
     state: State,
+    /// The window title last sent, so it is only sent when it changes.
+    shown_title: String,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -141,6 +143,7 @@ impl PlnwrkApp {
             doc: None,
             host,
             state: State::default(),
+            shown_title: String::new(),
         }
     }
 
@@ -395,7 +398,11 @@ impl eframe::App for PlnwrkApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         self.show(ui);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
+        let title = self.title();
+        if title != self.shown_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.shown_title = title;
+        }
         if self.state.quitting {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

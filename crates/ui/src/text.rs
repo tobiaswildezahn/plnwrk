@@ -87,7 +87,7 @@ pub const UNSAVED_TITLE: &str = "Ungespeicherte Änderungen";
 pub const UNSAVED_QUESTION: &str = "Die Änderungen sind noch nicht gespeichert.";
 pub const DISCARD: &str = "Verwerfen";
 pub const SAVED: &str = "Gespeichert.";
-pub const NOT_SAVED: &str = "● ungespeichert";
+pub const NOT_SAVED: &str = "• ungespeichert";
 
 pub const VS_NFD: &str = "VS – NUR FÜR DEN DIENSTGEBRAUCH";
 

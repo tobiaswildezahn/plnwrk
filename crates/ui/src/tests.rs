@@ -377,3 +377,22 @@ fn cards_move_on_the_board_by_drag_and_drop() {
         TaskStatus::Todo
     );
 }
+
+#[test]
+fn a_click_on_a_board_card_opens_its_details() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    click(&mut harness, text::BOARD);
+    let id = task_named(harness.state(), "Kisten").unwrap().id;
+    // Click on the card body below the title, like a person would.
+    let card = harness.get_by_label("Kisten").rect();
+    let below = egui::pos2(card.center().x, card.bottom() + 8.0);
+    harness.hover_at(below);
+    harness.run();
+    harness.drag_at(below);
+    harness.run();
+    harness.drop_at(below);
+    harness.run();
+    assert_eq!(harness.state().state.selected, Some(id));
+    assert!(harness.query_by_label(text::DELETE_TASK).is_some());
+}

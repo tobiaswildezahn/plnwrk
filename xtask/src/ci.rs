@@ -35,18 +35,18 @@ fn cargo_bin() -> OsString {
     std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))
 }
 
-fn root() -> PathBuf {
+pub(crate) fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn step(name: &str) {
+pub(crate) fn step(name: &str) {
     eprintln!("\n== {name}");
 }
 
-fn cargo<S: AsRef<str>>(args: &[S]) -> Result<(), String> {
+pub(crate) fn cargo<S: AsRef<str>>(args: &[S]) -> Result<(), String> {
     let args: Vec<&str> = args.iter().map(AsRef::as_ref).collect();
     let status = Command::new(cargo_bin())
         .args(&args)

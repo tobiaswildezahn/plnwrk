@@ -118,7 +118,7 @@ fn project_card(
             ui.weak(facts.join(" · "));
             if let Some(milestone) = &card.next_milestone {
                 ui.weak(format!(
-                    "◆ {} {} ({})",
+                    "♦ {} {} ({})",
                     dates::format(milestone.date),
                     milestone.title,
                     text::milestone_state(milestone.state)

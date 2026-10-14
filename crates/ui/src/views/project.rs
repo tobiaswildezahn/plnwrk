@@ -298,7 +298,7 @@ fn list(
                             clear: Some(Clear::NewSubtask),
                         });
                     }
-                    cancel = ui.small_button("✕").on_hover_text(text::CANCEL).clicked();
+                    cancel = ui.small_button("🗙").on_hover_text(text::CANCEL).clicked();
                 });
             }
             if cancel {
@@ -360,7 +360,7 @@ fn milestones(
                 }
                 ui.label(dates::format(milestone.date));
                 let label = RichText::new(format!(
-                    "◆ {} ({})",
+                    "♦ {} ({})",
                     milestone.title,
                     text::milestone_state(state_now)
                 ));

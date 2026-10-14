@@ -81,6 +81,16 @@ pub fn show(
                                     card_ui(ui, card, state.selected == Some(card.id), out);
                                 })
                                 .response;
+                            // The whole card selects on click; dragging stays with the
+                            // drag source (egui routes clicks and drags separately).
+                            let click = ui.interact(
+                                response.rect,
+                                Id::new(("card-click", card.id)),
+                                egui::Sense::click(),
+                            );
+                            if click.clicked() {
+                                out.push(Intent::Select(Some(card.id)));
+                            }
                             rects.push((card.id, response.rect));
                         }
                     });

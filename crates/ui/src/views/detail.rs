@@ -40,12 +40,12 @@ pub fn panel(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if let Some(parent) = task.parent.and_then(|p| ws.task(p))
-                        && ui.link(format!("↑ {}", parent.title)).clicked()
+                        && ui.link(format!("Teil von: {}", parent.title)).clicked()
                     {
                         out.push(Intent::Select(Some(parent.id)));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✕").on_hover_text(text::CLOSE).clicked() {
+                        if ui.button("🗙").on_hover_text(text::CLOSE).clicked() {
                             out.push(Intent::Select(None));
                         }
                     });
