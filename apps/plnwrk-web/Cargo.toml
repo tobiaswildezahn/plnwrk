@@ -16,7 +16,7 @@ plnwrk-ui.workspace = true
 log.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
-web-sys = { workspace = true, features = ["Window", "Document", "HtmlCanvasElement"] }
+web-sys = { workspace = true, features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
 
 [lints]
 workspace = true

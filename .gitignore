@@ -2,4 +2,3 @@ target/
 dist/
 *.plnwrk
 .DS_Store
-dist/

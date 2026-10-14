@@ -1,11 +1,30 @@
-//! plnwrk command line. Phase 0: prints its version.
+//! plnwrk command line. Phase 0: `--version`.
 
 use std::io::Write as _;
+use std::process::ExitCode;
 
-fn main() -> std::process::ExitCode {
-    let mut out = std::io::stdout().lock();
-    match writeln!(out, "plnwrk-cli {}", env!("CARGO_PKG_VERSION")) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(_) => std::process::ExitCode::FAILURE,
+const USAGE: &str = "usage: plnwrk-cli --version";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (text, code) = match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        ["--version" | "-V"] => (
+            format!("plnwrk-cli {}", env!("CARGO_PKG_VERSION")),
+            ExitCode::SUCCESS,
+        ),
+        ["--help" | "-h"] => (USAGE.to_owned(), ExitCode::SUCCESS),
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match writeln!(std::io::stdout().lock(), "{text}") {
+        Ok(()) => code,
+        Err(_) => ExitCode::FAILURE,
     }
 }

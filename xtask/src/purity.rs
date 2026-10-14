@@ -5,27 +5,46 @@ use std::path::Path;
 /// Source folders that must stay pure.
 pub const PURE_CRATES: &[&str] = &["crates/core/src", "crates/engine/src"];
 
+/// Text patterns as a backstop. The precise check is clippy's `disallowed-methods` /
+/// `disallowed-types` in `crates/{core,engine}/clippy.toml`, which sees through renamed imports.
 const FORBIDDEN: &[(&str, &str)] = &[
     ("std::fs", "file system"),
     ("std::net", "network"),
     ("std::process", "processes"),
     ("std::env", "environment"),
     ("std::thread", "threads"),
+    ("std::{", "grouped std import (list the items one per line)"),
+    ("fs,", "file system"),
+    ("stdin", "standard input"),
     ("SystemTime", "wall clock"),
     ("Instant::now", "clock"),
+    ("Timestamp::now", "clock"),
+    ("Zoned::now", "clock"),
     ("rand::", "randomness"),
+    ("getrandom", "randomness"),
+    ("HashMap", "random iteration order (use BTreeMap)"),
+    ("HashSet", "random iteration order (use BTreeSet)"),
+    ("include_str!", "file contents"),
+    ("include_bytes!", "file contents"),
 ];
 
 /// Reports every line of `contents` that reaches the outside world. Comment lines are skipped
 /// so documentation may name what is forbidden.
+/// `pattern` occurs in `code` and is not glued to a preceding identifier character.
+fn contains_word(code: &str, pattern: &str) -> bool {
+    code.match_indices(pattern).any(|(at, _)| {
+        code.get(..at)
+            .and_then(|before| before.chars().next_back())
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_'))
+    })
+}
+
 pub fn scan(path: &Path, contents: &str) -> Vec<String> {
     let mut found = Vec::new();
     for (index, line) in contents.lines().enumerate() {
-        if line.trim_start().starts_with("//") {
-            continue;
-        }
+        let code = line.split("//").next().unwrap_or_default();
         for (pattern, what) in FORBIDDEN {
-            if line.contains(pattern) {
+            if contains_word(code, pattern) {
                 found.push(format!(
                     "{}:{}: {what} ({pattern}) is not allowed in a pure crate",
                     path.display(),
@@ -84,6 +103,35 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn grouped_imports_and_other_clocks_are_reported() {
+        for bad in [
+            "use std::{env, fs};",
+            "    fs,",
+            "let t = jiff::Timestamp::now();",
+            "let z = Zoned::now();",
+            "getrandom::fill(&mut buf)",
+            "let m: HashMap<u8, u8> = HashMap::new();",
+            "let s = std::io::stdin();",
+            "include_str!(\"/etc/hosts\")",
+        ] {
+            assert!(!scan(Path::new("x.rs"), bad).is_empty(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn patterns_match_whole_words_only() {
+        assert!(scan(Path::new("x.rs"), "let (refs, x) = pair;").is_empty());
+        assert!(scan(Path::new("x.rs"), "let my_stdin_like = 1;").is_empty());
+        assert_eq!(scan(Path::new("x.rs"), "io::stdin()").len(), 1);
+        assert!(scan(Path::new("x.rs"), "brand::new()").is_empty());
+    }
+
+    #[test]
+    fn trailing_comments_are_ignored() {
+        assert!(scan(Path::new("x.rs"), "let a = 1; // not std::fs").is_empty());
     }
 
     #[test]

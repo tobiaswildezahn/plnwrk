@@ -30,14 +30,23 @@ web-sys = "0.3"
 unsafe_code = "forbid"
 
 [workspace.lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
-unimplemented = "deny"
-indexing_slicing = "deny"
+# Never crash (docs/PLAN.md §2). `forbid` cannot be switched off with `#[allow]`; tests are
+# exempt through clippy.toml. `cargo xtask ci` also passes these as -F flags, so they hold for
+# every crate even if its manifest forgets `[lints] workspace = true`.
+unwrap_used = "forbid"
+expect_used = "forbid"
+panic = "forbid"
+indexing_slicing = "forbid"
+string_slice = "forbid"
+unreachable = "forbid"
+todo = "forbid"
+unimplemented = "forbid"
+exit = "forbid"
+disallowed_methods = "forbid"
+disallowed_types = "forbid"
 dbg_macro = "deny"
-print_stdout = "warn"
+print_stdout = "deny"
+allow_attributes_without_reason = "deny"
 
 [profile.release]
 lto = "thin"

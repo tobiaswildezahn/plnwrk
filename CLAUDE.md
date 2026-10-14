@@ -24,8 +24,12 @@ cargo run -p plnwrk                     # Desktop-App
 cd apps/plnwrk-web && trunk serve       # Browser-Version
 ```
 
-- Neuer Crate → Eintrag in der Schichttabelle `xtask/src/layers.rs`; falls er im Browser laufen
-  muss, auch in `WASM_CRATES` (`xtask/src/ci.rs`).
+- Neuer Crate → Eintrag in der Schichttabelle `xtask/src/layers.rs`. Jeder Crate wird für
+  wasm32 geprüft, außer er steht in `NATIVE_ONLY` (`xtask/src/ci.rs`).
+- core/engine: neue externe Abhängigkeit nur nach Eintrag in `PURE_EXTERNAL`
+  (`xtask/src/layers.rs`); verbotene Aufrufe stehen in `crates/{core,engine}/clippy.toml`.
+- Absturz-Lints sind `forbid`: `#[allow]` hilft nicht. Lösung ist immer echte Fehlerbehandlung.
+- Jedes `#[allow]`/`#[expect]` braucht `reason = "…"`.
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar (siehe `crates/ui`).
 - egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),
