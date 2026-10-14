@@ -21,8 +21,8 @@ pub mod file;
 use std::collections::BTreeMap;
 
 pub use age::secrecy::SecretString;
-use plnwrk_core::{Classification, Workspace};
-use plnwrk_engine::Change;
+use plnwrk_core::{Classification, Clock, IdSource, Workspace};
+use plnwrk_engine::{Change, Session};
 
 pub use container::Limits;
 use container::Packing;
@@ -43,6 +43,21 @@ pub struct Document {
     pub workspace: Workspace,
     /// Every change that led to it, oldest first.
     pub log: Vec<Change>,
+}
+
+impl Document {
+    /// The data and history of a session, e.g. to save it.
+    pub fn from_session(session: &Session) -> Self {
+        Self {
+            workspace: session.workspace().clone(),
+            log: session.log().to_vec(),
+        }
+    }
+
+    /// A session that continues this document with the given clock and ids. Undo starts empty.
+    pub fn into_session(self, clock: Box<dyn Clock>, ids: Box<dyn IdSource>) -> Session {
+        Session::with_workspace(self.workspace, self.log, clock, ids)
+    }
 }
 
 /// How a file is protected.

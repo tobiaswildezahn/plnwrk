@@ -22,10 +22,24 @@ mod store {
     fn sample_doc() -> Document {
         let mut session = Session::new(clock(), Box::new(SequentialIds::default()));
         sample(&mut session).unwrap();
-        Document {
-            workspace: session.workspace().clone(),
-            log: session.log().to_vec(),
-        }
+        Document::from_session(&session)
+    }
+
+    #[test]
+    fn a_document_continues_as_a_session() {
+        let doc = sample_doc();
+        let mut session = doc
+            .clone()
+            .into_session(clock(), Box::new(SequentialIds::starting_at(1_000_000)));
+        assert_eq!(session.workspace(), &doc.workspace);
+        assert_eq!(session.log(), doc.log.as_slice());
+        session
+            .run("person.create", &json!({"name": "Neu"}), Origin::User)
+            .unwrap();
+        let next = Document::from_session(&session);
+        assert_eq!(next.log.len(), doc.log.len() + 1);
+        assert_eq!(next.log.get(..doc.log.len()), Some(doc.log.as_slice()));
+        assert!(load(&save(&next, &Protection::None).unwrap(), None).is_ok());
     }
 
     fn pass(text: &str) -> SecretString {

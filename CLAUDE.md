@@ -24,7 +24,8 @@ cargo xtask layers | purity             # Einzelprüfungen
 cargo run -p plnwrk-cli -- demo         # Beispiel-Arbeitsbereich als JSON
 cargo run -p plnwrk-cli -- new a.plnwrk --sample   # Datei anlegen (run/query/verify/export/encrypt)
 cargo run -p plnwrk-cli -- commands     # alle Befehle mit JSON-Schema
-cargo run -p plnwrk                     # Desktop-App
+cargo run -p plnwrk                     # Desktop-App (Entwicklung)
+cargo xtask app                         # Release-Build + target/plnwrk.app (Doppelklick)
 cd apps/plnwrk-web && trunk serve       # Browser-Version
 ```
 
@@ -47,7 +48,13 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   passen Muster oft nicht mehr) und Testbehauptungen per Mutationsprobe belegen.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
-- UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar (siehe `crates/ui`).
+- UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar: `crates/ui/src/tests.rs`
+  klickt und tippt mit **egui_kittest** über den Barrierefreiheitsbaum. Eingabefelder darum
+  immer per `.labelled_by(label.id)` mit ihrer Beschriftung verknüpfen (hilft Screenreadern
+  und Tests). Ansichten ändern nie Daten selbst, sondern legen `Intent`s ab.
+- UI-Texte gehören nach `crates/ui/src/text.rs` (einige Dialog-Hinweise stehen noch direkt in
+  den Ansichten; sie ziehen mit der Übersetzung in 3b um). Nur Zeichen verwenden, die die eingebauten Schriften
+  haben (Ubuntu-Light, NotoEmoji, emoji-icon-font) – z. B. ♦ • 🗙 statt ◆ ● ✕.
 - egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),
   Panels mit `.show(ui, …)`; Tests ohne Fenster müssen `output.textures_delta.clear()` aufrufen.
 - Browser-Vorschau im Claude-Desktop: Eintrag `plnwrk-web` in `~/.claude/launch.json` (Port 8087).
@@ -56,7 +63,8 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 
 1. Phasenplan unter `docs/plans/` lesen oder (nach Freigabe) anlegen.
 2. Kleine Commits: `<crate>: <was>` (z. B. `engine: add task.move command`).
-3. Branch je Phase, Merge nur mit grüner CI.
+3. Branch je Phase, Merge nur mit grüner CI. Windows-CI läuft nur vor dem Merge: Label `merge`
+   an den PR (`gh pr edit <nr> --add-label merge`), grün abwarten, dann mergen.
 4. Phasenende: Demo-Schritt für Tobi (kein Rust-Wissen voraussetzen) und Status in PLAN.md §9.
 
 ## Der Mensch im Projekt

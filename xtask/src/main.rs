@@ -1,5 +1,7 @@
-//! Project tooling: `cargo xtask ci` runs every quality gate of docs/PLAN.md §2.
+//! Project tooling: `cargo xtask ci` runs every quality gate of docs/PLAN.md §2;
+//! `cargo xtask app` builds the desktop app for use.
 
+mod app;
 mod ci;
 mod layers;
 mod purity;
@@ -10,9 +12,10 @@ fn main() -> ExitCode {
     let task = std::env::args().nth(1).unwrap_or_default();
     let result = match task.as_str() {
         "ci" => ci::all(),
+        "app" => app::build(),
         "layers" => ci::layers(),
         "purity" => ci::purity(),
-        _ => Err("usage: cargo xtask <ci|layers|purity>".to_owned()),
+        _ => Err("usage: cargo xtask <ci|layers|purity|app>".to_owned()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -10,6 +10,7 @@ pub const LAYERS: &[(&str, u8)] = &[
     ("plnwrk-engine", 1),
     ("plnwrk-store", 2),
     ("plnwrk-schedule", 2),
+    ("plnwrk-platform", 2),
     ("plnwrk-assistant", 3),
     ("plnwrk-mcp", 3),
     ("plnwrk-ui", 4),
