@@ -62,7 +62,11 @@ impl Calendar {
                     .filter_map(|(month, day)| Date::new(year, month, day).ok())
                     .collect();
                 if let Some(easter) = easter(year) {
-                    days.extend([-2, 1, 39, 50].into_iter().map(|offset| plus(easter, offset)));
+                    days.extend(
+                        [-2, 1, 39, 50]
+                            .into_iter()
+                            .map(|offset| plus(easter, offset)),
+                    );
                 }
                 days.sort();
                 days.dedup();
