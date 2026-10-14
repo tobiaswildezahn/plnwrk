@@ -92,6 +92,27 @@ impl OpenDoc {
         Ok(doc)
     }
 
+    /// A file uploaded in the browser: named like the file, without a path. An encrypted file
+    /// without passphrase gives [`StoreError::PassphraseRequired`].
+    pub fn from_upload(
+        name: &str,
+        bytes: &[u8],
+        passphrase: Option<SecretString>,
+    ) -> Result<Self, StoreError> {
+        if plnwrk_store::peek(bytes)?.encrypted && passphrase.is_none() {
+            return Err(StoreError::PassphraseRequired);
+        }
+        let mut doc = Self::from_bytes(bytes, passphrase)?;
+        doc.title = Some(stem(name));
+        Ok(doc)
+    }
+
+    /// The file was saved somewhere else (downloaded in the browser): nothing is unsaved now.
+    pub fn mark_saved(&mut self) {
+        self.saved = self.session.log().len();
+        self.protection_changed = false;
+    }
+
     /// The file it lives in.
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
@@ -148,6 +169,19 @@ impl OpenDoc {
     /// The bytes of the file as it would be saved now.
     pub fn to_bytes(&self) -> Result<Vec<u8>, StoreError> {
         plnwrk_store::save(&Document::from_session(&self.session), &self.protection)
+    }
+}
+
+/// A file name without folder and `.plnwrk` (or any other extension).
+pub fn stem(name: &str) -> String {
+    let file = Path::new(name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if file.trim().is_empty() {
+        text::t().untitled.to_owned()
+    } else {
+        file
     }
 }
 

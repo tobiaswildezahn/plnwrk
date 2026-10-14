@@ -233,6 +233,8 @@ pub struct Texts {
     pub no_file_chosen: &'static str,
     pub not_a_file_name: &'static str,
     pub more_results: &'static str,
+    pub downloaded: &'static str,
+    pub download_failed: &'static str,
     /// Suggestions for the kind of a project.
     pub kinds: [&'static str; 2],
     /// Names of the months, January first.
@@ -394,6 +396,8 @@ pub static DE: Texts = Texts {
     no_file_chosen: "Noch keine Datei gewählt.",
     not_a_file_name: "Das ist kein Dateiname:",
     more_results: "… weitere Treffer: Suche genauer eingeben.",
+    downloaded: "Heruntergeladen – die Datei liegt im Download-Ordner:",
+    download_failed: "Herunterladen nicht möglich:",
     kinds: ["Projekt", "Vorgang"],
     months: [
         "Januar",
@@ -565,6 +569,8 @@ pub static EN: Texts = Texts {
     no_file_chosen: "No file chosen yet.",
     not_a_file_name: "This is not a file name:",
     more_results: "… more results: narrow the search.",
+    downloaded: "Downloaded – the file is in the downloads folder:",
+    download_failed: "Download not possible:",
     kinds: ["Project", "Case"],
     months: [
         "January",

@@ -36,6 +36,23 @@ pub enum Tab {
     Milestones,
 }
 
+/// Where a file to open comes from: a path (desktop) or an upload (browser).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileSource {
+    Path(PathBuf),
+    Upload(crate::host::Upload),
+}
+
+impl FileSource {
+    /// How it is named for people: the path, or the file name.
+    pub fn label(&self) -> String {
+        match self {
+            Self::Path(path) => path.display().to_string(),
+            Self::Upload(upload) => upload.name.clone(),
+        }
+    }
+}
+
 /// Something to do with the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileAction {
@@ -43,6 +60,8 @@ pub enum FileAction {
     Sample,
     Open,
     OpenPath(PathBuf),
+    /// A file chosen in the browser.
+    Upload(crate::host::Upload),
     Save,
     SaveAs,
     Close,
@@ -54,7 +73,13 @@ impl FileAction {
     pub const fn replaces_doc(&self) -> bool {
         matches!(
             self,
-            Self::New | Self::Sample | Self::Open | Self::OpenPath(_) | Self::Close | Self::Quit
+            Self::New
+                | Self::Sample
+                | Self::Open
+                | Self::OpenPath(_)
+                | Self::Upload(_)
+                | Self::Close
+                | Self::Quit
         )
     }
 }
@@ -67,7 +92,7 @@ pub enum Dialog {
     /// Create a project or case from a template.
     FromTemplate(TemplateForm),
     /// Ask for the passphrase of an encrypted file.
-    Passphrase { path: PathBuf, text: String },
+    Passphrase { source: FileSource, text: String },
     /// Unsaved changes would be lost by this action.
     Unsaved(FileAction),
     /// Confirm deleting a task.
@@ -451,6 +476,8 @@ pub struct State {
     pub theme: egui::ThemePreference,
     /// The field for a new task takes the cursor in the next frame.
     pub focus_new_task: bool,
+    /// Files are uploaded and downloaded (the browser).
+    pub browser: bool,
 }
 
 impl State {

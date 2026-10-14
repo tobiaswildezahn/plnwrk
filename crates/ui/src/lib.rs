@@ -28,8 +28,8 @@ use plnwrk_store::{SecretString, StoreError};
 use serde_json::Value;
 
 pub use doc::OpenDoc;
-pub use host::{Host, NoDialogs};
-use state::{Dialog, FileAction, Message, State, Tab, View};
+pub use host::{Host, NoDialogs, Upload};
+use state::{Dialog, FileAction, FileSource, Message, State, Tab, View};
 
 /// Name shown in the window title and the app header.
 pub const APP_NAME: &str = "plnwrk";
@@ -96,7 +96,7 @@ pub(crate) enum Intent {
     /// A file action (new, open, save …).
     File(FileAction),
     /// Open an encrypted file with this passphrase.
-    Unlock(PathBuf, SecretString),
+    Unlock(FileSource, SecretString),
     /// Save first, then carry out the action.
     SaveThen(FileAction),
     /// Carry out the action and drop unsaved changes.
@@ -141,6 +141,8 @@ pub struct PlnwrkApp {
     state: State,
     /// The window title last sent, so it is only sent when it changes.
     shown_title: String,
+    /// Whether the browser was last told to ask before leaving the page.
+    leave_warning: bool,
     /// Recovery copies of the open workspace.
     autosave: autosave::Autosave,
 }
@@ -178,9 +180,13 @@ impl PlnwrkApp {
     pub fn with_host(host: Box<dyn Host>) -> Self {
         Self {
             doc: None,
+            state: State {
+                browser: host.browser(),
+                ..State::default()
+            },
             host,
-            state: State::default(),
             shown_title: String::new(),
+            leave_warning: false,
             autosave: autosave::Autosave::default(),
         }
     }
@@ -408,6 +414,10 @@ impl PlnwrkApp {
     /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
         text::set_language(self.state.language);
+        // A file chosen in the browser arrives some frames after it was asked for.
+        if let Some(upload) = self.host.uploaded() {
+            self.file(FileAction::Upload(upload));
+        }
         if ui.ctx().options(|o| o.theme_preference) != self.state.theme {
             ui.ctx().set_theme(self.state.theme);
         }
@@ -421,6 +431,11 @@ impl PlnwrkApp {
             self.apply(intent);
         }
         self.autosave_tick(ui.ctx());
+        let unsaved = self.has_unsaved_changes();
+        if unsaved != self.leave_warning {
+            self.host.set_leave_warning(unsaved);
+            self.leave_warning = unsaved;
+        }
     }
 
     /// Lets the autosave write when due, and wakes the app up again when the next copy is due –
@@ -492,9 +507,9 @@ impl PlnwrkApp {
             Intent::Open(dialog) => self.state.open_dialog(dialog),
             Intent::CloseDialog => self.state.close_dialog(),
             Intent::File(action) => self.file(action),
-            Intent::Unlock(path, secret) => {
+            Intent::Unlock(source, secret) => {
                 self.state.close_dialog();
-                self.open(path, Some(secret));
+                self.open_source(source, Some(secret));
             }
             Intent::SaveThen(action) => {
                 self.state.close_dialog();
@@ -589,10 +604,19 @@ impl PlnwrkApp {
 
     /// Carries out a file action; actions that would drop unsaved changes ask first.
     fn file(&mut self, action: FileAction) {
+        // A browser tab is not quit from inside the page (the browser asks on leaving).
+        if action == FileAction::Quit && self.state.browser {
+            return;
+        }
         let force = std::mem::take(&mut self.state.force);
         // Choose the file first, then ask about unsaved changes – and not at all if it is the
         // file that is already open.
         if action == FileAction::Open {
+            if self.state.browser {
+                // The chosen file comes back through `Host::uploaded`.
+                self.host.request_upload();
+                return;
+            }
             if let Some(path) = self.host.pick_open() {
                 self.state.force = force;
                 self.file(FileAction::OpenPath(path));
@@ -622,6 +646,7 @@ impl PlnwrkApp {
             },
             FileAction::Open => {}
             FileAction::OpenPath(path) => self.open(path, None),
+            FileAction::Upload(upload) => self.open_upload(upload, None),
             FileAction::Save => {
                 self.save(false);
             }
@@ -709,6 +734,44 @@ impl PlnwrkApp {
         self.doc.as_ref().and_then(OpenDoc::path) == Some(path.as_path())
     }
 
+    fn open_source(&mut self, source: FileSource, passphrase: Option<SecretString>) {
+        match source {
+            FileSource::Path(path) => self.open(path, passphrase),
+            FileSource::Upload(upload) => self.open_upload(upload, passphrase),
+        }
+    }
+
+    /// A refused opening: asks (again) for the passphrase, or says what is wrong.
+    fn open_failed(&mut self, source: FileSource, error: StoreError, retry: bool) {
+        match error {
+            StoreError::PassphraseRequired => {
+                self.state.open_dialog(Dialog::Passphrase {
+                    source,
+                    text: String::new(),
+                });
+            }
+            StoreError::WrongPassphrase if retry => {
+                self.state.open_dialog(Dialog::Passphrase {
+                    source,
+                    text: String::new(),
+                });
+                self.state.message = Some(Message::error(text::store_error(
+                    &StoreError::WrongPassphrase,
+                )));
+            }
+            error => self.state.message = Some(Message::error(text::store_error(&error))),
+        }
+    }
+
+    /// Opens a file chosen in the browser.
+    fn open_upload(&mut self, upload: Upload, passphrase: Option<SecretString>) {
+        let retry = passphrase.is_some();
+        match OpenDoc::from_upload(&upload.name, &upload.bytes, passphrase) {
+            Ok(doc) => self.replace(doc),
+            Err(error) => self.open_failed(FileSource::Upload(upload), error, retry),
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: PathBuf, passphrase: Option<SecretString>) {
         let retry = passphrase.is_some();
@@ -735,22 +798,7 @@ impl PlnwrkApp {
                     self.state.message = Some(Message::info(text::t().recovered_opened));
                 }
             }
-            Err(StoreError::PassphraseRequired) => {
-                self.state.open_dialog(Dialog::Passphrase {
-                    path,
-                    text: String::new(),
-                });
-            }
-            Err(StoreError::WrongPassphrase) if retry => {
-                self.state.open_dialog(Dialog::Passphrase {
-                    path,
-                    text: String::new(),
-                });
-                self.state.message = Some(Message::error(text::store_error(
-                    &StoreError::WrongPassphrase,
-                )));
-            }
-            Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
+            Err(error) => self.open_failed(FileSource::Path(path), error, retry),
         }
     }
 
@@ -761,9 +809,47 @@ impl PlnwrkApp {
         })));
     }
 
-    /// Saves (asking for a place if needed or wanted). Returns whether it was saved.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Saves (asking for a place if needed or wanted; in the browser: downloads). Returns
+    /// whether it was saved.
     fn save(&mut self, choose_place: bool) -> bool {
+        if self.state.browser {
+            self.download()
+        } else {
+            self.save_to_file(choose_place)
+        }
+    }
+
+    /// Browser: the file goes to the downloads folder; it counts as saved once the browser
+    /// took it.
+    fn download(&mut self) -> bool {
+        let Some(doc) = &mut self.doc else {
+            return false;
+        };
+        let name = format!("{}.plnwrk", doc.name());
+        let result = doc
+            .to_bytes()
+            .map_err(|e| text::store_error(&e))
+            .and_then(|bytes| self.host.download(&name, &bytes));
+        match result {
+            Ok(()) => {
+                doc.mark_saved();
+                self.autosave.saved();
+                self.state.message =
+                    Some(Message::info(format!("{} {name}", text::t().downloaded)));
+                true
+            }
+            Err(reason) => {
+                self.state.message = Some(Message::error(format!(
+                    "{} {reason}",
+                    text::t().download_failed
+                )));
+                false
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_to_file(&mut self, choose_place: bool) -> bool {
         let Some(doc) = &mut self.doc else {
             return false;
         };
@@ -793,7 +879,7 @@ impl PlnwrkApp {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn save(&mut self, _choose_place: bool) -> bool {
+    fn save_to_file(&mut self, _choose_place: bool) -> bool {
         self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
             reason: text::t().browser_files_later.to_owned(),
         })));

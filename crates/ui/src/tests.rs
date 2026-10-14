@@ -2364,3 +2364,163 @@ fn project_form_dates_follow_a_language_switch() {
         "2026-12-01"
     );
 }
+
+/// An app in the browser, and the log of what its browser saw.
+fn in_browser() -> (Harness<'static, PlnwrkApp>, crate::host::TestBrowser) {
+    let browser = crate::host::TestBrowser::default();
+    let app = PlnwrkApp::with_host(Box::new(browser.clone()));
+    (harness(app), browser)
+}
+
+/// The bytes of a saved file with this workspace.
+fn file_bytes(doc: &crate::OpenDoc) -> Vec<u8> {
+    doc.to_bytes().unwrap()
+}
+
+/// The person chooses this file in the browser's dialog.
+fn choose_upload(
+    harness: &mut Harness<'_, PlnwrkApp>,
+    browser: &crate::host::TestBrowser,
+    name: &str,
+    bytes: Vec<u8>,
+) {
+    browser.0.borrow_mut().upload = Some(crate::Upload {
+        name: name.to_owned(),
+        bytes,
+    });
+    harness.run();
+}
+
+#[test]
+fn the_browser_opens_an_uploaded_file_and_saves_by_download() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().open_file);
+    assert_eq!(
+        browser.0.borrow().upload_requests,
+        1,
+        "the browser asks for a file"
+    );
+    let sample = crate::OpenDoc::sample().unwrap();
+    choose_upload(
+        &mut harness,
+        &browser,
+        "abteilung.plnwrk",
+        file_bytes(&sample),
+    );
+    let app = harness.state();
+    assert_eq!(app.doc().unwrap().name(), "abteilung");
+    assert!(!app.has_unsaved_changes(), "as uploaded");
+    assert!(app.state.recent.is_empty(), "no paths in the browser");
+    assert_eq!(
+        app.doc().unwrap().session.workspace(),
+        sample.session.workspace()
+    );
+
+    palette(&mut harness, "digi");
+    type_into(&mut harness, text::t().new_task_hint, "Funkprobe", true);
+    assert!(harness.state().has_unsaved_changes());
+    assert!(browser.0.borrow().leave_warning, "leaving the page asks");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    let download = browser.0.borrow().downloads.last().cloned().unwrap();
+    assert_eq!(download.name, "abteilung.plnwrk");
+    let saved = crate::OpenDoc::from_bytes(&download.bytes, None).unwrap();
+    assert!(
+        saved
+            .session
+            .workspace()
+            .tasks()
+            .any(|t| t.title == "Funkprobe")
+    );
+    assert!(
+        !harness.state().has_unsaved_changes(),
+        "downloaded counts as saved"
+    );
+    assert!(!browser.0.borrow().leave_warning);
+}
+
+#[test]
+fn a_failed_download_is_not_saved() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().open_sample);
+    browser.0.borrow_mut().download_fails = Some("blockiert".to_owned());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(harness.state().has_unsaved_changes());
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(message.error && message.text.starts_with(text::t().download_failed));
+    assert!(browser.0.borrow().downloads.is_empty());
+}
+
+#[test]
+fn uploading_over_unsaved_work_asks_first() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().open_sample);
+    let mut other = crate::OpenDoc::new();
+    other
+        .session
+        .run(
+            "project.create",
+            &serde_json::json!({"title": "Neu"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    click(&mut harness, text::t().file_menu);
+    click(&mut harness, text::t().open_file);
+    choose_upload(&mut harness, &browser, "neu.plnwrk", file_bytes(&other));
+    assert!(harness.query_by_label(text::t().unsaved_title).is_some());
+    assert!(projects(harness.state()).len() > 1, "nothing replaced yet");
+    click(&mut harness, text::t().discard);
+    assert_eq!(harness.state().doc().unwrap().name(), "neu");
+    assert_eq!(projects(harness.state()).len(), 1);
+}
+
+#[test]
+fn an_encrypted_upload_asks_for_its_passphrase() {
+    let (mut harness, browser) = in_browser();
+    let sample = crate::OpenDoc::sample().unwrap();
+    let (document, _) = sample.snapshot();
+    let secret = plnwrk_store::SecretString::from("richtig-lang-genug".to_owned());
+    let bytes = plnwrk_store::save_with(
+        &document,
+        &plnwrk_store::Protection::Passphrase(secret),
+        plnwrk_store::SaveOptions {
+            work_factor: Some(10),
+        },
+    )
+    .unwrap();
+    choose_upload(&mut harness, &browser, "geheim.plnwrk", bytes);
+    assert!(
+        harness.query_by_label("geheim.plnwrk").is_some(),
+        "the dialog names the file"
+    );
+    let field = harness.get_by(|n| n.role() == egui::accesskit::Role::PasswordInput);
+    field.type_text("falsch-und-lang");
+    harness.run();
+    click(&mut harness, text::t().open);
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(message.error, "wrong passphrase: said, and asked again");
+    let field = harness.get_by(|n| n.role() == egui::accesskit::Role::PasswordInput);
+    field.type_text("richtig-lang-genug");
+    harness.run();
+    click(&mut harness, text::t().open);
+    let app = harness.state();
+    assert_eq!(app.doc().unwrap().name(), "geheim");
+    assert!(app.doc().unwrap().encrypted());
+}
+
+#[test]
+fn the_browser_has_no_quit() {
+    let (mut harness, _browser) = in_browser();
+    click(&mut harness, text::t().open_sample);
+    let offered: Vec<String> =
+        crate::palette::entries(harness.state().doc(), &harness.state().state)
+            .into_iter()
+            .map(|e| e.label)
+            .collect();
+    assert!(!offered.iter().any(|l| l == text::t().quit));
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    assert!(!harness.state().wants_to_quit());
+    assert!(harness.query_by_label(text::t().unsaved_title).is_none());
+}
