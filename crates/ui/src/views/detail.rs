@@ -1,7 +1,9 @@
 //! The detail panel of the selected task: every field, subtasks, comments and history.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use egui::RichText;
-use plnwrk_core::{EntityKey, PersonId, Priority, TaskId, TaskStatus};
+use plnwrk_core::{EntityKey, PersonId, Priority, TaskId, TaskStatus, Workspace};
 use plnwrk_engine::query::{self, Action, TaskIndex};
 use serde_json::{Value, json};
 
@@ -322,9 +324,14 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
             }
         });
     }
+    // Not offered: what it already waits for, and what waits for it (directly or not) – that
+    // would make a circle.
+    let waiting = waiting_for(ws, id);
     let mut candidates: Vec<_> = ws
         .tasks_of(task.project)
-        .filter(|t| t.id != id && !incoming.iter().any(|d| d.from == t.id))
+        .filter(|t| {
+            t.id != id && !waiting.contains(&t.id) && !incoming.iter().any(|d| d.from == t.id)
+        })
         .collect();
     candidates.sort_by(|a, b| a.title.cmp(&b.title));
     if !candidates.is_empty() {
@@ -356,6 +363,24 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
             }
         });
     }
+}
+
+/// Every task that waits for `id`, directly or through others.
+fn waiting_for(ws: &Workspace, id: TaskId) -> BTreeSet<TaskId> {
+    let mut next: BTreeMap<TaskId, Vec<TaskId>> = BTreeMap::new();
+    for dependency in ws.dependencies() {
+        next.entry(dependency.from).or_default().push(dependency.to);
+    }
+    let mut seen = BTreeSet::new();
+    let mut queue = vec![id];
+    while let Some(task) = queue.pop() {
+        for after in next.get(&task).into_iter().flatten() {
+            if seen.insert(*after) {
+                queue.push(*after);
+            }
+        }
+    }
+    seen
 }
 
 fn comments(

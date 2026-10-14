@@ -4,12 +4,13 @@
 //! numbers come from `plnwrk_schedule` (Hamburg working days).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use egui::{Pos2, Rect, RichText, Sense, Shape, Stroke, pos2, vec2};
 use jiff::civil::Date;
 use plnwrk_core::{Project, Task, TaskId, TaskStatus};
 use plnwrk_engine::query::TaskIndex;
-use plnwrk_schedule::{Calendar, Plan, Warning};
+use plnwrk_schedule::{Analysis, Calendar, Item, Plan, Warning};
 
 use crate::doc::OpenDoc;
 use crate::state::State;
@@ -23,7 +24,7 @@ const ROW: f32 = 24.0;
 const LABELS: f32 = 220.0;
 /// Height of the time axis on top.
 const HEADER: f32 = 34.0;
-/// At most this many days are drawn (a plan longer than that is cut at its end).
+/// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
 
 /// Days from `first` to `date` (negative before).
@@ -35,6 +36,64 @@ fn days_from(first: Date, date: Date) -> i32 {
 fn plus(date: Date, days: i32) -> Date {
     date.checked_add(jiff::Span::new().days(days))
         .unwrap_or(date)
+}
+
+/// The plan of a project and what follows from it, worked out once per change of the data.
+struct Worked {
+    /// The open file and the length of its history when it was worked out.
+    key: (String, usize),
+    plan: Plan,
+    analysis: Analysis,
+}
+
+/// The plan and its analysis for `project`, worked out again only when the data has changed
+/// (every change, undo included, adds to the history).
+fn worked(ui: &egui::Ui, doc: &OpenDoc, project: &Project) -> Arc<Worked> {
+    let id = egui::Id::new(("schedule-plan", project.id));
+    let key = (doc.recovery_key().to_owned(), doc.session.log().len());
+    if let Some(kept) = ui.data(|d| d.get_temp::<Arc<Worked>>(id))
+        && kept.key == key
+    {
+        return kept;
+    }
+    let plan = Plan::of(doc.session.workspace(), project.id, Calendar::hamburg());
+    let analysis = plan.analyse();
+    let fresh = Arc::new(Worked {
+        key,
+        plan,
+        analysis,
+    });
+    ui.data_mut(|d| d.insert_temp(id, Arc::clone(&fresh)));
+    fresh
+}
+
+/// The days to draw: the first and how many. Everything, with today, if it fits into
+/// [`MOST_DAYS`]; otherwise from the earliest open task on (but never so early that today falls
+/// out), so old finished work does not push the current work out of view.
+fn window(
+    all: &[(Date, Date)],
+    open: &[(Date, Date)],
+    today: Date,
+    due: Option<Date>,
+) -> Option<(Date, i32)> {
+    let earliest = all.iter().map(|(start, _)| *start).min()?.min(today);
+    let latest = all
+        .iter()
+        .map(|(_, end)| *end)
+        .chain([today])
+        .chain(due)
+        .max()?;
+    let first = if days_from(earliest, latest) + 8 <= MOST_DAYS {
+        earliest
+    } else {
+        open.iter()
+            .map(|(start, _)| *start)
+            .min()
+            .unwrap_or(today)
+            .max(plus(today, -MOST_DAYS / 2))
+    };
+    let first = plus(first, -3);
+    Some((first, (days_from(first, latest) + 6).clamp(1, MOST_DAYS)))
 }
 
 /// The tasks of the project in the order of the list: parents before their subtasks.
@@ -97,8 +156,8 @@ pub fn show(
 ) {
     let ws = doc.session.workspace();
     let calendar = Calendar::hamburg();
-    let plan = Plan::of(ws, project.id, calendar);
-    let analysis = plan.analyse();
+    let worked = worked(ui, doc, project);
+    let (plan, analysis) = (&worked.plan, &worked.analysis);
     let today = doc.session.clock().today();
     let index = TaskIndex::new(ws);
     let rows = rows(&index, project);
@@ -113,22 +172,17 @@ pub fn show(
         .filter(|t| !spans.contains_key(&t.id))
         .collect();
 
-    let (Some(earliest), Some(latest)) = (
-        spans.values().map(|(start, _)| *start).min(),
-        spans.values().map(|(_, end)| *end).max(),
-    ) else {
+    let all: Vec<(Date, Date)> = spans.values().copied().collect();
+    let open: Vec<(Date, Date)> = plan
+        .items()
+        .filter(|item| !item.done)
+        .filter_map(Item::span)
+        .collect();
+    let Some((first, days)) = window(&all, &open, today, project.due) else {
         ui.weak(text::t().no_scheduled);
         unscheduled_list(ui, &unscheduled, out);
         return;
     };
-    let first = plus(earliest, -3);
-    let last = [Some(latest), project.due, Some(today)]
-        .into_iter()
-        .flatten()
-        .filter(|d| days_from(first, *d) < MOST_DAYS)
-        .max()
-        .map_or(latest, |d| plus(d, 5));
-    let days = days_from(first, last).clamp(1, MOST_DAYS);
     ui.weak(text::t().critical_hint);
     ui.add_space(4.0);
 
@@ -151,6 +205,21 @@ pub fn show(
         let visuals = ui.visuals().clone();
         let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * DAY;
         let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
+        // The column with the titles stays at the left edge while scrolling sideways; what
+        // lies under it is hidden and cannot be dragged.
+        let left = ui.clip_rect().left().max(area.left());
+        let chart = Rect::from_min_max(pos2(left + LABELS - 6.0, area.top()), area.max);
+        let bar_of = |milestone: bool, (start, end): (Date, Date), y: f32| {
+            if milestone {
+                let center = pos2(x_of(end) + DAY / 2.0, y + ROW / 2.0);
+                Rect::from_center_size(center, vec2(14.0, 14.0))
+            } else {
+                Rect::from_min_max(
+                    pos2(x_of(start) + 1.0, y + 5.0),
+                    pos2(x_of(end) + DAY - 1.0, y + ROW - 5.0),
+                )
+            }
+        };
 
         // Days off, weeks, today, the project's deadline.
         for n in 0..days {
@@ -227,17 +296,17 @@ pub fn show(
                 continue;
             };
             let critical = analysis.critical.contains(&task.id);
-            let bar = if task.milestone {
-                let center = pos2(x_of(end) + DAY / 2.0, y + ROW / 2.0);
-                Rect::from_center_size(center, vec2(14.0, 14.0))
-            } else {
-                Rect::from_min_max(
-                    pos2(x_of(start) + 1.0, y + 5.0),
-                    pos2(x_of(end) + DAY - 1.0, y + ROW - 5.0),
-                )
-            };
-            let response =
-                ui.interact(bar, ui.id().with(("bar", task.id)), Sense::click_and_drag());
+            let bar = bar_of(task.milestone, (start, end), y);
+            boxes.insert(task.id, bar);
+            let visible = bar.intersect(chart);
+            if visible.width() <= 0.0 || visible.height() <= 0.0 {
+                continue;
+            }
+            let response = ui.interact(
+                visible,
+                ui.id().with(("bar", task.id)),
+                Sense::click_and_drag(),
+            );
             // While dragged: shown where it would land, whole days. Kept between frames:
             // when the button is released, egui no longer knows where the drag began.
             let kept = response.id.with("shift");
@@ -258,7 +327,23 @@ pub fn show(
             if response.drag_stopped() {
                 ui.data_mut(|d| d.remove::<i32>(kept));
             }
-            let shown = bar.translate(vec2(shift as f32 * DAY, 0.0));
+            // Where it would land: the same working days as when it is dropped.
+            let shown = if shift == 0 {
+                bar
+            } else {
+                plan.shifted(task.id, plus(start, shift))
+                    .and_then(|m| {
+                        Item {
+                            id: task.id,
+                            start: m.start,
+                            due: m.due,
+                            milestone: task.milestone,
+                            done: false,
+                        }
+                        .span()
+                    })
+                    .map_or(bar, |span| bar_of(task.milestone, span, y))
+            };
             let fill = if task.status == TaskStatus::Done {
                 visuals.widgets.inactive.bg_fill
             } else if critical {
@@ -278,7 +363,6 @@ pub fn show(
             } else {
                 painter.rect_filled(shown, 3.0, fill);
             }
-            boxes.insert(task.id, bar);
             let when = if start == end {
                 dates::format(end)
             } else {
@@ -335,8 +419,7 @@ pub fn show(
             painter.extend(arrow(start, end, Stroke::new(1.2, color)));
         }
 
-        // Titles last, in a column that stays at the left edge while scrolling sideways.
-        let left = ui.clip_rect().left().max(area.left());
+        // Titles last, over the bars; a click chooses the task.
         let column = Rect::from_min_max(
             pos2(left, area.top()),
             pos2(left + LABELS - 6.0, area.bottom()),
@@ -347,6 +430,14 @@ pub fn show(
             let cell = Rect::from_min_max(pos2(left, y), pos2(left + LABELS - 6.0, y + ROW));
             if state.selected == Some(task.id) {
                 painter.rect_filled(cell, 0.0, visuals.selection.bg_fill.gamma_multiply(0.25));
+            }
+            let response = ui.interact(cell, ui.id().with(("title", task.id)), Sense::click());
+            let enabled = ui.is_enabled();
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &task.title)
+            });
+            if response.clicked() {
+                out.push(Intent::Select(Some(task.id)));
             }
             painter.with_clip_rect(cell).text(
                 pos2(left + 4.0 + *depth as f32 * 14.0, y + ROW / 2.0),
@@ -392,4 +483,51 @@ fn unscheduled_list(ui: &mut egui::Ui, tasks: &[&Task], out: &mut Vec<Intent>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn d(text: &str) -> Date {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn everything_is_shown_when_it_fits() {
+        let all = [(d("2026-10-12"), d("2026-10-16"))];
+        let (first, days) = window(&all, &all, d("2026-10-14"), None).unwrap();
+        assert_eq!(first, d("2026-10-09"));
+        assert_eq!(days, days_from(first, d("2026-10-16")) + 6);
+        // Today before a project that starts later: in view too.
+        let (first, _) = window(&all, &all, d("2026-09-01"), None).unwrap();
+        assert_eq!(first, d("2026-08-29"));
+    }
+
+    #[test]
+    fn old_finished_work_does_not_push_today_out() {
+        let all = [
+            (d("2020-01-06"), d("2020-01-10")),
+            (d("2026-10-12"), d("2026-10-16")),
+        ];
+        let open = [(d("2026-10-12"), d("2026-10-16"))];
+        let today = d("2026-10-14");
+        let (first, days) = window(&all, &open, today, None).unwrap();
+        assert_eq!(first, d("2026-10-09"));
+        assert!((0..days).contains(&days_from(first, today)));
+        // An open task from long ago: today still in view.
+        let open = [(d("2020-01-06"), d("2020-01-10"))];
+        let (first, days) = window(&all, &open, today, None).unwrap();
+        assert!((0..days).contains(&days_from(first, today)));
+        assert_eq!(first, plus(today, -MOST_DAYS / 2 - 3));
+        assert!(
+            days_from(first, d("2026-10-16")) < days,
+            "up to the last end"
+        );
+    }
+
+    #[test]
+    fn nothing_scheduled_no_window() {
+        assert_eq!(window(&[], &[], d("2026-10-14"), None), None);
+    }
 }

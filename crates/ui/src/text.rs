@@ -770,6 +770,17 @@ pub fn overdue_tasks(count: usize) -> String {
 }
 
 /// "2 Nachfolger mitverschoben".
+pub fn too_many_moves(count: usize) -> String {
+    pick(
+        format!(
+            "Nicht verschoben: {count} Nachfolger müssten mit, mehr als in einem Schritt geht. Abhängigkeiten lösen oder in Teilen verschieben."
+        ),
+        format!(
+            "Not moved: {count} successors would have to move along, more than one step can take. Remove dependencies or move in parts."
+        ),
+    )
+}
+
 pub fn moved_along(count: usize) -> String {
     match (language(), count) {
         (Language::German, 1) => "1 Nachfolger mitverschoben.".to_owned(),
@@ -849,8 +860,8 @@ pub fn rule(rule: Rule) -> &'static str {
             "Subtasks and dependencies stay within one project.",
         ),
         Rule::Cycle => pick(
-            "Das ergäbe einen Kreis (eine Aufgabe unter sich selbst).",
-            "That would make a circle (a task below itself).",
+            "Das ergäbe einen Kreis: Eine Aufgabe läge unter sich selbst oder wartete auf sich selbst.",
+            "That would make a circle: a task below itself or waiting for itself.",
         ),
         Rule::DateOrder => pick(
             "Die Frist liegt vor dem Beginn.",

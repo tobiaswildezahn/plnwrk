@@ -375,13 +375,30 @@ impl PlnwrkApp {
         };
         let mut warnings: Vec<String> = project_warning.into_iter().collect();
         warnings.extend(draft.drop_invalid_dates());
-        let changes = draft.changes().unwrap_or_default();
+        let mut params = draft.changes().unwrap_or_default();
+        // Typed dates go the way of every date change: what waits for the task moves along.
+        let dates_typed = params.remove("start").is_some() | params.remove("due").is_some();
+        let start = dates::parse(&draft.start).unwrap_or(task.start);
+        let due = dates::parse_deadline(&draft.due, &draft.due_time)
+            .unwrap_or(task.due.map(|day| (day, task.due_time)));
         self.state.forms.task = Some(draft);
-        if !changes.is_empty() {
-            let mut params = changes;
-            params.insert("task".to_owned(), Value::String(task.id.to_string()));
-            self.run("task.update", &Value::Object(params), Then::Nothing, None);
-            if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
+        if !params.is_empty() || dates_typed {
+            let mut refusal = None;
+            if !params.is_empty() {
+                params.insert("task".to_owned(), Value::String(task.id.to_string()));
+                self.run("task.update", &Value::Object(params), Then::Nothing, None);
+                refusal = self.state.message.as_ref().filter(|m| m.error).cloned();
+            }
+            if refusal.is_none() && dates_typed {
+                self.reschedule(
+                    task.id,
+                    start,
+                    due.map(|(day, _)| day),
+                    Some(due.and_then(|(_, time)| time)),
+                );
+                refusal = self.state.message.as_ref().filter(|m| m.error).cloned();
+            }
+            if let Some(message) = refusal {
                 // Refused (e.g. empty title): back to what is stored, and say so.
                 warnings.push(format!("{} {}", text::t().not_taken, message.text));
                 self.state.forms.task = Some(state::TaskDraft::of(&task));
@@ -784,6 +801,11 @@ impl PlnwrkApp {
             moves.insert(0, own);
         }
         let along = moves.iter().filter(|m| m.task != task).count();
+        if moves.len() > plnwrk_engine::params::MOVES_MAX {
+            // Said plainly instead of the command's refusal of its parameters.
+            self.state.message = Some(Message::error(text::too_many_moves(along)));
+            return;
+        }
         let list: Vec<Value> = moves
             .iter()
             .map(|m| {

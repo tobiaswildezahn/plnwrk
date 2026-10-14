@@ -368,20 +368,6 @@ impl Plan {
         seen
     }
 
-    /// Every task that `task` waits for, directly or through others.
-    pub fn waited_for(&self, task: TaskId) -> BTreeSet<TaskId> {
-        let mut seen = BTreeSet::new();
-        let mut queue = VecDeque::from([task]);
-        while let Some(next) = queue.pop_front() {
-            for link in self.links.iter().filter(|l| l.to == next) {
-                if seen.insert(link.from) {
-                    queue.push_back(link.from);
-                }
-            }
-        }
-        seen
-    }
-
     /// The critical path and what cannot hold, for the dates as they are.
     pub fn analyse(&self) -> Analysis {
         let cal = &self.calendar;
@@ -1047,21 +1033,6 @@ mod tests {
             p.shifted(id(1), d("2026-10-19")).and_then(|m| m.start),
             Some(d("2026-10-14"))
         );
-    }
-
-    #[test]
-    fn what_a_task_waits_for_includes_the_indirect() {
-        let p = plan(
-            vec![
-                task(1, "2026-10-12", "2026-10-12"),
-                task(2, "2026-10-13", "2026-10-13"),
-                task(3, "2026-10-14", "2026-10-14"),
-                task(4, "2026-10-14", "2026-10-14"),
-            ],
-            vec![fs(1, 2), fs(2, 3)],
-        );
-        assert_eq!(p.waited_for(id(3)), BTreeSet::from([id(1), id(2)]));
-        assert!(p.waited_for(id(4)).is_empty());
     }
 
     /// A random plan: tasks 0..n on working days of October/November 2026, dependencies only
