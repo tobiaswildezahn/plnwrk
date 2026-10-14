@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 clap.workspace = true
 plnwrk-engine.workspace = true
+plnwrk-mcp.workspace = true
 plnwrk-platform.workspace = true
 plnwrk-store.workspace = true
 rpassword.workspace = true

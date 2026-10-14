@@ -74,4 +74,61 @@ mod cli {
         let (ok, _) = run(&["fly"]);
         assert!(!ok);
     }
+
+    #[test]
+    fn the_mcp_server_talks_json_rpc_over_stdio() {
+        use std::io::Write as _;
+        use std::process::Stdio;
+
+        let dir = std::env::temp_dir().join(format!("plnwrk-cli-mcp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("abteilung.plnwrk");
+        let file = file.to_str().unwrap();
+        assert!(run(&["new", file, "--sample"]).0);
+
+        let mut child = Command::new(env!("CARGO_BIN_EXE_plnwrk-cli"))
+            .arg("mcp")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let messages = [
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "test", "version": "1"}}}),
+            serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "overview", "arguments": {"file": file}}}),
+        ];
+        {
+            let mut stdin = child.stdin.take().unwrap();
+            for message in &messages {
+                writeln!(stdin, "{message}").unwrap();
+            }
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let answers: Vec<Value> = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let ids: Vec<i64> = answers.iter().map(|a| a["id"].as_i64().unwrap()).collect();
+        assert_eq!(
+            ids,
+            [1, 2, 3],
+            "one answer per request, none for the notification"
+        );
+        assert_eq!(answers[0]["result"]["protocolVersion"], "2025-06-18");
+        assert_eq!(answers[2]["result"]["isError"], false);
+        assert!(
+            answers[2]["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Digitalfunk")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

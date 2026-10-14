@@ -214,8 +214,8 @@ pub fn lock(path: &Path) -> Result<Lock, StoreError> {
         .map_err(io)?;
     match file.try_lock() {
         Ok(()) => Ok(Lock { _file: file }),
-        Err(fs::TryLockError::WouldBlock) => Err(StoreError::Io {
-            reason: format!("{} is in use by another plnwrk", path.display()),
+        Err(fs::TryLockError::WouldBlock) => Err(StoreError::InUse {
+            path: path.display().to_string(),
         }),
         Err(fs::TryLockError::Error(e)) => Err(io(e)),
     }
@@ -324,7 +324,7 @@ mod tests {
         let dir = scratch("lock");
         let path = dir.join("a.plnwrk");
         let first = lock(&path).unwrap();
-        assert!(matches!(lock(&path), Err(StoreError::Io { .. })));
+        assert!(matches!(lock(&path), Err(StoreError::InUse { .. })));
         drop(first);
         assert!(lock(&path).is_ok());
         fs::remove_dir_all(dir).unwrap();

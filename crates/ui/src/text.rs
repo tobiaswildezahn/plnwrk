@@ -1008,6 +1008,10 @@ pub fn store_error(error: &StoreError) -> String {
             format!("Verschlüsselung fehlgeschlagen: {reason}"),
             format!("Encryption failed: {reason}"),
         ),
+        StoreError::InUse { path } => pick(
+            format!("{path} ist schon in einem anderen plnwrk geöffnet."),
+            format!("{path} is already open in another plnwrk."),
+        ),
         StoreError::Io { reason } => pick(
             format!("Dateizugriff fehlgeschlagen: {reason}"),
             format!("File access failed: {reason}"),

@@ -397,7 +397,7 @@ mod tests {
 
         // Open while still open here: the lock refuses it.
         let busy = OpenDoc::open(&path, None).err().unwrap();
-        assert!(matches!(busy, StoreError::Io { .. }), "{busy:?}");
+        assert!(matches!(busy, StoreError::InUse { .. }), "{busy:?}");
 
         let workspace = doc.session.workspace().clone();
         drop(doc);
