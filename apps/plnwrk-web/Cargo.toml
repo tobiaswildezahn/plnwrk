@@ -1,0 +1,22 @@
+[package]
+name = "plnwrk-web"
+description = "plnwrk in the browser (WebAssembly)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+eframe.workspace = true
+plnwrk-ui.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+log.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
+
+[lints]
+workspace = true

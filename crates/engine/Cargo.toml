@@ -1,0 +1,15 @@
+[package]
+name = "plnwrk-engine"
+description = "Session, command registry, events, undo/redo and queries of plnwrk."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+plnwrk-core.workspace = true
+
+[lints]
+workspace = true

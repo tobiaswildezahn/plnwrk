@@ -14,6 +14,28 @@ ist; Abweichungen dort in Abschnitt 9 eintragen.
 - Kein Netzzugriff ohne `NetworkPolicy`. Keine Telemetrie.
 - Code/Commits Englisch, UI i18n de+en, Doku im Repo Deutsch.
 
+## Befehle
+
+```sh
+source ~/.cargo/env                     # falls cargo nicht im PATH ist
+cargo xtask ci                          # die Schranke; muss grün sein
+cargo xtask layers | purity             # Einzelprüfungen
+cargo run -p plnwrk                     # Desktop-App
+cd apps/plnwrk-web && trunk serve       # Browser-Version
+```
+
+- Neuer Crate → Eintrag in der Schichttabelle `xtask/src/layers.rs`. Jeder Crate wird für
+  wasm32 geprüft, außer er steht in `NATIVE_ONLY` (`xtask/src/ci.rs`).
+- core/engine: neue externe Abhängigkeit nur nach Eintrag in `PURE_EXTERNAL`
+  (`xtask/src/layers.rs`); verbotene Aufrufe stehen in `crates/{core,engine}/clippy.toml`.
+- Absturz-Lints sind `forbid`: `#[allow]` hilft nicht. Lösung ist immer echte Fehlerbehandlung.
+- Jedes `#[allow]`/`#[expect]` braucht `reason = "…"`.
+- Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
+- UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar (siehe `crates/ui`).
+- egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),
+  Panels mit `.show(ui, …)`; Tests ohne Fenster müssen `output.textures_delta.clear()` aufrufen.
+- Browser-Vorschau im Claude-Desktop: Eintrag `plnwrk-web` in `~/.claude/launch.json` (Port 8087).
+
 ## Arbeitsablauf
 
 1. Phasenplan unter `docs/plans/` lesen oder (nach Freigabe) anlegen.

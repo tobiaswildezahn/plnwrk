@@ -1,0 +1,53 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/tobiaswildezahn/plnwrk"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+plnwrk-core = { path = "crates/core" }
+plnwrk-engine = { path = "crates/engine" }
+plnwrk-store = { path = "crates/store" }
+plnwrk-schedule = { path = "crates/schedule" }
+plnwrk-assistant = { path = "crates/assistant" }
+plnwrk-mcp = { path = "crates/mcp" }
+plnwrk-ui = { path = "crates/ui" }
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+egui = "0.36.2"
+log = "0.4"
+serde_json = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Never crash (docs/PLAN.md §2). `forbid` cannot be switched off with `#[allow]`; tests are
+# exempt through clippy.toml. `cargo xtask ci` also passes these as -F flags, so they hold for
+# every crate even if its manifest forgets `[lints] workspace = true`.
+unwrap_used = "forbid"
+expect_used = "forbid"
+panic = "forbid"
+indexing_slicing = "forbid"
+string_slice = "forbid"
+unreachable = "forbid"
+todo = "forbid"
+unimplemented = "forbid"
+exit = "forbid"
+disallowed_methods = "forbid"
+disallowed_types = "forbid"
+dbg_macro = "deny"
+print_stdout = "deny"
+allow_attributes_without_reason = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
