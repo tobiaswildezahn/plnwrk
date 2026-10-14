@@ -134,6 +134,10 @@ impl PlnwrkApp {
         {
             app.state.recent = serde_json::from_str(&text).unwrap_or_default();
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(folder) = doc::recovery_folder() {
+            app.state.recovered = doc::recovery_copies(&folder);
+        }
         app
     }
 
@@ -166,39 +170,37 @@ impl PlnwrkApp {
     }
 
     /// Stores what is typed in the detail panel but not committed yet (the field still has the
-    /// focus). Returns `false` if that failed (e.g. a wrong date); the reason is shown.
-    fn flush_draft(&mut self) -> bool {
-        let Some(doc) = &self.doc else { return true };
-        let Some(mut draft) = self.state.forms.task.take() else {
-            return true;
-        };
-        let Some(task) = doc.session.workspace().task(draft.source.id) else {
-            return true;
-        };
-        if &draft.source != task {
-            draft.rebase(task);
-        }
-        let id = task.id;
-        let changes = draft.changes();
+    /// focus). Never blocks: what cannot be stored (a wrong date, an empty title) is put back
+    /// to the stored value and named in a message, so saving and closing always work.
+    /// Returns the warning about what was put back, if anything.
+    fn flush_draft(&mut self) -> Option<String> {
+        let doc = self.doc.as_ref()?;
+        let mut draft = self.state.forms.task.take()?;
+        let task = doc.session.workspace().task(draft.source.id).cloned()?;
+        let mut warnings: Vec<String> = draft.drop_invalid_dates().into_iter().collect();
+        let changes = draft.changes().unwrap_or_default();
         self.state.forms.task = Some(draft);
-        match changes {
-            Ok(map) if map.is_empty() => true,
-            Ok(mut map) => {
-                map.insert("task".to_owned(), Value::String(id.to_string()));
-                self.run("task.update", &Value::Object(map), Then::Nothing, None);
-                !self.state.message.as_ref().is_some_and(|m| m.error)
-            }
-            Err(reason) => {
-                self.state.message = Some(Message::error(reason));
-                false
+        if !changes.is_empty() {
+            let mut params = changes;
+            params.insert("task".to_owned(), Value::String(task.id.to_string()));
+            self.run("task.update", &Value::Object(params), Then::Nothing, None);
+            if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
+                // Refused (e.g. empty title): back to what is stored, and say so.
+                warnings.push(format!("Nicht übernommen: {}", message.text));
+                self.state.forms.task = Some(state::TaskDraft::of(&task));
             }
         }
+        let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
+        if let Some(text) = &warning {
+            self.state.message = Some(Message::error(text.clone()));
+        }
+        warning
     }
 
     /// The window title: file name, a dot for unsaved changes, app name.
     pub fn title(&self) -> String {
         match &self.doc {
-            Some(doc) if doc.is_dirty() => format!("● {} – {APP_NAME}", doc.name()),
+            Some(doc) if self.has_unsaved_changes() => format!("● {} – {APP_NAME}", doc.name()),
             Some(doc) => format!("{} – {APP_NAME}", doc.name()),
             None => APP_NAME.to_owned(),
         }
@@ -215,9 +217,7 @@ impl PlnwrkApp {
         if self.state.quitting {
             return true;
         }
-        if !self.flush_draft() {
-            return false;
-        }
+        self.flush_draft();
         if !self.has_unsaved_changes() {
             return true;
         }
@@ -226,21 +226,27 @@ impl PlnwrkApp {
     }
 
     /// Last chance when the app ends without asking (e.g. "Beenden" in the Dock, logging out):
-    /// unsaved changes of a file go to its recovery copy `.<name>.autosave.plnwrk` beside it.
+    /// unsaved changes go to a recovery copy in [`doc::recovery_folder`], listed on the start
+    /// page next time.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn emergency_save(&mut self) {
+        if let Some(folder) = doc::recovery_folder() {
+            self.emergency_save_to(&folder);
+        }
+    }
+
+    /// [`Self::emergency_save`] into a given folder. Returns the copy, if one was written.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn emergency_save_to(&mut self, folder: &std::path::Path) -> Option<PathBuf> {
         if self.state.quitting {
-            return; // the person decided (saved or discarded)
+            return None; // the person decided (saved or discarded)
         }
-        let _ = self.flush_draft();
-        let Some(doc) = &self.doc else { return };
+        self.flush_draft();
+        let doc = self.doc.as_ref()?;
         if !doc.is_dirty() {
-            return;
+            return None;
         }
-        if let (Some(path), Ok(bytes)) = (doc.path(), doc.to_bytes()) {
-            let copy = plnwrk_store::file::autosave_path(path);
-            let _ = plnwrk_store::file::write_atomic(&copy, &bytes);
-        }
+        doc.write_recovery_copy(folder).ok()
     }
 
     /// Whether the app decided to close the window (after the question about unsaved changes).
@@ -350,11 +356,24 @@ impl PlnwrkApp {
     /// Carries out a file action; actions that would drop unsaved changes ask first.
     fn file(&mut self, action: FileAction) {
         let force = std::mem::take(&mut self.state.force);
-        // Typed text counts like any change: stored first, so saving includes it and leaving
-        // asks about it. Not when the person chose to discard.
-        if !force && !self.flush_draft() {
+        // Choose the file first, then ask about unsaved changes – and not at all if it is the
+        // file that is already open.
+        if action == FileAction::Open {
+            if let Some(path) = self.host.pick_open() {
+                self.state.force = force;
+                self.file(FileAction::OpenPath(path));
+            }
             return;
         }
+        if let FileAction::OpenPath(path) = &action
+            && self.is_open(path)
+        {
+            self.state.message = Some(Message::info(text::ALREADY_OPEN));
+            return;
+        }
+        // Typed text counts like any change: stored first, so saving includes it and leaving
+        // asks about it. Not when the person chose to discard.
+        let warning = if force { None } else { self.flush_draft() };
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
             self.state.open_dialog(Dialog::Unsaved(action));
             return;
@@ -367,11 +386,7 @@ impl PlnwrkApp {
                     self.state.message = Some(Message::error(text::command_error(&error)));
                 }
             },
-            FileAction::Open => {
-                if let Some(path) = self.host.pick_open() {
-                    self.open(path, None);
-                }
-            }
+            FileAction::Open => {}
             FileAction::OpenPath(path) => self.open(path, None),
             FileAction::Save => {
                 self.save(false);
@@ -385,6 +400,10 @@ impl PlnwrkApp {
             }
             FileAction::Quit => self.state.quitting = true,
         }
+        // "Gespeichert." must not hide that a typed date was not taken.
+        if let Some(warning) = warning {
+            self.state.message = Some(Message::error(warning));
+        }
     }
 
     fn replace(&mut self, doc: OpenDoc) {
@@ -393,13 +412,17 @@ impl PlnwrkApp {
         self.state.message = None;
     }
 
+    /// Whether this path is the file that is open now.
+    fn is_open(&self, path: &std::path::Path) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        let path = plnwrk_store::file::resolve(path).unwrap_or_else(|_| path.to_path_buf());
+        #[cfg(target_arch = "wasm32")]
+        let path = path.to_path_buf();
+        self.doc.as_ref().and_then(OpenDoc::path) == Some(path.as_path())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: PathBuf, passphrase: Option<SecretString>) {
-        let resolved = plnwrk_store::file::resolve(&path).ok();
-        if resolved.is_some() && self.doc.as_ref().and_then(OpenDoc::path) == resolved.as_deref() {
-            self.state.message = Some(Message::info(text::ALREADY_OPEN));
-            return;
-        }
         let retry = passphrase.is_some();
         match OpenDoc::open(&path, passphrase) {
             Ok(doc) => {

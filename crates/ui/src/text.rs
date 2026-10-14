@@ -15,6 +15,7 @@ pub const SAVE: &str = "Speichern";
 pub const SAVE_AS: &str = "Speichern unter…";
 pub const CLOSE_FILE: &str = "Datei schließen";
 pub const RECENT: &str = "Zuletzt geöffnet";
+pub const RECOVERED: &str = "Notkopien (beim Beenden ohne Speichern gesichert)";
 pub const FILE_MENU: &str = "Datei";
 pub const EDIT_MENU: &str = "Bearbeiten";
 pub const UNDO: &str = "Rückgängig";

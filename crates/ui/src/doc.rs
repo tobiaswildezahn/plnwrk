@@ -150,6 +150,56 @@ impl OpenDoc {
     }
 }
 
+/// Where recovery copies go: `~/Library/Application Support/plnwrk/Notkopien` on macOS,
+/// `%APPDATA%/plnwrk/Notkopien` on Windows, `~/.local/share/plnwrk/Notkopien` elsewhere.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn recovery_folder() -> Option<PathBuf> {
+    let base = if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?)
+            .join("Library")
+            .join("Application Support")
+    } else if cfg!(windows) {
+        PathBuf::from(std::env::var_os("APPDATA")?)
+    } else {
+        std::env::var_os("XDG_DATA_HOME").map_or_else(
+            || std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")),
+            |d| Some(PathBuf::from(d)),
+        )?
+    };
+    Some(base.join("plnwrk").join("Notkopien"))
+}
+
+/// The recovery copies in a folder, newest first.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn recovery_copies(folder: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut copies: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "plnwrk"))
+        .collect();
+    copies.sort();
+    copies.reverse();
+    copies
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl OpenDoc {
+    /// Writes the current state as a new file `<name> <date time>.plnwrk` into `folder`
+    /// (created if needed), keeping the protection. Never replaces a file.
+    pub fn write_recovery_copy(&self, folder: &Path) -> Result<PathBuf, StoreError> {
+        std::fs::create_dir_all(folder).map_err(|e| StoreError::Io {
+            reason: e.to_string(),
+        })?;
+        let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S").to_string();
+        let path = folder.join(format!("{} {stamp}.plnwrk", self.name()));
+        plnwrk_store::file::write_new(&path, &self.to_bytes()?)?;
+        Ok(path)
+    }
+}
+
 /// The real place of a file that may not exist yet: links and `..` of an existing file or of
 /// its folder are resolved, so locks and comparisons see one path per file.
 #[cfg(not(target_arch = "wasm32"))]

@@ -473,20 +473,103 @@ fn closing_with_typed_text_asks_first() {
 }
 
 #[test]
-fn a_wrong_typed_date_stops_saving_and_says_why() {
+fn a_wrong_typed_date_never_blocks_saving_or_closing() {
     let (mut harness, _) = saved_sample_with_task("typed-wrong", "Einbau Wache 11");
-    type_into(&mut harness, text::DUE, "31.02.2026", false);
+    let before = task_named(harness.state(), "Einbau Wache 11").unwrap().due;
+    type_into(&mut harness, text::DESCRIPTION, "Wichtig", false);
+    let draft = harness.state_mut().state.forms.task.as_mut().unwrap();
+    draft.due = "31.02.2026".to_owned();
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
+    let app = harness.state();
+    assert!(!app.has_unsaved_changes(), "saved anyway");
+    let message = app.state.message.clone().unwrap();
     assert!(
-        harness
-            .state()
-            .state
-            .message
-            .as_ref()
-            .is_some_and(|m| m.error)
+        message.error && message.text.contains("31.02.2026"),
+        "{message:?}"
     );
-    assert!(!harness.state_mut().close_requested(), "not closed over it");
+    let task = task_named(app, "Einbau Wache 11").unwrap();
+    assert_eq!(task.due, before, "wrong date not taken");
+    assert_eq!(task.description, "Wichtig", "the rest is");
+    assert!(harness.state_mut().close_requested(), "closing works");
+}
+
+#[test]
+fn closing_stores_typed_text_before_it_asks() {
+    let (mut harness, _) = saved_sample_with_task("close-flush", "Einbau Wache 11");
+    type_into(&mut harness, text::DUE, "24.12.2026", false);
+    assert!(!harness.state_mut().close_requested());
+    // Stored by the close request itself, before any further frame.
+    let task = task_named(harness.state(), "Einbau Wache 11").unwrap();
+    assert_eq!(
+        task.due.map(|d| d.to_string()),
+        Some("2026-12-24".to_owned())
+    );
+}
+
+#[test]
+fn choosing_another_task_stores_what_was_typed() {
+    let (mut harness, _) = saved_sample_with_task("select-flush", "Einbau Wache 11");
+    type_into(&mut harness, text::DESCRIPTION, "Notiz für Wache 11", false);
+    let other = task_named(harness.state(), "Schulung Einsatzkräfte")
+        .unwrap()
+        .id;
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(other)));
+    assert_eq!(
+        task_named(harness.state(), "Einbau Wache 11")
+            .unwrap()
+            .description,
+        "Notiz für Wache 11"
+    );
+    assert_eq!(
+        task_named(harness.state(), "Schulung Einsatzkräfte")
+            .unwrap()
+            .description,
+        ""
+    );
+}
+
+#[test]
+fn a_recovery_copy_is_written_only_when_something_would_be_lost() {
+    let dir = scratch("recovery");
+    // Untitled and changed: a copy that opens again.
+    let mut app = harness_with_sample();
+    let copy = app.state_mut().emergency_save_to(&dir).unwrap();
+    let reopened = crate::OpenDoc::open(&copy, None).unwrap();
+    assert!(reopened.session.workspace().projects().count() >= 3);
+    assert_eq!(crate::doc::recovery_copies(&dir), vec![copy.clone()]);
+    drop(reopened);
+    // The person chose to discard: nothing is written.
+    app.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    app.run();
+    click(&mut app, text::DISCARD);
+    let fresh = scratch("recovery-discarded");
+    assert!(app.state_mut().emergency_save_to(&fresh).is_none());
+    assert!(crate::doc::recovery_copies(&fresh).is_empty());
+    // Nothing changed: nothing is written.
+    let mut clean = harness(PlnwrkApp::default());
+    click(&mut clean, text::NEW_FILE);
+    assert!(clean.state_mut().emergency_save_to(&dir).is_none());
+    assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
+    // The start page offers it.
+    let mut start = PlnwrkApp::default();
+    start.state.recovered = crate::doc::recovery_copies(&dir);
+    let start = harness(start);
+    assert!(start.query_by_label(text::RECOVERED).is_some());
+}
+
+#[test]
+fn every_dialog_focuses_its_first_field_each_time() {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::NEW_FILE);
+    for _ in 0..2 {
+        click(&mut harness, text::NEW_PROJECT);
+        harness.run();
+        assert!(harness.get_by_label(text::TITLE).is_focused());
+        click(&mut harness, text::CANCEL);
+    }
 }
 
 #[test]
@@ -545,7 +628,12 @@ fn every_action_that_drops_the_file_asks_first() {
         FileAction::Close,
         FileAction::Quit,
     ] {
-        let mut harness = harness(PlnwrkApp::default());
+        let other = scratch("other").join("andere.plnwrk");
+        let host = Scripted {
+            open: vec![other],
+            save: Vec::new(),
+        };
+        let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
         click(&mut harness, text::OPEN_SAMPLE);
         harness.state_mut().file(action.clone());
         harness.run();
@@ -602,7 +690,7 @@ fn shortcuts_wait_while_a_dialog_is_open() {
 }
 
 #[test]
-fn a_half_written_comment_stays_with_its_task() {
+fn a_half_written_comment_never_lands_on_another_task() {
     let mut harness = with_project("Umzug");
     type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
     type_into(&mut harness, text::NEW_TASK_HINT, "Transporter", true);
@@ -743,4 +831,43 @@ fn the_project_form_never_writes_back_outdated_values() {
     click(&mut harness, text::APPLY);
     let project = projects(harness.state()).into_iter().next().unwrap();
     assert_eq!(project.reference.as_deref(), Some("AZ 7"));
+}
+
+#[test]
+fn opening_the_open_file_again_does_not_ask_or_drop_anything() {
+    let (mut harness, path) = saved_sample_with_task("reopen-dirty", "Einbau Wache 11");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Neu", true);
+    assert!(harness.state().has_unsaved_changes());
+    harness.state_mut().open_path(path);
+    harness.run();
+    assert!(harness.state().state.dialog.is_none(), "no question");
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::ALREADY_OPEN
+    );
+    assert!(task_named(harness.state(), "Neu").is_some());
+}
+
+#[test]
+fn a_refused_typed_title_is_put_back_and_does_not_block_closing() {
+    let (mut harness, _) = saved_sample_with_task("empty-title", "Einbau Wache 11");
+    type_into(&mut harness, text::DESCRIPTION, "x", false);
+    harness.state_mut().state.forms.task.as_mut().unwrap().title = "   ".to_owned();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_some_and(|m| m.error)
+    );
+    let draft = harness.state().state.forms.task.clone().unwrap();
+    assert_eq!(draft.title, "Einbau Wache 11", "put back");
+    assert!(task_named(harness.state(), "Einbau Wache 11").is_some());
+    assert!(
+        harness.state_mut().close_requested(),
+        "nothing left that blocks"
+    );
 }

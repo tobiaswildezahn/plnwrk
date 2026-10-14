@@ -242,6 +242,28 @@ impl TaskDraft {
         Ok(map)
     }
 
+    /// Puts back dates that are not valid, so they can never block saving or closing.
+    /// Returns what was put back, for a message.
+    pub fn drop_invalid_dates(&mut self) -> Option<String> {
+        let mut dropped = Vec::new();
+        let stored = (self.source.start, self.source.due);
+        for (label, text, value) in [
+            (crate::text::START, &mut self.start, stored.0),
+            (crate::text::DUE, &mut self.due, stored.1),
+        ] {
+            if dates::parse(text).is_err() {
+                dropped.push(format!("„{}“ ({label})", text.trim()));
+                *text = dates::format_opt(value);
+            }
+        }
+        (!dropped.is_empty()).then(|| {
+            format!(
+                "Kein gültiges Datum, nicht übernommen: {}",
+                dropped.join(", ")
+            )
+        })
+    }
+
     /// Whether something was typed that is not stored yet.
     pub fn is_pending(&self) -> bool {
         self.changes().map_or(true, |map| !map.is_empty())
@@ -341,6 +363,8 @@ pub struct State {
     pub message: Option<Message>,
     pub dialog: Option<Dialog>,
     pub recent: Vec<PathBuf>,
+    /// Recovery copies written when the app ended without asking.
+    pub recovered: Vec<PathBuf>,
     pub forms: Forms,
     /// The next file action may drop unsaved changes (the person said so).
     pub force: bool,

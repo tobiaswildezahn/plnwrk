@@ -190,6 +190,23 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
         if ui.add(big(text::OPEN_SAMPLE)).clicked() {
             out.push(Intent::File(FileAction::Sample));
         }
+        if !state.recovered.is_empty() {
+            ui.add_space(16.0);
+            ui.strong(text::RECOVERED);
+            for path in &state.recovered {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                if ui
+                    .link(name)
+                    .on_hover_text(path.display().to_string())
+                    .clicked()
+                {
+                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
+                }
+            }
+        }
         if !state.recent.is_empty() {
             ui.add_space(16.0);
             ui.strong(text::RECENT);

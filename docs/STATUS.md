@@ -97,8 +97,10 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
   de/en (Texte stehen zentral in `crates/ui/src/text.rs`), Befehlspalette, Verschlüsseln aus
   der App, Doppelklick auf `.plnwrk`-Dateien im Finder (macOS liefert Dateien per Apple Event,
   nicht als Argument), App-Symbol.
-- **Bekannte MVP-Grenzen**: Notkopie `.<name>.autosave.plnwrk` (beim Beenden über Dock/Abmelden)
-  wird noch nicht zum Wiederherstellen angeboten; Dateien in schreibgeschützten Ordnern lassen
+- **Bekannte MVP-Grenzen**: Notkopien (beim Beenden über Dock/Abmelden) liegen in
+  `~/Library/Application Support/plnwrk/Notkopien` und stehen auf der Startseite; löschen muss
+  man sie noch von Hand; Cmd+Q ruht, solange ein Dialog offen ist; ohne macOS-Standardmenü
+  fehlen Cmd+H/Cmd+M; Dateien in schreibgeschützten Ordnern lassen
   sich nicht öffnen (Sperrdatei); Speichern verschlüsselter Dateien dauert ≈ 1 s und blockiert
   kurz die Oberfläche; Kommentare/Verlauf zeigen Feldnamen technisch (`due`); die Liste ist noch
   nicht direkt editierbar (Details rechts).
