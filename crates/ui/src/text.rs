@@ -884,6 +884,8 @@ mod tests {
     /// String literals of a Rust source, outside comments and before its test module: plain,
     /// raw (`r#"…"#`) and continued over lines (`\` at the end of a line).
     fn literals(source: &str) -> Vec<String> {
+        // Windows checkouts may have CRLF line ends.
+        let source = source.replace("\r\n", "\n");
         let code = source
             .split("#[cfg(test)]\nmod tests")
             .next()
@@ -1056,6 +1058,14 @@ mod tests {
             literals(source),
             vec!["Erste Zeile nicht übernommen", "Bitte \"x\" jetzt", "Frist"]
         );
+        let windows =
+            "fn f() {}\r\n#[cfg(test)]\r\nmod tests { const X: &str = \"Neue Aufgabe\"; }";
+        assert!(
+            literals(windows).is_empty(),
+            "the test module is skipped with CRLF too"
+        );
+        let continued = "let a = \"Erste \\\r\n    Zeile\";";
+        assert_eq!(literals(continued), vec!["Erste Zeile"]);
         assert!(looks_german("Speichern"));
         assert!(looks_german("Abbrechen"));
         assert!(!looks_german("Save"));
