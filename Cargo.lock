@@ -3329,6 +3329,7 @@ dependencies = [
 name = "plnwrk-ui"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "eframe",
  "egui",
  "egui_kittest",
@@ -3348,7 +3349,9 @@ name = "plnwrk-web"
 version = "0.0.0"
 dependencies = [
  "eframe",
+ "js-sys",
  "log",
+ "plnwrk-platform",
  "plnwrk-ui",
  "wasm-bindgen",
  "wasm-bindgen-futures",

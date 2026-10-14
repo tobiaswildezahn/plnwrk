@@ -231,6 +231,10 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     );
                 }
             }
+            if state.browser {
+                ui.weak(text::t().browser_not_vs)
+                    .on_hover_text(text::t().browser_not_vs_hint);
+            }
             if doc.is_some() {
                 match &state.recovery {
                     Some(crate::autosave::Written::At(time)) => {
@@ -270,6 +274,12 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
             text::t().version,
             env!("CARGO_PKG_VERSION")
         ));
+        if state.browser {
+            ui.add_space(8.0);
+            ui.label(RichText::new(text::t().browser_not_vs).strong())
+                .on_hover_text(text::t().browser_not_vs_hint);
+            ui.weak(text::t().browser_not_vs_hint);
+        }
         ui.add_space(16.0);
         let big = |label: &str| {
             egui::Button::new(RichText::new(label).size(16.0)).min_size(egui::vec2(220.0, 34.0))
@@ -283,6 +293,35 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
         if ui.add(big(text::t().open_sample)).clicked() {
             out.push(Intent::File(FileAction::Sample));
         }
+        if !state.stored_copies.is_empty() {
+            ui.add_space(16.0);
+            ui.strong(text::t().recovered);
+            for copy in &state.stored_copies {
+                let mut label = copy.file.name.clone();
+                if let Some(time) = copy.time {
+                    label = format!("{label} – {}", crate::dates::format_moment(time));
+                }
+                if copy.downloaded {
+                    label = format!("{label} ({})", text::t().copy_downloaded);
+                }
+                let (open, delete) = copy_row(ui, &label, text::t().browser_copy_hint);
+                if open {
+                    out.push(Intent::OpenStoredCopy(copy.key.clone()));
+                }
+                if delete {
+                    out.push(Intent::Open(Dialog::DeleteStoredCopy {
+                        key: copy.key.clone(),
+                        name: label,
+                    }));
+                }
+            }
+            // On a shared computer: nothing of one's work stays behind.
+            if state.stored_copies.len() > 1
+                && ui.small_button(text::t().delete_all_copies).clicked()
+            {
+                out.push(Intent::Open(Dialog::DeleteAllStoredCopies));
+            }
+        }
         if !state.recovered.is_empty() {
             ui.add_space(16.0);
             ui.strong(text::t().recovered);
@@ -291,29 +330,14 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
-                // Sized to its content, so the centred page centres the line too.
-                let font = egui::TextStyle::Body.resolve(ui.style());
-                let width = ui
-                    .painter()
-                    .layout_no_wrap(name.clone(), font, egui::Color32::PLACEHOLDER)
-                    .size()
-                    .x
-                    + 2.0 * ui.spacing().item_spacing.x
-                    + 3.0 * ui.spacing().interact_size.y;
-                let size = egui::vec2(width, ui.spacing().interact_size.y);
-                let layout = egui::Layout::left_to_right(egui::Align::Center);
-                ui.allocate_ui_with_layout(size, layout, |ui| {
-                    if ui
-                        .link(name)
-                        .on_hover_text(path.display().to_string())
-                        .clicked()
-                    {
-                        out.push(Intent::File(FileAction::OpenPath(path.clone())));
-                    }
-                    if icon_button(ui, "🗑", text::t().delete_copy).clicked() {
-                        out.push(Intent::Open(Dialog::DeleteCopy(path.clone())));
-                    }
-                });
+                let place = path.display().to_string();
+                let (open, delete) = copy_row(ui, &name, &place);
+                if open {
+                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
+                }
+                if delete {
+                    out.push(Intent::Open(Dialog::DeleteCopy(path.clone())));
+                }
             }
         }
         if !state.recent.is_empty() {
@@ -334,6 +358,28 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
             }
         }
     });
+}
+
+/// A recovery copy on the start page: its name to open it and a button to delete it, centred
+/// like the rest of the page. Returns (open, delete).
+fn copy_row(ui: &mut egui::Ui, name: &str, hover: &str) -> (bool, bool) {
+    // Sized to its content, so the centred page centres the line too.
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let width = ui
+        .painter()
+        .layout_no_wrap(name.to_owned(), font, egui::Color32::PLACEHOLDER)
+        .size()
+        .x
+        + 2.0 * ui.spacing().item_spacing.x
+        + 3.0 * ui.spacing().interact_size.y;
+    let size = egui::vec2(width, ui.spacing().interact_size.y);
+    let layout = egui::Layout::left_to_right(egui::Align::Center);
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        let open = ui.link(name).on_hover_text(hover).clicked();
+        let delete = icon_button(ui, "🗑", text::t().delete_copy).clicked();
+        (open, delete)
+    })
+    .inner
 }
 
 fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent>) {

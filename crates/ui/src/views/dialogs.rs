@@ -190,9 +190,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     }
                 });
             }
-            Dialog::Passphrase { path, text: secret } => {
+            Dialog::Passphrase {
+                source,
+                text: secret,
+            } => {
                 ui.heading(text::t().passphrase);
-                ui.label(path.display().to_string());
+                ui.label(source.label());
                 ui.label(text::t().passphrase_question);
                 let field = ui.add(egui::TextEdit::singleline(secret).password(true));
                 focus_once(&field, serial);
@@ -200,7 +203,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 ui.horizontal(|ui| {
                     if (ui.button(text::t().open).clicked() || entered) && !secret.is_empty() {
                         let secret = SecretString::from(std::mem::take(secret));
-                        out.push(Intent::Unlock(path.clone(), secret));
+                        out.push(Intent::Unlock(source.clone(), secret));
                     }
                     if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
@@ -282,6 +285,33 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 ui.horizontal(|ui| {
                     if ui.button(text::t().delete).clicked() {
                         out.push(Intent::DeleteCopy(path.clone()));
+                    }
+                    if ui.button(text::t().cancel).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
+            Dialog::DeleteStoredCopy { key, name } => {
+                ui.heading(format!("{}?", text::t().delete_copy));
+                ui.label(name.as_str());
+                ui.label(text::t().delete_copy_question);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::t().delete).clicked() {
+                        out.push(Intent::DeleteStoredCopy(key.clone()));
+                    }
+                    if ui.button(text::t().cancel).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
+            Dialog::DeleteAllStoredCopies => {
+                ui.heading(format!("{}?", text::t().delete_all_copies));
+                ui.label(text::t().delete_all_copies_question);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::t().delete).clicked() {
+                        out.push(Intent::DeleteAllStoredCopies);
                     }
                     if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);

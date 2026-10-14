@@ -12,6 +12,7 @@
 )]
 
 mod autosave;
+mod browser_copy;
 mod dates;
 mod doc;
 mod host;
@@ -22,17 +23,37 @@ mod views;
 
 use std::path::PathBuf;
 
-use plnwrk_core::{EntityKey, PersonId, ProjectId, TaskId};
+use plnwrk_core::{Classification, EntityKey, PersonId, ProjectId, TaskId};
 use plnwrk_engine::Origin;
 use plnwrk_store::{SecretString, StoreError};
 use serde_json::Value;
 
 pub use doc::OpenDoc;
-pub use host::{Host, NoDialogs};
-use state::{Dialog, FileAction, Message, State, Tab, View};
+pub use host::{Host, NoDialogs, Upload};
+use state::{Dialog, FileAction, FileSource, Message, State, Tab, View};
 
 /// Name shown in the window title and the app header.
 pub const APP_NAME: &str = "plnwrk";
+
+/// Whether the browser may hold this workspace: nothing classified VS-NfD or higher
+/// (decision 4.1: the browser is not an environment for classified material).
+fn browser_may_hold(workspace: &plnwrk_core::Workspace) -> bool {
+    workspace.highest_classification() < Classification::VsNfd
+}
+
+/// Whether command parameters ask for VS-NfD or higher anywhere (a `classification` field).
+fn asks_for_classified(params: &Value) -> bool {
+    match params {
+        Value::Object(fields) => fields.iter().any(|(name, value)| {
+            (name == "classification"
+                && serde_json::from_value::<Classification>(value.clone())
+                    .is_ok_and(|c| c >= Classification::VsNfd))
+                || asks_for_classified(value)
+        }),
+        Value::Array(items) => items.iter().any(asks_for_classified),
+        _ => false,
+    }
+}
 
 /// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
 /// `/private/var` on macOS).
@@ -96,7 +117,7 @@ pub(crate) enum Intent {
     /// A file action (new, open, save …).
     File(FileAction),
     /// Open an encrypted file with this passphrase.
-    Unlock(PathBuf, SecretString),
+    Unlock(FileSource, SecretString),
     /// Save first, then carry out the action.
     SaveThen(FileAction),
     /// Carry out the action and drop unsaved changes.
@@ -109,6 +130,12 @@ pub(crate) enum Intent {
     Unprotect,
     /// Delete a recovery copy for good.
     DeleteCopy(PathBuf),
+    /// Browser: open the recovery copy under this key.
+    OpenStoredCopy(String),
+    /// Browser: delete the recovery copy under this key for good.
+    DeleteStoredCopy(String),
+    /// Browser: delete every recovery copy offered for good.
+    DeleteAllStoredCopies,
     /// Use this language for the interface.
     Language(text::Language),
     /// Use this theme.
@@ -141,8 +168,12 @@ pub struct PlnwrkApp {
     state: State,
     /// The window title last sent, so it is only sent when it changes.
     shown_title: String,
+    /// Whether the browser was last told to ask before leaving the page.
+    leave_warning: bool,
     /// Recovery copies of the open workspace.
     autosave: autosave::Autosave,
+    /// Browser: the recovery copy in the browser's storage.
+    browser_copy: browser_copy::BrowserCopy,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -175,13 +206,26 @@ impl PlnwrkApp {
     }
 
     /// An app without stored settings, using these dialogs.
-    pub fn with_host(host: Box<dyn Host>) -> Self {
+    pub fn with_host(mut host: Box<dyn Host>) -> Self {
+        let stored_copies = if host.browser() {
+            let tab = host.tab();
+            let live = host.live_tabs();
+            browser_copy::offered(&mut *host, &tab, live.as_deref(), jiff::Timestamp::now())
+        } else {
+            Vec::new()
+        };
         Self {
             doc: None,
+            state: State {
+                browser: host.browser(),
+                stored_copies,
+                ..State::default()
+            },
             host,
-            state: State::default(),
             shown_title: String::new(),
+            leave_warning: false,
             autosave: autosave::Autosave::default(),
+            browser_copy: browser_copy::BrowserCopy::default(),
         }
     }
 
@@ -408,6 +452,21 @@ impl PlnwrkApp {
     /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
         text::set_language(self.state.language);
+        // A file chosen in the browser arrives some frames after it was asked for.
+        // Another tab opened or closed: its copies are offered or no longer.
+        if self.state.browser && self.host.live_changed() {
+            self.refresh_stored_copies();
+        }
+        match self.host.uploaded() {
+            Some(Ok(upload)) => self.file(FileAction::Upload(upload)),
+            Some(Err(reason)) => {
+                self.state.message = Some(Message::error(format!(
+                    "{} {reason}",
+                    text::t().upload_failed
+                )));
+            }
+            None => {}
+        }
         if ui.ctx().options(|o| o.theme_preference) != self.state.theme {
             ui.ctx().set_theme(self.state.theme);
         }
@@ -421,6 +480,11 @@ impl PlnwrkApp {
             self.apply(intent);
         }
         self.autosave_tick(ui.ctx());
+        let unsaved = self.has_unsaved_changes();
+        if unsaved != self.leave_warning {
+            self.host.set_leave_warning(unsaved);
+            self.leave_warning = unsaved;
+        }
     }
 
     /// Lets the autosave write when due, and wakes the app up again when the next copy is due –
@@ -433,9 +497,15 @@ impl PlnwrkApp {
 
     /// The autosave at this egui time (seconds); how long until it is due again, if it is.
     fn autosave_at(&mut self, time: f64) -> Option<f64> {
-        let before = self.autosave.last().cloned();
-        let wait = self.autosave.tick(self.doc.as_ref(), time);
-        let after = self.autosave.last().cloned();
+        let before = self.copy_status();
+        let wait = if self.state.browser {
+            let tab = self.host.tab();
+            self.browser_copy
+                .tick(&mut *self.host, &tab, self.doc.as_ref(), time)
+        } else {
+            self.autosave.tick(self.doc.as_ref(), time)
+        };
+        let after = self.copy_status();
         // Said once when it starts failing, without hiding another error that is shown.
         if after != before
             && let Some(autosave::Written::Failed(reason)) = &after
@@ -448,6 +518,55 @@ impl PlnwrkApp {
         }
         self.state.recovery = after;
         wait
+    }
+
+    /// How the recovery copy of the open work stands (file on the desktop, browser storage).
+    fn copy_status(&self) -> Option<autosave::Written> {
+        if self.state.browser {
+            self.browser_copy.last().cloned()
+        } else {
+            self.autosave.last().cloned()
+        }
+    }
+
+    /// Browser: the recovered copies to offer, without the one of the open work.
+    fn refresh_stored_copies(&mut self) {
+        let own = self.browser_copy.key().map(str::to_owned);
+        let tab = self.host.tab();
+        let live = self.host.live_tabs();
+        self.state.stored_copies = browser_copy::offered(
+            &mut *self.host,
+            &tab,
+            live.as_deref(),
+            jiff::Timestamp::now(),
+        )
+        .into_iter()
+        .filter(|copy| Some(&copy.key) != own.as_ref())
+        .collect();
+    }
+
+    /// Browser: opens a recovered copy as unsaved work; it stays until the work is saved.
+    fn open_stored_copy(&mut self, key: String) {
+        let Some(copy) = self
+            .state
+            .stored_copies
+            .iter()
+            .find(|c| c.key == key)
+            .map(|c| c.file.clone())
+        else {
+            return;
+        };
+        match OpenDoc::from_upload(&copy.name, &copy.bytes, None) {
+            Ok(mut doc) if browser_may_hold(doc.session.workspace()) => {
+                doc.mark_unsaved();
+                self.replace(doc);
+                self.browser_copy.adopt(key);
+                self.refresh_stored_copies();
+                self.state.message = Some(Message::info(text::t().recovered_opened));
+            }
+            Ok(_) => self.state.message = Some(Message::error(text::t().vs_blocked)),
+            Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
+        }
     }
 
     /// Drops the selection or view of things that no longer exist (deleted, undone).
@@ -492,9 +611,9 @@ impl PlnwrkApp {
             Intent::Open(dialog) => self.state.open_dialog(dialog),
             Intent::CloseDialog => self.state.close_dialog(),
             Intent::File(action) => self.file(action),
-            Intent::Unlock(path, secret) => {
+            Intent::Unlock(source, secret) => {
                 self.state.close_dialog();
-                self.open(path, Some(secret));
+                self.open_source(source, Some(secret));
             }
             Intent::SaveThen(action) => {
                 self.state.close_dialog();
@@ -519,6 +638,29 @@ impl PlnwrkApp {
                     plnwrk_store::Protection::Passphrase(secret),
                     text::t().protected,
                 );
+            }
+            Intent::OpenStoredCopy(key) => self.open_stored_copy(key),
+            Intent::DeleteAllStoredCopies => {
+                self.state.close_dialog();
+                let keys: Vec<String> = self
+                    .state
+                    .stored_copies
+                    .iter()
+                    .map(|c| c.key.clone())
+                    .collect();
+                for key in keys {
+                    if let Err(reason) = self.host.store(&key, None) {
+                        self.state.message = Some(Message::error(reason));
+                    }
+                }
+                self.refresh_stored_copies();
+            }
+            Intent::DeleteStoredCopy(key) => {
+                self.state.close_dialog();
+                if let Err(reason) = self.host.store(&key, None) {
+                    self.state.message = Some(Message::error(reason));
+                }
+                self.refresh_stored_copies();
             }
             Intent::DeleteCopy(path) => {
                 self.state.close_dialog();
@@ -569,7 +711,21 @@ impl PlnwrkApp {
 
     fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) {
         let Some(doc) = &mut self.doc else { return };
+        // Decided before running: a refused change must not even reach the history (undo
+        // would leave it there, and the file would count as VS-NfD).
+        if self.state.browser && asks_for_classified(params) {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return;
+        }
         match doc.session.run(command, params, Origin::User) {
+            Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
+                // Last line for a way not foreseen above: taken back at once, and the file can
+                // no longer leave the browser (see `download`).
+                let _ = doc
+                    .session
+                    .run("undo", &serde_json::json!({}), Origin::User);
+                self.state.message = Some(Message::error(text::t().vs_blocked));
+            }
             Ok(outcome) => {
                 self.state.message = None;
                 if let (Then::ShowProject, Some(EntityKey::Project(id))) =
@@ -589,10 +745,28 @@ impl PlnwrkApp {
 
     /// Carries out a file action; actions that would drop unsaved changes ask first.
     fn file(&mut self, action: FileAction) {
+        // A browser tab is not quit from inside the page (the browser asks on leaving).
+        if action == FileAction::Quit && self.state.browser {
+            return;
+        }
+        // Refused before asking about unsaved work: the answer would not matter.
+        if let FileAction::Upload(upload) = &action
+            && self.state.browser
+            && plnwrk_store::peek(&upload.bytes)
+                .is_ok_and(|head| head.classification >= Classification::VsNfd)
+        {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return;
+        }
         let force = std::mem::take(&mut self.state.force);
         // Choose the file first, then ask about unsaved changes – and not at all if it is the
         // file that is already open.
         if action == FileAction::Open {
+            if self.state.browser {
+                // The chosen file comes back through `Host::uploaded`.
+                self.host.request_upload();
+                return;
+            }
             if let Some(path) = self.host.pick_open() {
                 self.state.force = force;
                 self.file(FileAction::OpenPath(path));
@@ -622,6 +796,7 @@ impl PlnwrkApp {
             },
             FileAction::Open => {}
             FileAction::OpenPath(path) => self.open(path, None),
+            FileAction::Upload(upload) => self.open_upload(upload, None),
             FileAction::Save => {
                 self.save(false);
             }
@@ -647,6 +822,10 @@ impl PlnwrkApp {
 
     /// The open work is dropped on purpose: its copy goes; a recovered copy is offered again.
     fn drop_copy(&mut self) {
+        if self.state.browser {
+            self.browser_copy.discard(&mut *self.host);
+            self.refresh_stored_copies();
+        }
         if let Some(kept) = self.autosave.discard() {
             self.state.recovered.retain(|p| !same_place(p, &kept));
             self.state.recovered.insert(0, kept);
@@ -709,6 +888,54 @@ impl PlnwrkApp {
         self.doc.as_ref().and_then(OpenDoc::path) == Some(path.as_path())
     }
 
+    fn open_source(&mut self, source: FileSource, passphrase: Option<SecretString>) {
+        match source {
+            FileSource::Path(path) => self.open(path, passphrase),
+            FileSource::Upload(upload) => self.open_upload(upload, passphrase),
+        }
+    }
+
+    /// A refused opening: asks (again) for the passphrase, or says what is wrong.
+    fn open_failed(&mut self, source: FileSource, error: StoreError, retry: bool) {
+        match error {
+            StoreError::PassphraseRequired => {
+                self.state.open_dialog(Dialog::Passphrase {
+                    source,
+                    text: String::new(),
+                });
+            }
+            StoreError::WrongPassphrase if retry => {
+                self.state.open_dialog(Dialog::Passphrase {
+                    source,
+                    text: String::new(),
+                });
+                self.state.message = Some(Message::error(text::store_error(
+                    &StoreError::WrongPassphrase,
+                )));
+            }
+            error => self.state.message = Some(Message::error(text::store_error(&error))),
+        }
+    }
+
+    /// Opens a file chosen in the browser. VS-NfD is refused – by its readable head before
+    /// any passphrase is asked for, and by its content after reading.
+    fn open_upload(&mut self, upload: Upload, passphrase: Option<SecretString>) {
+        let classified = plnwrk_store::peek(&upload.bytes)
+            .is_ok_and(|head| head.classification >= Classification::VsNfd);
+        if self.state.browser && classified {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return;
+        }
+        let retry = passphrase.is_some();
+        match OpenDoc::from_upload(&upload.name, &upload.bytes, passphrase) {
+            Ok(doc) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
+                self.state.message = Some(Message::error(text::t().vs_blocked));
+            }
+            Ok(doc) => self.replace(doc),
+            Err(error) => self.open_failed(FileSource::Upload(upload), error, retry),
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: PathBuf, passphrase: Option<SecretString>) {
         let retry = passphrase.is_some();
@@ -735,22 +962,7 @@ impl PlnwrkApp {
                     self.state.message = Some(Message::info(text::t().recovered_opened));
                 }
             }
-            Err(StoreError::PassphraseRequired) => {
-                self.state.open_dialog(Dialog::Passphrase {
-                    path,
-                    text: String::new(),
-                });
-            }
-            Err(StoreError::WrongPassphrase) if retry => {
-                self.state.open_dialog(Dialog::Passphrase {
-                    path,
-                    text: String::new(),
-                });
-                self.state.message = Some(Message::error(text::store_error(
-                    &StoreError::WrongPassphrase,
-                )));
-            }
-            Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
+            Err(error) => self.open_failed(FileSource::Path(path), error, retry),
         }
     }
 
@@ -761,9 +973,54 @@ impl PlnwrkApp {
         })));
     }
 
-    /// Saves (asking for a place if needed or wanted). Returns whether it was saved.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Saves (asking for a place if needed or wanted; in the browser: downloads). Returns
+    /// whether it was saved.
     fn save(&mut self, choose_place: bool) -> bool {
+        if self.state.browser {
+            self.download()
+        } else {
+            self.save_to_file(choose_place)
+        }
+    }
+
+    /// Browser: the file goes to the downloads folder; it counts as saved once the browser
+    /// took it.
+    fn download(&mut self) -> bool {
+        let Some(doc) = &mut self.doc else {
+            return false;
+        };
+        // Content and history: nothing that was ever VS-NfD leaves the browser as a file.
+        if plnwrk_store::classification_of(&doc.snapshot().0) >= Classification::VsNfd {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return false;
+        }
+        let name = format!("{}.plnwrk", doc.name());
+        let result = doc
+            .to_bytes()
+            .map_err(|e| text::store_error(&e))
+            .and_then(|bytes| self.host.download(&name, &bytes));
+        match result {
+            Ok(()) => {
+                doc.mark_saved();
+                self.autosave.saved();
+                let tab = self.host.tab();
+                self.browser_copy.downloaded(&mut *self.host, &tab, doc);
+                self.state.message =
+                    Some(Message::info(format!("{} {name}", text::t().downloaded)));
+                true
+            }
+            Err(reason) => {
+                self.state.message = Some(Message::error(format!(
+                    "{} {reason}",
+                    text::t().download_failed
+                )));
+                false
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_to_file(&mut self, choose_place: bool) -> bool {
         let Some(doc) = &mut self.doc else {
             return false;
         };
@@ -793,7 +1050,7 @@ impl PlnwrkApp {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn save(&mut self, _choose_place: bool) -> bool {
+    fn save_to_file(&mut self, _choose_place: bool) -> bool {
         self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
             reason: text::t().browser_files_later.to_owned(),
         })));
@@ -863,6 +1120,27 @@ impl eframe::App for PlnwrkApp {
         }
         storage.set_string(LANGUAGE_KEY, self.state.language.code().to_owned());
         storage.set_string(THEME_KEY, theme_code(self.state.theme).to_owned());
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::asks_for_classified;
+    use serde_json::json;
+
+    #[test]
+    fn classified_parameters_are_found_anywhere() {
+        assert!(asks_for_classified(&json!({"classification": "vs_nfd"})));
+        assert!(asks_for_classified(
+            &json!({"items": [{"title": "x"}, {"classification": "vs_nfd"}]})
+        ));
+        assert!(asks_for_classified(
+            &json!({"a": {"b": {"classification": "vs_nfd"}}})
+        ));
+        assert!(!asks_for_classified(&json!({"classification": "open"})));
+        assert!(!asks_for_classified(&json!({"title": "vs_nfd"})));
+        assert!(!asks_for_classified(&json!({"classification": "VS-NfD"})));
+        assert!(!asks_for_classified(&json!(null)));
     }
 }
 

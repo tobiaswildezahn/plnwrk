@@ -91,7 +91,7 @@ impl World {
     fn new(name: &str, background: bool) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "plnwrk-model-{}-{name}-{}",
-            std::process::id(),
+            plnwrk_platform::instance(),
             rand_suffix()
         ));
         let _ = std::fs::remove_dir_all(&dir);

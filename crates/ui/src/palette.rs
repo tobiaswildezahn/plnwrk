@@ -115,14 +115,17 @@ pub fn entries(doc: Option<&OpenDoc>, state: &State) -> Vec<Entry> {
             list.add(label, view, None, &[], vec![Intent::Theme(theme)]);
         }
     }
-    let quit = Some(keys::QUIT);
-    list.add(
-        t.quit,
-        file,
-        quit,
-        &[],
-        vec![Intent::File(FileAction::Quit)],
-    );
+    // A browser tab is not quit from inside the page.
+    if !state.browser {
+        let quit = Some(keys::QUIT);
+        list.add(
+            t.quit,
+            file,
+            quit,
+            &[],
+            vec![Intent::File(FileAction::Quit)],
+        );
+    }
     if let Some(doc) = doc {
         places(&mut list, doc);
     }

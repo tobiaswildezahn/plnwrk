@@ -36,8 +36,8 @@ fn recovery_key() -> String {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
-    // The process id keeps two plnwrk windows opened in the same second apart.
-    format!("{stamp} {}-{n}", std::process::id())
+    // Keeps two plnwrk windows (or browser tabs) opened in the same second apart.
+    format!("{stamp} {}-{n}", plnwrk_platform::instance())
 }
 
 fn session(doc: Document) -> Session {
@@ -90,6 +90,37 @@ impl OpenDoc {
         let mut doc = Self::with(session, None, protection, saved);
         doc.upgraded = upgraded;
         Ok(doc)
+    }
+
+    /// A file uploaded in the browser: named like the file, without a path. An encrypted file
+    /// without passphrase gives [`StoreError::PassphraseRequired`].
+    pub fn from_upload(
+        name: &str,
+        bytes: &[u8],
+        passphrase: Option<SecretString>,
+    ) -> Result<Self, StoreError> {
+        if plnwrk_store::peek(bytes)?.encrypted && passphrase.is_none() {
+            return Err(StoreError::PassphraseRequired);
+        }
+        let mut doc = Self::from_bytes(bytes, passphrase)?;
+        doc.title = Some(stem(name));
+        Ok(doc)
+    }
+
+    /// Treats it as work not saved anywhere (a recovered copy).
+    pub fn mark_unsaved(&mut self) {
+        self.saved = usize::MAX;
+    }
+
+    /// Tells the recovery copy of this opening apart from others.
+    pub fn recovery_key(&self) -> &str {
+        &self.recovery_key
+    }
+
+    /// The file was saved somewhere else (downloaded in the browser): nothing is unsaved now.
+    pub fn mark_saved(&mut self) {
+        self.saved = self.session.log().len();
+        self.protection_changed = false;
     }
 
     /// The file it lives in.
@@ -148,6 +179,19 @@ impl OpenDoc {
     /// The bytes of the file as it would be saved now.
     pub fn to_bytes(&self) -> Result<Vec<u8>, StoreError> {
         plnwrk_store::save(&Document::from_session(&self.session), &self.protection)
+    }
+}
+
+/// A file name without folder and `.plnwrk` (or any other extension).
+pub fn stem(name: &str) -> String {
+    let file = Path::new(name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if file.trim().is_empty() {
+        text::t().untitled.to_owned()
+    } else {
+        file
     }
 }
 
@@ -309,7 +353,10 @@ mod tests {
     use serde_json::json;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("plnwrk-ui-doc-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "plnwrk-ui-doc-{}-{name}",
+            plnwrk_platform::instance()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

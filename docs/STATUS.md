@@ -1,7 +1,7 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14, nach dem
-> Merge von Phase 3b-3** – Phase 3 (Desktop-UI) ist komplett. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Umsetzung von Phase 4 (Web)** (PR offen). Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -20,7 +20,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
-| 4 Web | offen | – |
+| 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **umgesetzt**, PR offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
 | 7 VS-Härtung | offen | – |
@@ -77,14 +77,18 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 3. **Autosave in der echten App**: am 2026-10-14 belegt, dass eine Kopie im Hintergrund entstand
    und nach dem Beenden der Instanz (SIGTERM) auf der Startseite angeboten wurde. Noch nicht
    gezielt geprüft: minimiert + „Sofort beenden“ in der Aktivitätsanzeige.
-4. Danach **Phase 4 (Web)** – vorher Entscheidung 4.1. Alternativ 4.6 (KI früher).
+4. **Tobi testet Phase 4** (Demo im Plan `docs/plans/2026-10-14-phase-4.md`), besonders das
+   Hochladen über den echten Dateidialog (nur über Tests belegt).
+5. **Veröffentlichen?** Der Workflow `pages` (von Hand) stellt die Browser-Version unter eine
+   öffentliche Adresse. Braucht Tobis Entscheidung und Pages in den Repo-Einstellungen.
+6. Danach Phase 5 (Zeitplanung) oder 4.6 (KI früher).
 5. Optional: `cargo xtask mutants` (5.1).
 
 ## 4. Offene Entscheidungen des Nutzers
 
 | # | Frage | Vorschlag | Spätestens |
 | --- | --- | --- | --- |
-| 4.1 | Soll der **Browser VS-NfD-Dateien grundsätzlich nicht öffnen**? | Ja, harte Sperre (Browser gilt laut §3.8 nicht als VS-geeignet; löst auch den scrypt-Speicherkonflikt) | vor Phase 4 |
+| 4.1 | ~~Browser und VS-NfD~~ **entschieden:** harte Sperre im Browser (Phase 4) | – | erledigt |
 | 4.2 | **Herabstufung**: Wer darf eine Datei herabstufen, braucht es vier Augen? Herabstufung erzeugt eine neue Datei ohne Geschichte. | Eigener, protokollierter Vorgang mit Begründung; Vier-Augen-Prinzip | vor Phase 7 |
 | 4.3 | **Passphrase vergessen = Daten verloren.** Hinterlegung oder zweiter Schlüssel (age kann mehrere Empfänger)? Wer entscheidet in der Organisation? | Zweiter Empfänger (Behördenschlüssel) als Option | vor echtem VS-Einsatz |
 | 4.4 | ~~Tempo vs. VS-Niveau in Phase 3~~ **entschieden:** früh zeigbar, VS später | – | erledigt |
@@ -132,6 +136,19 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   können Dateien beide Wörter enthalten.
 - **Getippter, nicht übernommener Text** (Feld hat noch den Cursor) steht nicht in der
   Minutenkopie, nur in der Notsicherung beim Beenden; bei einem harten Absturz ist er weg.
+- **Browser:** Zwischenstand liegt im `localStorage` (Klartext, nur nicht eingestufte,
+  unverschlüsselte Arbeit); wer den Browser-Speicher lesen kann, sieht ihn – auch jede andere
+  Seite unter derselben Adresse (darum vor dem Veröffentlichen eine eigene (Sub-)Domain statt
+  `<owner>.github.io`). Verschlüsselte Arbeit bekommt keinen Zwischenstand. Speichern =
+  Herunterladen; ob der Browser die Datei wirklich ablegt, erfährt die Seite nicht, darum
+  bleibt die Kopie danach 7 Tage (markiert „heruntergeladen“; „Alle Zwischenstände löschen“
+  auf der Startseite für gemeinsam genutzte Rechner). Offene Tabs halten eine Browser-Sperre
+  (Web Locks: Chrome, Firefox, Safari ≥ 15.4) auf ihre Kennung; ohne Web Locks gelten andere
+  Tabs als geschlossen (dann können zwei Tabs dieselbe Kopie übernehmen). Öffnen per Tastatur (⌘O, Palette) könnte Safari als
+  „nicht vom Menschen ausgelöst“ ignorieren – Knopf „Datei öffnen…“ geht immer. Der
+  Dateidialog des Browsers lässt sich nicht automatisiert prüfen.
+  eframe registriert sein eigenes Speichern beim Verlassen unter einem falschen Ereignisnamen
+  (`onbeforeunload`); plnwrk verlässt sich darum nicht darauf.
 - **Autosave:** macOS „App Nap“ kann den Takt eines verdeckten Programms verzögern; nach
   Rückgängig bis zum gespeicherten Stand und Wiederholen entsteht die Kopie erst 60 s später neu;
   Entschützen einer ungespeicherten VS-NfD-Datei fragt erst nach dem Ort und lehnt dann ab.
@@ -139,8 +156,6 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 - **Werkzeug:** Abdeckungszahl enthält In-Datei-Testmodule.
 
 ### 5.3 Für spätere Phasen vorgemerkt
-- **Phase 4 (Web):** Upload/Download, Zwischenstand in IndexedDB, `beforeunload`-Warnung;
-  Entscheidung 4.1; getrandom/jiff für wasm sind gesetzt.
 - **Phase 7 (VS):** Herabstufung (4.2), Signatur (4.7), Export-Verweigerung bei Herabstufung,
   Audit-Bericht, Entscheidungen 4.8/4.9.
 
