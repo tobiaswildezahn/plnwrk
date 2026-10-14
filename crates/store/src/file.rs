@@ -113,18 +113,22 @@ fn write_temporary(path: &Path, bytes: &[u8]) -> Result<PathBuf, StoreError> {
     Ok(temp)
 }
 
+/// Gives `temp` the permissions of an existing `path` (Unix modes only: on Windows copying a
+/// read-only flag would make the rename fail).
+fn keep_permissions(path: &Path, temp: &Path) -> Result<(), StoreError> {
+    #[cfg(unix)]
+    if let Ok(meta) = fs::metadata(path) {
+        fs::set_permissions(temp, meta.permissions()).map_err(io)?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, temp);
+    Ok(())
+}
+
 /// Replaces `path` with `bytes` atomically. An existing file keeps its permissions.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let temp = write_temporary(path, bytes)?;
-    let result = (|| {
-        // Keep the permissions of an existing file (Unix modes; on Windows copying a read-only
-        // flag would make the rename fail).
-        #[cfg(unix)]
-        if let Ok(meta) = fs::metadata(path) {
-            fs::set_permissions(&temp, meta.permissions()).map_err(io)?;
-        }
-        fs::rename(&temp, path).map_err(io)
-    })();
+    let result = keep_permissions(path, &temp).and_then(|()| fs::rename(&temp, path).map_err(io));
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     } else {
