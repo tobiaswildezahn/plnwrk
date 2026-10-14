@@ -1,7 +1,7 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14, nach dem
-> Merge von Phase 3b-2**. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Umsetzung von Phase 3b-3** (PR offen). Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -19,7 +19,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Details, Vorlagen, Personen) | **fertig**, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
 | 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
-| 3b-3 Befehlspalette, Englisch, Theme-Umschalter | offen | – |
+| 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **umgesetzt**, PR offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
@@ -51,7 +51,8 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   Zufalls-IDs), `ui` (egui-Oberfläche inkl. Autosave), `schedule`/`assistant`/`mcp` (Gerüste);
   Apps `plnwrk` (Desktop, Systemdialoge, ohne macOS-Standardmenü), `plnwrk-web` (dieselbe
   Oberfläche im Browser, noch ohne Dateien), `plnwrk-cli`.
-- **Tests:** u. a. 76 Oberflächentests ohne Fenster (egui_kittest über den
+- **Tests:** u. a. 99 Oberflächentests ohne Fenster, ein Zustandsautomat-Test (proptest) für
+  Autosave/„ungespeichert“, ein Wächtertest gegen deutsche Texte außerhalb `text.rs` (egui_kittest über den
   Barrierefreiheitsbaum), Angriffs-/Schadenstests des Dateiformats, Müll-Parameter-Fuzzer für
   jeden Befehl, Snapshot-Tests der Abfragen.
 - **App ausprobieren (Mac):** `cd ~/projekte/plnwrk && cargo xtask app`, dann
@@ -74,11 +75,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    `App::logic`). Außerdem: eine Datei aus dem MVP-Test öffnen (Umstellung auf Format 2).
 2. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10).
-3. **Phase 3b-3 planen** (`docs/plans/`): vorgeschlagene Reihenfolge –
-   Zustandsautomat-/Property-Test für Autosave und „ungespeichert“ (drei Review-Runden fanden dort
-   Randfälle), dann Befehlspalette (Cmd+K über das Befehlsregister), Englisch (Texte stehen in
-   `crates/ui/src/text.rs`), Theme-Umschalter. Reihenfolge nach Tobis Testrückmeldung.
-4. Optional: `cargo xtask mutants` (5.1).
+3. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
+   Dunkel. Besonders: Ist im Dunkelmodus alles lesbar (VS-NfD-Kennzeichnung, Überfällig-Rot,
+   Board)? Das prüfen die Tests nicht.
+4. Danach **Phase 4 (Web)** – vorher Entscheidung 4.1. Alternativ 4.6 (KI früher).
+5. Optional: `cargo xtask mutants` (5.1).
 
 ## 4. Offene Entscheidungen des Nutzers
 
@@ -99,8 +100,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 5. Offene technische Punkte
 
 ### 5.1 Vorgeschlagen, noch nicht beauftragt
-- **Zustandsautomat-Test** (proptest) über Ändern/Warten/Rückgängig/Speichern/Verwerfen/
-  Wiederherstellen für Autosave und „ungespeichert“.
+- **Sprache aus dem System** übernehmen (heute Standard Deutsch, Umschalten im Menü).
 - **`cargo xtask mutants`** (cargo-mutants, nicht blockierend) für `store`, `engine`, `ui`.
 - **Prüfschritt „ignorierte Testdateien“** in `cargo xtask ci` (die v1-Fixtures fehlten einmal
   unbemerkt im Repo, weil `.gitignore` sie ausschloss).
@@ -118,10 +118,14 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   Unix. `SaveOptions.work_factor` erlaubt niedrigere scrypt-Faktoren (für Tests).
 - **App:** Speichern verschlüsselter Dateien blockiert ≈ 1 s. Ohne macOS-Standardmenü fehlen
   Cmd+H/Cmd+M; Cmd+Q ruht, solange ein Dialog offen ist. Doppelklick auf `.plnwrk` im Finder
-  öffnet noch nichts (Apple Event). Verlauf zeigt Feldnamen technisch (`due`). Einige
-  Dialog-Hinweise stehen noch direkt in den Ansichten statt in `text.rs`. Uhrzeiten werden intern
+  öffnet noch nichts (Apple Event). Uhrzeiten werden intern
   als `HH:MM:SS` gespeichert (Eingabe `HH:MM`). Frist „00:00“ liest sich am Vorabend als
   „morgen fällig“.
+- **Sprache:** Kopien-Namen („– Wiederherstellung“, Ordner „Notkopien“) und die
+  VS-NfD-Kennzeichnung bleiben deutsch; Daten (Titel, Art „Projekt“/„Vorgang“) bleiben, wie
+  getippt. Technische Gründe aus Speicher/Engine (`reason`) erscheinen englisch hinter der
+  übersetzten Meldung. Meldungen in der Statuszeile bleiben nach einem Sprachwechsel in der alten
+  Sprache, bis die nächste kommt.
 - **Autosave:** macOS „App Nap“ kann den Takt eines verdeckten Programms verzögern; nach
   Rückgängig bis zum gespeicherten Stand und Wiederholen entsteht die Kopie erst 60 s später neu;
   Entschützen einer ungespeicherten VS-NfD-Datei fragt erst nach dem Ort und lehnt dann ab.
@@ -157,7 +161,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 | --- | --- |
 | `docs/PLAN.md` | verbindlicher Plan, Regeln, Architektur, Entscheidungsprotokoll §9 |
 | `docs/STATUS.md` | dieses Dokument |
-| `docs/plans/2026-10-14-phase-*.md` | Aufgabenpläne der Phasen (0, 1, 2, 3, 3b-1, 3b-2) mit Demo-Schritten |
+| `docs/plans/2026-10-14-phase-*.md` | Aufgabenpläne der Phasen (0, 1, 2, 3, 3b-1, 3b-2, 3b-3) mit Demo-Schritten |
+| `crates/ui/src/text.rs` | alle Oberflächentexte, Deutsch und Englisch |
+| `crates/ui/src/palette.rs` | Befehlspalette (Einträge, Suche, Ausnahmeliste) |
+| `crates/ui/src/model_tests.rs` | Zustandsautomat-Test für Autosave und „ungespeichert“ |
 | `CLAUDE.md` | Agenten-Einstieg, Befehle, Stolperfallen, Regeln |
 | `xtask/src/{ci,layers,purity,app}.rs` | die Schranke und der App-Bau |
 | `crates/store/tests/store.rs`, `crates/store/tests/fixtures/` | Angriffs-/Schadenstests, echte v1-Dateien |
