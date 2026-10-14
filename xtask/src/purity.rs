@@ -43,7 +43,13 @@ mod tests {
 
     #[test]
     fn clean_code_passes() {
-        assert!(scan(Path::new("lib.rs"), "pub fn add(a: u8, b: u8) -> u8 { a + b }").is_empty());
+        assert!(
+            scan(
+                Path::new("lib.rs"),
+                "pub fn add(a: u8, b: u8) -> u8 { a + b }"
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -82,7 +88,10 @@ mod tests {
 
     #[test]
     fn crlf_line_numbers_are_correct() {
-        let found = scan(Path::new("w.rs"), "ok\r\nok\r\nuse std::net::UdpSocket;\r\n");
+        let found = scan(
+            Path::new("w.rs"),
+            "ok\r\nok\r\nuse std::net::UdpSocket;\r\n",
+        );
         assert!(found[0].contains("w.rs:3"));
     }
 }
