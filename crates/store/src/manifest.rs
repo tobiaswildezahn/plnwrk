@@ -58,7 +58,8 @@ impl Manifest {
         if version < OLDEST {
             return Err(StoreError::UnsupportedFormat { found: version });
         }
-        serde_json::from_value(value).map_err(|e| StoreError::corrupt(format!("manifest: {e}")))
+        // Parsed again from the bytes (not from `value`): only then are duplicate keys refused.
+        serde_json::from_slice(bytes).map_err(|e| StoreError::corrupt(format!("manifest: {e}")))
     }
 
     /// The manifest as written.

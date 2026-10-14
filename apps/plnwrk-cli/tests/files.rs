@@ -272,13 +272,105 @@ mod files {
     }
 
     #[test]
+    fn passphrase_length_is_counted_in_characters_after_normalisation() {
+        let dir = Dir::new("length");
+        let file = dir.file();
+        ok(&["new", s(&file)], None);
+        fails(&["encrypt", s(&file)], Some("12345678901"));
+        // Eleven umlauts are 22 bytes but only 11 characters; decomposed they are 22 code points.
+        fails(&["encrypt", s(&file)], Some(&"ä".repeat(11)));
+        fails(&["encrypt", s(&file)], Some(&"a\u{0308}".repeat(11)));
+        ok(&["encrypt", s(&file)], Some("123456789012"));
+    }
+
+    #[test]
+    fn a_locked_file_is_not_changed_by_a_second_program() {
+        let dir = Dir::new("locked");
+        let file = dir.file();
+        ok(&["new", s(&file), "--sample"], None);
+        let before = std::fs::read(&file).unwrap();
+        let held = plnwrk_store::file::lock(&plnwrk_store::file::resolve(&file).unwrap()).unwrap();
+        let project = project_id(s(&file), None);
+        let params = json!({"project": project, "title": "parallel"}).to_string();
+        let busy = fails(&["run", s(&file), "task.create", &params], None);
+        assert!(
+            busy["reason"].as_str().unwrap().contains("in use"),
+            "{busy}"
+        );
+        assert!(
+            fails(&["encrypt", s(&file)], Some("Lagezentrum-2026"))["reason"]
+                .as_str()
+                .unwrap()
+                .contains("in use")
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        drop(held);
+        ok(&["run", s(&file), "task.create", &params], None);
+    }
+
+    #[test]
+    fn new_never_replaces_a_file_that_appears_meanwhile() {
+        // Without any early check in the CLI, only the never-overwrite write protects the file.
+        let dir = Dir::new("appears");
+        let file = dir.file();
+        std::fs::write(&file, b"fremde Datei").unwrap();
+        fails(&["new", s(&file), "--sample"], None);
+        assert_eq!(std::fs::read(&file).unwrap(), b"fremde Datei");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_file_is_followed_not_replaced() {
+        let dir = Dir::new("link");
+        let real = dir.0.join("real.plnwrk");
+        ok(&["new", s(&real), "--sample"], None);
+        let link = dir.0.join("link.plnwrk");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let project = project_id(s(&link), None);
+        ok(
+            &[
+                "run",
+                s(&link),
+                "task.create",
+                &json!({"project": project, "title": "über Link"}).to_string(),
+            ],
+            None,
+        );
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        let board = ok(
+            &[
+                "query",
+                s(&real),
+                "board",
+                &json!({"project": project}).to_string(),
+            ],
+            None,
+        );
+        assert!(board.to_string().contains("über Link"));
+    }
+
+    #[test]
     fn a_passphrase_for_an_unencrypted_file_triggers_a_warning() {
         let dir = Dir::new("warn");
         let file = dir.file();
         ok(&["new", s(&file), "--sample"], None);
-        let output = cli(&["verify", s(&file)], Some("Lagezentrum-2026"));
+        let project = project_id(s(&file), None);
+        let params = json!({"project": project, "title": "x"}).to_string();
+        let output = cli(
+            &["run", s(&file), "task.create", &params],
+            Some("Lagezentrum-2026"),
+        );
         assert!(output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("not encrypted"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("saved unencrypted"));
+        // Encrypting with the variable set is exactly what it is for: no warning.
+        let output = cli(&["encrypt", s(&file)], Some("Lagezentrum-2026"));
+        assert!(output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("warning"));
     }
 
     #[test]

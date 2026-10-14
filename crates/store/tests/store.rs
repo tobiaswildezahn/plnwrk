@@ -319,7 +319,7 @@ mod store {
             origin: Origin::Script,
             actor: None,
             command: "person.create".into(),
-            params: json!({}),
+            params: json!({"name": ""}),
             events: vec![plnwrk_engine::Event::Put {
                 before: None,
                 after: Box::new(person),
@@ -349,6 +349,29 @@ mod store {
     }
 
     #[test]
+    fn hidden_data_in_the_state_or_the_parameters_is_refused() {
+        let bytes = save(&sample_doc(), &Protection::None).unwrap();
+        // A duplicate key in workspace.json: a JSON reader keeps the last value only.
+        let duplicate = edit(&bytes, "workspace.json", |content| {
+            let text = String::from_utf8(content.clone()).unwrap();
+            let replaced = text.replacen("\"people\":{", "\"people\":{\"00000000000000000000000001\":{\"id\":\"00000000000000000000000001\",\"name\":\"versteckt\",\"email\":null,\"role\":null,\"initials\":\"V\"},", 1);
+            assert_ne!(replaced, text);
+            *content = replaced.into_bytes();
+        });
+        assert_eq!(load(&duplicate, None), Err(StoreError::SnapshotMismatch));
+        // An extra parameter inside a correctly hashed change.
+        let mut doc = sample_doc();
+        doc.log[0].params["hidden"] = json!("VS-NfD Bunker 7");
+        let (text, head) = chain::seal(&doc.log).unwrap();
+        let tampered = edit(&bytes, "log.jsonl", |content| *content = text.into_bytes());
+        let tampered = edit_json(&tampered, "manifest.json", |m| m["head"] = json!(head));
+        assert!(matches!(
+            load(&tampered, None),
+            Err(StoreError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
     fn extra_entries_are_refused() {
         let plain = save(&sample_doc(), &Protection::None).unwrap();
         let mut all = entries(&plain);
@@ -369,14 +392,46 @@ mod store {
     #[test]
     fn the_readable_head_of_an_encrypted_file_may_not_describe_its_content() {
         let bytes = encrypted(&sample_doc(), "richtig");
-        let tampered = edit_json(&bytes, "manifest.json", |m| {
-            m["changes"] = json!(999);
-            m["head"] = json!("deadbeef");
+        let with_count = edit_json(&bytes, "manifest.json", |m| m["changes"] = json!(999));
+        let with_hash = edit_json(&bytes, "manifest.json", |m| m["head"] = json!("deadbeef"));
+        for tampered in [with_count, with_hash] {
+            assert!(matches!(
+                load(&tampered, Some(&pass("richtig"))),
+                Err(StoreError::Corrupt { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn an_encrypted_head_lower_than_its_content_is_refused() {
+        // Inner and outer head both say "open", but the content is VS-NfD.
+        let doc = classified();
+        let bytes = encrypted(&doc, "richtig");
+        let payload = entries(&bytes).remove("payload.age").unwrap();
+        let padded = age::decrypt(&age::scrypt::Identity::new(pass("richtig")), &payload).unwrap();
+        let length = usize::try_from(u64::from_le_bytes(padded[..8].try_into().unwrap())).unwrap();
+        let inner = edit_json(&padded[8..8 + length], "manifest.json", |m| {
+            m["classification"] = json!("open");
         });
+        let file = wrap_encrypted(&inner, "richtig");
+        assert_eq!(peek(&file).unwrap().classification, Classification::Open);
         assert!(matches!(
-            load(&tampered, Some(&pass("richtig"))),
+            load(&file, Some(&pass("richtig"))),
             Err(StoreError::Corrupt { .. })
         ));
+    }
+
+    #[test]
+    fn duplicate_keys_in_the_head_are_refused() {
+        let bytes = save(&sample_doc(), &Protection::None).unwrap();
+        let tampered = edit(&bytes, "manifest.json", |content| {
+            let text = String::from_utf8(content.clone()).unwrap();
+            *content = text
+                .replacen('{', "{\"classification\":\"vs_nfd\",", 1)
+                .into_bytes();
+        });
+        assert!(peek(&tampered).is_err());
+        assert!(load(&tampered, None).is_err());
     }
 
     #[test]
@@ -402,6 +457,45 @@ mod store {
             load(&patched, None),
             Err(StoreError::Corrupt { .. })
         ));
+    }
+
+    #[test]
+    fn data_around_the_zip_is_refused() {
+        let plain = save(&sample_doc(), &Protection::None).unwrap();
+        let encrypted_file = encrypted(&sample_doc(), "richtig");
+        for bytes in [&plain, &encrypted_file] {
+            let passphrase = Some(pass("richtig"));
+            let mut prepended = b"PK\x03\x04 hidden prefix".to_vec();
+            prepended.extend_from_slice(bytes);
+            assert!(load(&prepended, passphrase.as_ref()).is_err());
+            assert!(peek(&prepended).is_err());
+
+            let mut trailing = bytes.clone();
+            trailing.extend_from_slice(b"hidden suffix");
+            assert!(load(&trailing, passphrase.as_ref()).is_err());
+
+            // A second, fake end record after the real one.
+            let mut fake_end = bytes.clone();
+            let real_end = bytes[bytes.len() - 22..].to_vec();
+            fake_end.extend_from_slice(&real_end);
+            assert!(load(&fake_end, passphrase.as_ref()).is_err());
+
+            // An archive comment (written by other ZIP tools).
+            let mut commented = bytes.clone();
+            let n = commented.len();
+            commented[n - 2] = 5;
+            commented.extend_from_slice(b"hallo");
+            assert!(load(&commented, passphrase.as_ref()).is_err());
+        }
+        // A comment length without the comment itself.
+        let mut lying = plain.clone();
+        let n = lying.len();
+        lying[n - 2] = 5;
+        assert!(load(&lying, None).is_err());
+        assert!(peek(&lying).is_err());
+        // Untouched files still load.
+        assert!(load(&plain, None).is_ok());
+        assert!(load(&encrypted_file, Some(&pass("richtig"))).is_ok());
     }
 
     #[test]
@@ -623,6 +717,42 @@ mod store {
         );
         let bytes = encrypted(&doc, "richtig-und-lang");
         assert_eq!(peek(&bytes).unwrap().classification, Classification::VsNfd);
+        // Exports follow the file, not just the current state.
+        let mark = plnwrk_store::export::VS_NFD_MARK;
+        assert!(plnwrk_store::export::csv(&doc).starts_with(&format!("\u{FEFF}{mark}")));
+        assert!(plnwrk_store::export::markdown(&doc).starts_with(&format!("> **{mark}**")));
+        let json: Value = serde_json::from_str(&plnwrk_store::export::json(&doc).unwrap()).unwrap();
+        assert_eq!(json["marking"], mark);
+    }
+
+    #[test]
+    fn tasks_in_classified_projects_are_not_marked_twice() {
+        let doc = classified();
+        let mut session = Session::with_workspace(
+            doc.workspace,
+            doc.log,
+            clock(),
+            Box::new(SequentialIds::starting_at(500)),
+        );
+        let project = session
+            .workspace()
+            .projects()
+            .next()
+            .unwrap()
+            .id
+            .to_string();
+        session
+            .run(
+                "task.create",
+                &json!({"project": project, "title": "Lage"}),
+                Origin::User,
+            )
+            .unwrap();
+        let markdown = plnwrk_store::export::markdown(&Document {
+            workspace: session.workspace().clone(),
+            log: session.log().to_vec(),
+        });
+        assert!(markdown.contains("- [ ] Lage\n"), "{markdown}");
     }
 
     #[test]
@@ -677,17 +807,16 @@ mod store {
     #[test]
     fn exports_of_the_sample() {
         let doc = sample_doc();
-        let markdown = plnwrk_store::export::markdown(&doc.workspace);
+        let markdown = plnwrk_store::export::markdown(&doc);
         assert!(
             !markdown.contains("SKA beantworten"),
             "templates are left out"
         );
         insta::assert_snapshot!("markdown", markdown);
-        let csv = plnwrk_store::export::csv(&doc.workspace);
+        let csv = plnwrk_store::export::csv(&doc);
         assert_eq!(csv.lines().count(), 1 + 10, "header and one row per task");
         insta::assert_snapshot!("csv", csv);
-        let json: Value =
-            serde_json::from_str(&plnwrk_store::export::json(&doc.workspace).unwrap()).unwrap();
+        let json: Value = serde_json::from_str(&plnwrk_store::export::json(&doc).unwrap()).unwrap();
         assert!(
             json["workspace"]["tasks"]
                 .as_object()
@@ -699,17 +828,14 @@ mod store {
     fn classified_exports_are_marked() {
         let doc = classified();
         let mark = plnwrk_store::export::VS_NFD_MARK;
-        assert!(plnwrk_store::export::csv(&doc.workspace).starts_with(&format!("\u{FEFF}{mark}")));
-        let json: Value =
-            serde_json::from_str(&plnwrk_store::export::json(&doc.workspace).unwrap()).unwrap();
+        assert!(plnwrk_store::export::csv(&doc).starts_with(&format!("\u{FEFF}{mark}")));
+        let json: Value = serde_json::from_str(&plnwrk_store::export::json(&doc).unwrap()).unwrap();
         assert_eq!(json["marking"], mark);
-        assert!(
-            plnwrk_store::export::markdown(&doc.workspace).starts_with(&format!("> **{mark}**"))
-        );
+        assert!(plnwrk_store::export::markdown(&doc).starts_with(&format!("> **{mark}**")));
         let open = sample_doc();
-        assert!(!plnwrk_store::export::csv(&open.workspace).contains(mark));
+        assert!(!plnwrk_store::export::csv(&open).contains(mark));
         let json: Value =
-            serde_json::from_str(&plnwrk_store::export::json(&open.workspace).unwrap()).unwrap();
+            serde_json::from_str(&plnwrk_store::export::json(&open).unwrap()).unwrap();
         assert_eq!(json["marking"], Value::Null);
     }
 
@@ -737,10 +863,16 @@ mod store {
                 Origin::User,
             )
             .unwrap();
-        let markdown = plnwrk_store::export::markdown(session.workspace());
+        let markdown = plnwrk_store::export::markdown(&Document {
+            workspace: session.workspace().clone(),
+            log: session.log().to_vec(),
+        });
         assert!(markdown.contains("- [ ] Geheim — VS-NfD"));
         assert!(markdown.contains("- [ ] Offen\n"));
-        let csv = plnwrk_store::export::csv(session.workspace());
+        let csv = plnwrk_store::export::csv(&Document {
+            workspace: session.workspace().clone(),
+            log: session.log().to_vec(),
+        });
         assert!(
             csv.lines()
                 .any(|l| l.contains(";Geheim;") && l.ends_with(";vs_nfd"))
@@ -768,7 +900,10 @@ mod store {
                 .as_str()
                 .map(str::to_owned);
         }
-        let markdown = plnwrk_store::export::markdown(session.workspace());
+        let markdown = plnwrk_store::export::markdown(&Document {
+            workspace: session.workspace().clone(),
+            log: session.log().to_vec(),
+        });
         assert_eq!(markdown.matches("- [ ] Ebene").count(), 40);
         assert!(markdown.contains(&format!("{}- [ ] Ebene 39", "  ".repeat(39))));
     }

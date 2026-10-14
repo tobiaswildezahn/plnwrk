@@ -157,6 +157,12 @@ mod tests {
         }
         assert!(unpad(&padded).is_err());
         assert!(unpad(&[1, 2, 3]).is_err());
+        let mut overpadded = pad(b"abc");
+        overpadded.extend(std::iter::repeat_n(0u8, PADDING));
+        assert!(
+            unpad(&overpadded).is_err(),
+            "padding of a whole block or more is refused"
+        );
         let mut too_long = 9_999u64.to_le_bytes().to_vec();
         too_long.extend_from_slice(b"short");
         assert!(unpad(&too_long).is_err());

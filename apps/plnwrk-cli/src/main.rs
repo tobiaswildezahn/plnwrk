@@ -5,7 +5,7 @@ mod files;
 mod system;
 
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -141,11 +141,13 @@ fn command_json(spec: &CommandSpec) -> Value {
     json!({"id": spec.id, "summary": spec.summary, "input_schema": spec.input_schema()})
 }
 
-fn path(matches: &ArgMatches) -> Result<&Path, Failure> {
-    matches
+/// The file argument, resolved to the real file (links followed), so that locking and saving
+/// act on the file itself.
+fn path(matches: &ArgMatches) -> Result<PathBuf, Failure> {
+    let given = matches
         .get_one::<PathBuf>("file")
-        .map(PathBuf::as_path)
-        .ok_or_else(|| Failure::message("a file is required"))
+        .ok_or_else(|| Failure::message("a file is required"))?;
+    Ok(plnwrk_store::file::resolve(given)?)
 }
 
 fn params(matches: &ArgMatches) -> Result<Value, Failure> {
@@ -158,12 +160,6 @@ fn params(matches: &ArgMatches) -> Result<Value, Failure> {
 
 fn new_file(matches: &ArgMatches) -> Result<Output, Failure> {
     let path = path(matches)?;
-    if path.exists() {
-        return Err(Failure::message(format!(
-            "{} already exists",
-            path.display()
-        )));
-    }
     let mut session = files::session(Document::default());
     if matches.get_flag("sample") {
         fixture::sample(&mut session)?;
@@ -171,17 +167,24 @@ fn new_file(matches: &ArgMatches) -> Result<Output, Failure> {
     let protection = if matches.get_flag("encrypt") {
         Protection::Passphrase(files::passphrase(true)?)
     } else {
+        if std::env::var_os(files::PASSPHRASE_VAR).is_some() {
+            eprintln!(
+                "plnwrk-cli: warning: {} is created unencrypted; {} is not used (add --encrypt)",
+                path.display(),
+                files::PASSPHRASE_VAR
+            );
+        }
         Protection::None
     };
     // The early check gives a quick answer; save_new is what guarantees no overwrite.
-    files::save_new(path, &files::document(&session), &protection)?;
+    files::save_new(&path, &files::document(&session), &protection)?;
     Ok(Output::Json(
         json!({"created": path.display().to_string(), "encrypted": matches.get_flag("encrypt")}),
     ))
 }
 
 fn verify(matches: &ArgMatches) -> Result<Output, Failure> {
-    let open = files::open(path(matches)?)?;
+    let open = files::open(&path(matches)?, false)?;
     Ok(Output::Json(json!({
         "ok": true,
         "manifest": open.manifest,
@@ -196,11 +199,11 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
         .get_one::<String>("command")
         .map_or("", String::as_str);
     let params = params(matches)?;
-    let (open, _lock) = files::open_for_change(path)?;
+    let (open, _lock) = files::open_for_change(&path, true)?;
     let mut session: Session = files::session(open.doc);
     let outcome = session.run(command, &params, Origin::User)?;
     if outcome.change.is_some() {
-        files::save(path, &files::document(&session), &open.protection).map_err(
+        files::save(&path, &files::document(&session), &open.protection).map_err(
             |Failure(cause)| {
                 Failure(json!({
                     "error": "not_saved",
@@ -216,41 +219,41 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
 }
 
 fn run_query(matches: &ArgMatches) -> Result<Output, Failure> {
-    let open = files::open(path(matches)?)?;
+    let open = files::open(&path(matches)?, false)?;
     let name = matches.get_one::<String>("name").map_or("", String::as_str);
     let session = files::session(open.doc);
     Ok(Output::Json(session.query(name, &params(matches)?)?))
 }
 
 fn export_file(matches: &ArgMatches) -> Result<Output, Failure> {
-    let open = files::open(path(matches)?)?;
-    let ws = &open.doc.workspace;
+    let open = files::open(&path(matches)?, false)?;
+    let doc = &open.doc;
     match matches.get_one::<String>("format").map(String::as_str) {
-        Some("json") => Ok(Output::Text(export::json(ws)?)),
-        Some("csv") => Ok(Output::Text(export::csv(ws))),
-        Some("markdown") => Ok(Output::Text(export::markdown(ws))),
+        Some("json") => Ok(Output::Text(export::json(doc)?)),
+        Some("csv") => Ok(Output::Text(export::csv(doc))),
+        Some("markdown") => Ok(Output::Text(export::markdown(doc))),
         _ => Err(Failure::message("unknown format")),
     }
 }
 
 fn encrypt(matches: &ArgMatches) -> Result<Output, Failure> {
     let path = path(matches)?;
-    let (open, _lock) = files::open_for_change(path)?;
+    let (open, _lock) = files::open_for_change(&path, false)?;
     if open.manifest.encrypted {
         return Err(Failure::message("the file is already encrypted"));
     }
     let protection = Protection::Passphrase(files::passphrase(true)?);
-    files::save(path, &open.doc, &protection)?;
+    files::save(&path, &open.doc, &protection)?;
     Ok(Output::Json(json!({"encrypted": true})))
 }
 
 fn decrypt(matches: &ArgMatches) -> Result<Output, Failure> {
     let path = path(matches)?;
-    let (open, _lock) = files::open_for_change(path)?;
+    let (open, _lock) = files::open_for_change(&path, false)?;
     if !open.manifest.encrypted {
         return Err(Failure::message("the file is not encrypted"));
     }
-    files::save(path, &open.doc, &Protection::None)?;
+    files::save(&path, &open.doc, &Protection::None)?;
     Ok(Output::Json(json!({"encrypted": false})))
 }
 
@@ -259,7 +262,7 @@ fn run(matches: &ArgMatches) -> Result<Output, Failure> {
     match matches.subcommand() {
         Some(("new", sub)) => new_file(sub),
         Some(("info", sub)) => {
-            let bytes = plnwrk_store::file::read(path(sub)?)?;
+            let bytes = plnwrk_store::file::read(&path(sub)?)?;
             Ok(Output::Json(json!(plnwrk_store::peek(&bytes)?)))
         }
         Some(("verify", sub)) => verify(sub),

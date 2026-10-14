@@ -6,6 +6,7 @@ use std::path::Path;
 use plnwrk_engine::Session;
 use plnwrk_store::{Document, Manifest, Protection, SecretString, StoreError, file};
 use serde_json::{Value, json};
+use unicode_normalization::UnicodeNormalization as _;
 use zeroize::Zeroize as _;
 
 use crate::system::{RandomIds, SystemClock};
@@ -39,7 +40,8 @@ impl Failure {
 }
 
 fn check_new(passphrase: &str) -> Result<(), Failure> {
-    if passphrase.chars().count() < MIN_PASSPHRASE_CHARS {
+    // Counted as the passphrase is used: after Unicode normalisation.
+    if passphrase.nfc().count() < MIN_PASSPHRASE_CHARS {
         return Err(Failure::message(format!(
             "a new passphrase needs at least {MIN_PASSPHRASE_CHARS} characters"
         )));
@@ -96,8 +98,10 @@ pub struct Open {
     pub manifest: Manifest,
 }
 
-/// Reads and verifies a file, asking for the passphrase if it is encrypted.
-pub fn open(path: &Path) -> Result<Open, Failure> {
+/// Reads and verifies a file, asking for the passphrase if it is encrypted. `saving_plain`:
+/// the caller will save it back as it is – then a passphrase given for an unencrypted file
+/// earns a warning.
+pub fn open(path: &Path, saving_plain: bool) -> Result<Open, Failure> {
     let bytes = file::read(path)?;
     let head = plnwrk_store::peek(&bytes)?;
     let (opened, protection) = if head.encrypted {
@@ -105,9 +109,9 @@ pub fn open(path: &Path) -> Result<Open, Failure> {
         let opened = plnwrk_store::open(&bytes, Some(&secret))?;
         (opened, Protection::Passphrase(secret))
     } else {
-        if std::env::var_os(PASSPHRASE_VAR).is_some() {
+        if saving_plain && std::env::var_os(PASSPHRASE_VAR).is_some() {
             eprintln!(
-                "plnwrk-cli: warning: {} is not encrypted; {PASSPHRASE_VAR} is ignored and changes are saved unencrypted",
+                "plnwrk-cli: warning: {} is not encrypted; {PASSPHRASE_VAR} is not used and changes are saved unencrypted (use `encrypt`)",
                 path.display()
             );
         }
@@ -121,9 +125,9 @@ pub fn open(path: &Path) -> Result<Open, Failure> {
 }
 
 /// Locks a file against other plnwrk processes, then opens it – for anything that changes it.
-pub fn open_for_change(path: &Path) -> Result<(Open, file::Lock), Failure> {
+pub fn open_for_change(path: &Path, saving_plain: bool) -> Result<(Open, file::Lock), Failure> {
     let lock = file::lock(path)?;
-    Ok((open(path)?, lock))
+    Ok((open(path, saving_plain)?, lock))
 }
 
 /// Writes a document atomically over an existing file.

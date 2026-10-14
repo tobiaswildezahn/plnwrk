@@ -1,22 +1,24 @@
 //! Exports for people and other programs: JSON (everything), CSV (one row per task, for Excel)
 //! and Markdown (readable overview). Templates are left out of CSV and Markdown.
 //!
-//! Classified content is marked: if anything in the workspace is VS-NfD, CSV and Markdown start
-//! with the marking (docs/PLAN.md §3.8). Refusing a downgrading export is part of Phase 7.
+//! Classified content is marked: if the file is VS-NfD – judged by its current data **and its
+//! history**, like the file itself ([`crate::classification_of`]) – every export carries the
+//! marking (docs/PLAN.md §3.8). Refusing a downgrading export is part of Phase 7.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use plnwrk_core::{
     Classification, Milestone, MilestoneStatus, Project, Task, TaskId, TaskStatus, Workspace,
 };
 
-use crate::StoreError;
+use crate::{Document, StoreError, classification_of};
 
 /// The marking for classified exports.
 pub const VS_NFD_MARK: &str = "VS – NUR FÜR DEN DIENSTGEBRAUCH";
 
-fn is_classified(ws: &Workspace) -> bool {
-    ws.highest_classification() >= Classification::VsNfd
+fn is_classified(doc: &Document) -> bool {
+    classification_of(doc) >= Classification::VsNfd
 }
 
 /// Live projects (no templates) by title.
@@ -35,9 +37,9 @@ fn tasks<'a>(ws: &'a Workspace, project: &Project) -> Vec<&'a Task> {
 
 /// The whole workspace as JSON: `{"marking": …, "workspace": …}`; `marking` is the
 /// classification marking or `null`.
-pub fn json(ws: &Workspace) -> Result<String, StoreError> {
-    let marking = is_classified(ws).then_some(VS_NFD_MARK);
-    let value = serde_json::json!({ "marking": marking, "workspace": ws });
+pub fn json(doc: &Document) -> Result<String, StoreError> {
+    let marking = is_classified(doc).then_some(VS_NFD_MARK);
+    let value = serde_json::json!({ "marking": marking, "workspace": doc.workspace });
     serde_json::to_string_pretty(&value).map_err(|e| StoreError::corrupt(format!("export: {e}")))
 }
 
@@ -63,9 +65,10 @@ fn date(value: Option<jiff::civil::Date>) -> String {
 
 /// One row per task, separated by `;` (as spreadsheets in German locales expect), with a byte
 /// order mark so that spreadsheets read the umlauts as UTF-8.
-pub fn csv(ws: &Workspace) -> String {
+pub fn csv(doc: &Document) -> String {
+    let ws = &doc.workspace;
     let mut out = String::from("\u{FEFF}");
-    if is_classified(ws) {
+    if is_classified(doc) {
         out.push_str(VS_NFD_MARK);
         out.push_str("\r\n");
     }
@@ -121,6 +124,12 @@ fn md(text: &str) -> String {
 
 /// The task tree as a checklist, depth first, without recursion (trees can be deep).
 fn task_lines(ws: &Workspace, project: &Project, all: &[&Task], out: &mut String) {
+    let mut children: BTreeMap<TaskId, Vec<&Task>> = BTreeMap::new();
+    for task in all {
+        if let Some(parent) = task.parent {
+            children.entry(parent).or_default().push(task);
+        }
+    }
     let mut stack: Vec<(&Task, usize)> = all
         .iter()
         .rev()
@@ -159,20 +168,17 @@ fn task_lines(ws: &Workspace, project: &Project, all: &[&Task], out: &mut String
             "  ".repeat(depth),
             md(&task.title)
         );
-        let id: TaskId = task.id;
-        stack.extend(
-            all.iter()
-                .rev()
-                .filter(|t| t.parent == Some(id))
-                .map(|t| (*t, depth + 1)),
-        );
+        if let Some(kids) = children.get(&task.id) {
+            stack.extend(kids.iter().rev().map(|t| (*t, depth + 1)));
+        }
     }
 }
 
 /// A readable overview: one section per project with milestones and the task tree.
-pub fn markdown(ws: &Workspace) -> String {
+pub fn markdown(doc: &Document) -> String {
+    let ws = &doc.workspace;
     let mut out = String::new();
-    if is_classified(ws) {
+    if is_classified(doc) {
         let _ = writeln!(out, "> **{VS_NFD_MARK}**\n");
     }
     out.push_str("# Arbeitsbereich\n");

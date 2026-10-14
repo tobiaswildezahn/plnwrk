@@ -69,6 +69,17 @@ pub fn unseal(text: &str, head: Option<&str>) -> Result<Vec<Change>, StoreError>
         if sealed.prev != prev || sealed.hash != hash(&prev, raw.as_bytes()) {
             return Err(StoreError::ChainBroken { seq: position });
         }
+        // Outside the hashed change nothing may vary either: the line must be exactly what
+        // `seal` writes (no extra spaces, no reordering, no escapes, no carriage return).
+        let canonical = format!(
+            "{{\"prev\":\"{}\",\"hash\":\"{}\",\"change\":{raw}}}",
+            sealed.prev, sealed.hash
+        );
+        if line != canonical {
+            return Err(StoreError::corrupt(format!(
+                "log line {position} is not in the form plnwrk writes"
+            )));
+        }
         let change: Change = serde_json::from_str(raw)
             .map_err(|e| StoreError::corrupt(format!("log line {position}: {e}")))?;
         if change.seq != position {
@@ -149,6 +160,25 @@ mod tests {
             unseal(&text, head.as_deref()),
             Err(StoreError::Corrupt { .. })
         ));
+    }
+
+    #[test]
+    fn variations_outside_the_hashed_change_are_refused() {
+        let (text, head) = seal(&log()).unwrap();
+        let crlf = text.replace('\n', "\r\n");
+        let spaced = text.replacen("{\"prev\":", "{ \"prev\":", 1);
+        let reordered = {
+            let first = text.lines().next().unwrap();
+            let value: serde_json::Value = serde_json::from_str(first).unwrap();
+            let swapped = format!(
+                "{{\"hash\":{},\"prev\":{},\"change\":{}}}",
+                value["hash"], value["prev"], value["change"]
+            );
+            text.replacen(first, &swapped, 1)
+        };
+        for variant in [crlf, spaced, reordered] {
+            assert!(unseal(&variant, head.as_deref()).is_err(), "{variant:?}");
+        }
     }
 
     #[test]

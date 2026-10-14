@@ -268,19 +268,45 @@ fn text(entries: &BTreeMap<String, Vec<u8>>, name: &str) -> Result<String, Store
     String::from_utf8(bytes.clone()).map_err(|_| StoreError::corrupt(format!("{name} is not text")))
 }
 
+/// Every logged change must carry parameters its command accepts (no hidden extra keys).
+fn check_params(log: &[Change]) -> Result<(), StoreError> {
+    for change in log {
+        let ok = match change.command.as_str() {
+            "undo" | "redo" => change.params == serde_json::json!({}),
+            command => plnwrk_engine::find(command).is_some_and(|spec| {
+                plnwrk_engine::params::Params::check(&change.params, spec.params).is_ok()
+            }),
+        };
+        if !ok {
+            return Err(StoreError::corrupt(format!(
+                "change {} has parameters its command does not take",
+                change.seq
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn read_plain(
     manifest: &Manifest,
     entries: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Document, StoreError> {
-    let workspace: Workspace = serde_json::from_str(&text(entries, WORKSPACE)?)
-        .map_err(|e| StoreError::corrupt(format!("workspace: {e}")))?;
+    let stored = entries
+        .get(WORKSPACE)
+        .ok_or_else(|| StoreError::corrupt(format!("{WORKSPACE} is missing")))?;
     let log = chain::unseal(&text(entries, LOG)?, manifest.head.as_deref())?;
     if manifest.changes != Some(u64::try_from(log.len()).unwrap_or(u64::MAX)) {
         return Err(StoreError::corrupt(
             "number of changes does not match the head",
         ));
     }
-    if replay(&log)? != workspace {
+    check_params(&log)?;
+    // The stored state must be byte for byte what the log produces – so nothing can hide in it
+    // (e.g. a duplicate key whose first value a JSON reader would silently drop).
+    let workspace = replay(&log)?;
+    let expected = serde_json::to_vec(&workspace)
+        .map_err(|e| StoreError::corrupt(format!("workspace: {e}")))?;
+    if expected != *stored {
         return Err(StoreError::SnapshotMismatch);
     }
     let violations = workspace.check();

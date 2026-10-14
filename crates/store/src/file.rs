@@ -117,6 +117,9 @@ fn write_temporary(path: &Path, bytes: &[u8]) -> Result<PathBuf, StoreError> {
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let temp = write_temporary(path, bytes)?;
     let result = (|| {
+        // Keep the permissions of an existing file (Unix modes; on Windows copying a read-only
+        // flag would make the rename fail).
+        #[cfg(unix)]
         if let Ok(meta) = fs::metadata(path) {
             fs::set_permissions(&temp, meta.permissions()).map_err(io)?;
         }
@@ -140,19 +143,44 @@ pub fn write_new(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(StoreError::Io {
             reason: format!("{} already exists", path.display()),
         }),
-        // File systems without hard links (e.g. some USB sticks): create the target exclusively.
-        Err(_) => OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()))
-            .map_err(io),
+        // File systems without hard links (e.g. some USB sticks): create the target exclusively
+        // and remove it again if writing fails, so no half file blocks the name.
+        Err(_) => {
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            match options.open(path) {
+                Ok(mut file) => {
+                    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+                    if written.is_err() {
+                        let _ = fs::remove_file(path);
+                    }
+                    written.map_err(io)
+                }
+                Err(e) => Err(io(e)),
+            }
+        }
     };
     let _ = fs::remove_file(&temp);
     if result.is_ok() {
         sync_folder(path);
     }
     result
+}
+
+/// The real path behind `path`: links and `..` resolved, so that locking and saving act on the
+/// file itself – a link is followed, not replaced. For a file that does not exist yet, its folder
+/// is resolved.
+pub fn resolve(path: &Path) -> Result<PathBuf, StoreError> {
+    if let Ok(real) = fs::canonicalize(path) {
+        return Ok(real);
+    }
+    let folder = fs::canonicalize(folder_of(path)).map_err(io)?;
+    Ok(folder.join(name_of(path)?))
 }
 
 /// Where automatic saves of `path` go: `.<name>.autosave.plnwrk` next to it.
@@ -306,6 +334,29 @@ mod tests {
         let file = File::create(&path).unwrap();
         file.set_len(MAX_FILE_BYTES + 1).unwrap();
         assert!(matches!(read(&path), Err(StoreError::TooLarge { .. })));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_are_resolved_to_the_real_file() {
+        let dir = scratch("resolve");
+        let real = dir.join("real.plnwrk");
+        write_new(&real, b"daten").unwrap();
+        let link = dir.join("link.plnwrk");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let resolved = resolve(&link).unwrap();
+        assert_eq!(resolved, fs::canonicalize(&real).unwrap());
+        write_atomic(&resolved, b"neu").unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(read(&link).unwrap(), b"neu");
+        let fresh = resolve(&dir.join("neu.plnwrk")).unwrap();
+        assert_eq!(fresh, fs::canonicalize(&dir).unwrap().join("neu.plnwrk"));
         fs::remove_dir_all(dir).unwrap();
     }
 
