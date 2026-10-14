@@ -399,7 +399,8 @@ impl eframe::App for PlnwrkApp {
         }
         self.show(ui);
         let title = self.title();
-        if title != self.shown_title {
+        // The browser shows the page title of index.html; only desktop windows have titles.
+        if title != self.shown_title && !cfg!(target_arch = "wasm32") {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.shown_title = title;
         }

@@ -15,7 +15,8 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | 0 Fundament | **fertig**, gemergt | [#1](https://github.com/tobiaswildezahn/plnwrk/pull/1) |
 | 1 Kern (Modell, 23 Befehle, 9 Abfragen, Undo/Redo, CLI) | **fertig**, gemergt, 2 Reviews | [#2](https://github.com/tobiaswildezahn/plnwrk/pull/2) |
 | 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, gemergt, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
-| 3 Desktop-UI | offen | – |
+| 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Meilensteine, Details, Vorlagen) | **umgesetzt, PR offen** | Branch `phase-3` |
+| 3b Desktop-Ausbau (Befehlspalette, Englisch, Autosave …) | offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
@@ -35,8 +36,12 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
   (Windows braucht ≈ 9 min, die anderen 1–3 min).
 - **Crates:** `core` (Modell, Invarianten, Rang, Policy), `engine` (Befehle, Events, Undo/Redo,
   Abfragen, Fixture), `store` (Dateiformat, Krypto, Export, Dateien), `schedule`/`assistant`/
-  `mcp`/`ui` (Gerüste), Apps `plnwrk` (Desktop-Platzhalter), `plnwrk-web`, `plnwrk-cli`.
-- **Ausprobieren:**
+  `platform` (echte Uhr, Zufalls-IDs), `ui` (egui-Oberfläche, Desktop-MVP),
+  `schedule`/`assistant`/`mcp` (Gerüste), Apps `plnwrk` (Desktop mit Systemdialogen),
+  `plnwrk-web` (dieselbe Oberfläche im Browser, noch ohne Dateien), `plnwrk-cli`.
+- **App ausprobieren (Mac):** `cd ~/projekte/plnwrk && cargo xtask app`, dann
+  `open target/plnwrk.app` (oder im Finder doppelklicken; nach `/Programme` ziehen geht auch).
+- **CLI ausprobieren:**
   ```sh
   cd ~/projekte/plnwrk && cargo build -q -p plnwrk-cli
   ./target/debug/plnwrk-cli new ~/Desktop/abteilung.plnwrk --sample
@@ -48,9 +53,12 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-1. **Phase 3 (Desktop-UI) planen:** Phasenplan unter `docs/plans/` (writing-plans), vorher die
-   Entscheidungen aus Abschnitt 4 einholen, soweit sie Phase 3 betreffen (Punkt 4.4).
-2. Optional vorab: `cargo xtask mutants` (siehe 5.1).
+1. **Tobi testet den MVP** (Demo-Schritt in `docs/plans/2026-10-14-phase-3.md`, Abschnitt
+   „Demo“) und meldet, was fehlt oder stört → Rückmeldungen priorisieren 3b.
+2. PR `phase-3` nach Review und grüner CI mergen.
+3. Phase 3b planen (Befehlspalette, Englisch, Autosave/Wiederherstellung, Inline-Bearbeitung,
+   Verschlüsseln aus der App) – Reihenfolge nach Tobis Rückmeldung.
+4. Optional: `cargo xtask mutants` (siehe 5.1).
 
 ## 4. Offene Entscheidungen des Nutzers
 
@@ -59,7 +67,7 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | 4.1 | Soll der **Browser VS-NfD-Dateien grundsätzlich nicht öffnen**? | Ja, harte Sperre (Browser gilt laut §3.8 nicht als VS-geeignet; löst auch den scrypt-Speicherkonflikt) | vor Phase 4 |
 | 4.2 | **Herabstufung**: Wer darf eine Datei herabstufen, braucht es vier Augen? Herabstufung erzeugt eine neue Datei ohne Geschichte. | Eigener, protokollierter Vorgang mit Begründung; Vier-Augen-Prinzip | vor Phase 7 |
 | 4.3 | **Passphrase vergessen = Daten verloren.** Hinterlegung oder zweiter Schlüssel (age kann mehrere Empfänger)? Wer entscheidet in der Organisation? | Zweiter Empfänger (Behördenschlüssel) als Option | vor echtem VS-Einsatz |
-| 4.4 | **Tempo vs. VS-Niveau in Phase 3**: früh etwas Zeigbares oder durchgehend VS-Niveau? | – | vor Phase 3 |
+| 4.4 | ~~Tempo vs. VS-Niveau in Phase 3~~ **entschieden 2026-10-14:** früh zeigbar (MVP), VS später | – | erledigt |
 | 4.5 | **Lizenz**: Apache-2.0 (wie RustGIS) oder EUPL-1.2 (öffentliche Hand, openCode)? | EUPL-1.2 prüfen | vor Phase 8 |
 | 4.6 | **KI früher?** MCP-Server (Phase 6) könnte schon auf Dateien aus Phase 2 laufen und plnwrk vor der UI aus Claude bedienbar machen. | Option, ändert Phasenfolge | jederzeit |
 | 4.7 | **Identität im Protokoll**: Der Bearbeiter ist frei wählbar, nicht nachgewiesen. Signatur (Dienstausweis, Schlüsseldatei)? | Klären vor Phase 7 | vor Phase 7 |
@@ -85,9 +93,13 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 - Abdeckungszahl enthält In-Datei-Testmodule (Werkzeuggrenze).
 
 ### 5.3 Für spätere Phasen vorgemerkt
-- **Phase 3**: Autosave-Auslöser (Pfad-Konvention `.<name>.autosave.plnwrk` steht), i18n de/en
-  (bisher einziger UI-Text fest deutsch), `SystemClock`/`RandomIds` aus der CLI in einen
-  gemeinsamen Plattform-Crate verschieben, sobald Desktop/Web sie brauchen.
+- **Phase 3b**: Autosave-Auslöser (Pfad-Konvention `.<name>.autosave.plnwrk` steht), i18n
+  de/en (Texte stehen zentral in `crates/ui/src/text.rs`), Befehlspalette, Verschlüsseln aus
+  der App, Doppelklick auf `.plnwrk`-Dateien im Finder (macOS liefert Dateien per Apple Event,
+  nicht als Argument), App-Symbol.
+- **Bekannte MVP-Grenzen**: Speichern verschlüsselter Dateien dauert ≈ 1 s und blockiert kurz
+  die Oberfläche; Kommentare/Verlauf zeigen Feldnamen technisch (`due`); die Liste ist noch
+  nicht direkt editierbar (Details rechts).
 - **Phase 4**: Web-App braucht `getrandom` 0.2 `js` / 0.4 `wasm_js` (im store bereits gesetzt);
   Entscheidung 4.1.
 - **Phase 7**: Herabstufung (4.2), Signatur (4.7), Export-Verweigerung bei Herabstufung,
