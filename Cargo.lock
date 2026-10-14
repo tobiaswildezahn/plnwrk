@@ -3252,7 +3252,6 @@ dependencies = [
  "plnwrk-store",
  "rpassword",
  "serde_json",
- "unicode-normalization",
  "zeroize",
 ]
 

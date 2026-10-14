@@ -7,14 +7,12 @@ use plnwrk_engine::Session;
 use plnwrk_platform::{RandomIds, SystemClock};
 use plnwrk_store::{Document, Manifest, Protection, SecretString, StoreError, file};
 use serde_json::{Value, json};
-use unicode_normalization::UnicodeNormalization as _;
 use zeroize::Zeroize as _;
 
 /// Environment variable with the passphrase (for scripts and agents).
 pub const PASSPHRASE_VAR: &str = "PLNWRK_PASSPHRASE";
 
-/// Shortest passphrase accepted when a file is protected.
-pub const MIN_PASSPHRASE_CHARS: usize = 12;
+pub use plnwrk_store::MIN_PASSPHRASE_CHARS;
 
 /// A failure with a machine-readable form.
 pub struct Failure(pub Value);
@@ -40,7 +38,7 @@ impl Failure {
 
 fn check_new(passphrase: &str) -> Result<(), Failure> {
     // Counted as the passphrase is used: after Unicode normalisation.
-    if passphrase.nfc().count() < MIN_PASSPHRASE_CHARS {
+    if !plnwrk_store::passphrase_long_enough(passphrase) {
         return Err(Failure::message(format!(
             "a new passphrase needs at least {MIN_PASSPHRASE_CHARS} characters"
         )));

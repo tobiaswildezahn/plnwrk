@@ -20,9 +20,24 @@ pub struct OpenDoc {
     saved: usize,
     /// Data of an older format was brought up to date when it was opened (not saved yet).
     pub upgraded: bool,
+    /// The name to show without a file (e.g. a recovered copy).
+    title: Option<String>,
+    /// The protection was changed and not saved yet.
+    protection_changed: bool,
+    /// Tells the recovery copy of this workspace apart from others (when it was opened).
+    recovery_key: String,
     /// Keeps other plnwrk processes off the file while it is open.
     #[cfg(not(target_arch = "wasm32"))]
     _lock: Option<plnwrk_store::file::Lock>,
+}
+
+/// A key unique to this opening: date and time, and a counter for several in one second.
+fn recovery_key() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
+    // The process id keeps two plnwrk windows opened in the same second apart.
+    format!("{stamp} {}-{n}", std::process::id())
 }
 
 fn session(doc: Document) -> Session {
@@ -37,6 +52,9 @@ impl OpenDoc {
             protection,
             saved,
             upgraded: false,
+            title: None,
+            protection_changed: false,
+            recovery_key: recovery_key(),
             #[cfg(not(target_arch = "wasm32"))]
             _lock: None,
         }
@@ -86,14 +104,44 @@ impl OpenDoc {
 
     /// Whether there are changes since it was last saved or opened.
     pub fn is_dirty(&self) -> bool {
-        self.session.log().len() != self.saved
+        self.session.log().len() != self.saved || self.protection_changed
+    }
+
+    /// Protects the file with a passphrase from the next save on (`None`: no protection).
+    /// Returns the protection it had, to put back if saving fails.
+    pub fn set_protection(&mut self, protection: Protection) -> Protection {
+        self.protection_changed = true;
+        std::mem::replace(&mut self.protection, protection)
+    }
+
+    /// Puts back a protection after saving with a new one failed.
+    pub fn restore_protection(&mut self, protection: Protection) {
+        self.protection = protection;
+        self.protection_changed = false;
     }
 
     /// The name to show: the file name without extension, or "Unbenannt".
     pub fn name(&self) -> String {
-        self.path.as_deref().and_then(Path::file_stem).map_or_else(
-            || text::UNTITLED.to_owned(),
-            |s| s.to_string_lossy().into_owned(),
+        match self.path.as_deref().and_then(Path::file_stem) {
+            Some(stem) => stem.to_string_lossy().into_owned(),
+            None => self
+                .title
+                .clone()
+                .unwrap_or_else(|| text::UNTITLED.to_owned()),
+        }
+    }
+
+    /// How many changes the log holds (a cheap fingerprint of the state).
+    pub fn log_len(&self) -> usize {
+        self.session.log().len()
+    }
+
+    /// The data and protection as they would be saved now, for writing elsewhere (e.g. in the
+    /// background).
+    pub fn snapshot(&self) -> (Document, Protection) {
+        (
+            Document::from_session(&self.session),
+            self.protection.clone(),
         )
     }
 
@@ -137,6 +185,7 @@ impl OpenDoc {
         let bytes = self.to_bytes()?;
         plnwrk_store::file::write_atomic(&path, &bytes)?;
         self.saved = self.session.log().len();
+        self.protection_changed = false;
         Ok(())
     }
 
@@ -153,6 +202,7 @@ impl OpenDoc {
         self.path = Some(path);
         self._lock = Some(lock);
         self.saved = self.session.log().len();
+        self.protection_changed = false;
         Ok(())
     }
 }
@@ -187,23 +237,41 @@ pub fn recovery_copies(folder: &Path) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "plnwrk"))
         .collect();
-    copies.sort();
-    copies.reverse();
+    // Newest first.
+    copies.sort_by_cached_key(|p| {
+        std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok())
+    });
     copies
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl OpenDoc {
-    /// Writes the current state as a new file `<name> <date time>.plnwrk` into `folder`
-    /// (created if needed), keeping the protection. Never replaces a file.
-    pub fn write_recovery_copy(&self, folder: &Path) -> Result<PathBuf, StoreError> {
-        std::fs::create_dir_all(folder).map_err(|e| StoreError::Io {
-            reason: e.to_string(),
-        })?;
-        let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S").to_string();
-        let path = folder.join(format!("{} {stamp}.plnwrk", self.name()));
-        plnwrk_store::file::write_new(&path, &self.to_bytes()?)?;
-        Ok(path)
+    /// Where the recovery copy of this workspace goes in `folder`: one fixed name per opening,
+    /// so each autosave replaces the last.
+    pub fn recovery_path(&self, folder: &Path) -> PathBuf {
+        folder.join(format!(
+            "{} – Wiederherstellung {}.plnwrk",
+            self.name(),
+            self.recovery_key
+        ))
+    }
+
+    /// Treats an opened recovery copy as a new, unsaved workspace: it keeps its name, but saving
+    /// asks for a place (never back into the recovery folder). Returns the copy's path.
+    pub fn detach_as_untitled(&mut self) -> Option<PathBuf> {
+        let path = self.path.take()?;
+        let name = self.name_of(&path);
+        self.title = Some(name);
+        self._lock = None;
+        self.saved = usize::MAX;
+        Some(path)
+    }
+
+    fn name_of(&self, path: &Path) -> String {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .and_then(|stem| stem.split(" – Wiederherstellung").next().map(str::to_owned))
+            .unwrap_or_else(|| text::UNTITLED.to_owned())
     }
 }
 

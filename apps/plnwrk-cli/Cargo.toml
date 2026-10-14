@@ -15,7 +15,6 @@ plnwrk-platform.workspace = true
 plnwrk-store.workspace = true
 rpassword.workspace = true
 serde_json.workspace = true
-unicode-normalization.workspace = true
 zeroize.workspace = true
 
 [lints]

@@ -72,6 +72,12 @@ pub enum Dialog {
     Unsaved(FileAction),
     /// Confirm deleting a task.
     DeleteTask(TaskId),
+    /// Protect the file with a passphrase (typed twice).
+    Protect { first: String, second: String },
+    /// Confirm removing the protection.
+    Unprotect,
+    /// Confirm deleting a recovery copy.
+    DeleteCopy(PathBuf),
 }
 
 /// A line in the status bar.
@@ -354,6 +360,8 @@ impl PersonForm {
 pub struct Forms {
     pub new_task: String,
     pub new_subtask: Option<(TaskId, String)>,
+    /// A title being edited right in the list.
+    pub inline: Option<(TaskId, String)>,
     pub detail_subtask: String,
     pub milestone_title: String,
     pub milestone_date: String,
@@ -383,6 +391,8 @@ pub struct State {
     pub quitting: bool,
     /// Counts opened dialogs, so each one can focus its first field once.
     pub dialog_serial: u64,
+    /// How the recovery copy stands, for the status bar.
+    pub recovery: Option<crate::autosave::Written>,
 }
 
 impl State {
@@ -404,8 +414,13 @@ impl State {
 
     /// Closes the dialog; a typed passphrase is wiped from memory.
     pub fn close_dialog(&mut self) {
-        if let Some(Dialog::Passphrase { text, .. }) = &mut self.dialog {
-            text.zeroize();
+        match &mut self.dialog {
+            Some(Dialog::Passphrase { text, .. }) => text.zeroize(),
+            Some(Dialog::Protect { first, second }) => {
+                first.zeroize();
+                second.zeroize();
+            }
+            _ => {}
         }
         self.dialog = None;
     }
@@ -426,6 +441,7 @@ impl State {
         match clear {
             Clear::NewTask => self.forms.new_task.clear(),
             Clear::NewSubtask => self.forms.new_subtask = None,
+            Clear::Inline => self.forms.inline = None,
             Clear::DetailSubtask => self.forms.detail_subtask.clear(),
             Clear::Milestone => {
                 self.forms.milestone_title.clear();

@@ -11,6 +11,7 @@
     allow(dead_code, reason = "file access in the browser follows in Phase 4")
 )]
 
+mod autosave;
 mod dates;
 mod doc;
 mod host;
@@ -32,6 +33,15 @@ use state::{Dialog, FileAction, Message, State, Tab, View};
 /// Name shown in the window title and the app header.
 pub const APP_NAME: &str = "plnwrk";
 
+/// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
+/// `/private/var` on macOS).
+fn same_place(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
 /// Key of the list of recently opened files in the app's storage.
 const RECENT_KEY: &str = "plnwrk.recent";
 /// How many recent files are kept.
@@ -51,6 +61,7 @@ pub(crate) enum Then {
 pub(crate) enum Clear {
     NewTask,
     NewSubtask,
+    Inline,
     DetailSubtask,
     Milestone,
     Comment,
@@ -87,6 +98,12 @@ pub(crate) enum Intent {
     Discard(FileAction),
     /// Set who is working.
     Actor(Option<PersonId>),
+    /// Protect the file with this passphrase (and save).
+    Protect(SecretString),
+    /// Remove the protection (and save).
+    Unprotect,
+    /// Delete a recovery copy for good.
+    DeleteCopy(PathBuf),
 }
 
 impl Intent {
@@ -109,6 +126,8 @@ pub struct PlnwrkApp {
     state: State,
     /// The window title last sent, so it is only sent when it changes.
     shown_title: String,
+    /// Recovery copies of the open workspace.
+    autosave: autosave::Autosave,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -137,6 +156,7 @@ impl PlnwrkApp {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(folder) = doc::recovery_folder() {
             app.state.recovered = doc::recovery_copies(&folder);
+            app.autosave = autosave::Autosave::for_app(folder);
         }
         app
     }
@@ -148,6 +168,7 @@ impl PlnwrkApp {
             host,
             state: State::default(),
             shown_title: String::new(),
+            autosave: autosave::Autosave::default(),
         }
     }
 
@@ -166,7 +187,16 @@ impl PlnwrkApp {
                     .forms
                     .task
                     .as_ref()
-                    .is_some_and(state::TaskDraft::is_pending))
+                    .is_some_and(state::TaskDraft::is_pending)
+                || self.inline_pending().is_some())
+    }
+
+    /// A title typed in the list and not taken yet: the task and the new title.
+    fn inline_pending(&self) -> Option<(TaskId, String)> {
+        let (id, text) = self.state.forms.inline.as_ref()?;
+        let task = self.doc.as_ref()?.session.workspace().task(*id)?;
+        let text = text.trim();
+        (!text.is_empty() && text != task.title).then(|| (*id, text.to_owned()))
     }
 
     /// Stores what is typed in the detail panel but not committed yet (the field still has the
@@ -174,6 +204,16 @@ impl PlnwrkApp {
     /// to the stored value and named in a message, so saving and closing always work.
     /// Returns the warning about what was put back, if anything.
     fn flush_draft(&mut self) -> Option<String> {
+        // A title being renamed in the list counts like any typed text.
+        if let Some((id, title)) = self.inline_pending() {
+            self.run(
+                "task.update",
+                &serde_json::json!({"task": id.to_string(), "title": title}),
+                Then::Nothing,
+                Some(Clear::Inline),
+            );
+        }
+        self.state.forms.inline = None;
         let doc = self.doc.as_ref()?;
         let mut draft = self.state.forms.task.take()?;
         let task = doc.session.workspace().task(draft.source.id).cloned()?;
@@ -229,15 +269,7 @@ impl PlnwrkApp {
     /// unsaved changes go to a recovery copy in [`doc::recovery_folder`], listed on the start
     /// page next time.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn emergency_save(&mut self) {
-        if let Some(folder) = doc::recovery_folder() {
-            self.emergency_save_to(&folder);
-        }
-    }
-
-    /// [`Self::emergency_save`] into a given folder. Returns the copy, if one was written.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn emergency_save_to(&mut self, folder: &std::path::Path) -> Option<PathBuf> {
+    pub fn emergency_save(&mut self) -> Option<PathBuf> {
         if self.state.quitting {
             return None; // the person decided (saved or discarded)
         }
@@ -246,7 +278,12 @@ impl PlnwrkApp {
         if !doc.is_dirty() {
             return None;
         }
-        doc.write_recovery_copy(folder).ok()
+        self.autosave.write_now(doc)
+    }
+
+    /// Uses this autosave (e.g. another folder or interval, for tests).
+    pub fn set_autosave(&mut self, folder: Option<PathBuf>, background: bool, interval: f64) {
+        self.autosave = autosave::Autosave::new(folder, background, interval);
     }
 
     /// Whether the app decided to close the window (after the question about unsaved changes).
@@ -266,6 +303,28 @@ impl PlnwrkApp {
         for intent in intents {
             self.apply(intent);
         }
+        self.autosave_tick(ui.ctx());
+    }
+
+    /// Lets the autosave write when due, and wakes the app up again when the next copy is due –
+    /// also while the window is hidden (`eframe::App::logic`).
+    fn autosave_tick(&mut self, ctx: &egui::Context) {
+        let before = self.autosave.last().cloned();
+        if let Some(wait) = self.autosave.tick(self.doc.as_ref(), ctx.input(|i| i.time)) {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.1)));
+        }
+        let after = self.autosave.last().cloned();
+        // Said once when it starts failing, without hiding another error that is shown.
+        if after != before
+            && let Some(autosave::Written::Failed(reason)) = &after
+            && self.state.message.as_ref().is_none_or(|m| !m.error)
+        {
+            self.state.message = Some(Message::error(format!(
+                "{} {reason}",
+                text::RECOVERY_FAILED
+            )));
+        }
+        self.state.recovery = after;
     }
 
     /// Drops the selection or view of things that no longer exist (deleted, undone).
@@ -329,6 +388,26 @@ impl PlnwrkApp {
                 if let Some(doc) = &mut self.doc {
                     doc.session.set_actor(person);
                 }
+            }
+            Intent::Protect(secret) => {
+                self.state.close_dialog();
+                self.change_protection(
+                    plnwrk_store::Protection::Passphrase(secret),
+                    text::PROTECTED,
+                );
+            }
+            Intent::DeleteCopy(path) => {
+                self.state.close_dialog();
+                #[cfg(not(target_arch = "wasm32"))]
+                self.delete_copy(&path);
+                #[cfg(target_arch = "wasm32")]
+                let _ = path;
+            }
+            Intent::Unprotect => {
+                // VS-NfD stays encrypted: saving without protection is refused by the store,
+                // and the old protection is put back.
+                self.state.close_dialog();
+                self.change_protection(plnwrk_store::Protection::None, text::UNPROTECTED);
             }
         }
     }
@@ -395,10 +474,15 @@ impl PlnwrkApp {
                 self.save(true);
             }
             FileAction::Close => {
+                self.drop_copy();
                 self.doc = None;
                 self.state.reset_views();
             }
-            FileAction::Quit => self.state.quitting = true,
+            FileAction::Quit => {
+                // Saved or discarded on purpose: no recovery copy is needed.
+                self.drop_copy();
+                self.state.quitting = true;
+            }
         }
         // "Gespeichert." must not hide that a typed date was not taken.
         if let Some(warning) = warning {
@@ -406,7 +490,56 @@ impl PlnwrkApp {
         }
     }
 
+    /// The open work is dropped on purpose: its copy goes; a recovered copy is offered again.
+    fn drop_copy(&mut self) {
+        if let Some(kept) = self.autosave.discard() {
+            self.state.recovered.retain(|p| !same_place(p, &kept));
+            self.state.recovered.insert(0, kept);
+        }
+    }
+
+    /// Deletes a recovery copy for good (asked first). Only files in the recovery folder.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn delete_copy(&mut self, path: &std::path::Path) {
+        let inside = self
+            .autosave
+            .folder()
+            .is_some_and(|folder| path.parent().is_some_and(|p| same_place(p, folder)));
+        if inside {
+            match std::fs::remove_file(path) {
+                Ok(()) => self.state.recovered.retain(|p| !same_place(p, path)),
+                Err(e) => {
+                    self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
+                        reason: e.to_string(),
+                    })));
+                }
+            }
+        }
+    }
+
+    /// Saves with a new protection; if that fails or is cancelled, the old one stays.
+    fn change_protection(&mut self, protection: plnwrk_store::Protection, done: &str) {
+        let warning = self.flush_draft();
+        let Some(doc) = &mut self.doc else { return };
+        let old = doc.set_protection(protection);
+        if self.save(false) {
+            // A typed date that was not taken is the more important news.
+            self.state.message = Some(match warning {
+                Some(warning) => Message::error(warning),
+                None => Message::info(done),
+            });
+        } else {
+            if let Some(doc) = &mut self.doc {
+                doc.restore_protection(old);
+            }
+            if self.state.message.as_ref().is_none_or(|m| !m.error) {
+                self.state.message = Some(Message::info(text::PROTECTION_UNCHANGED));
+            }
+        }
+    }
+
     fn replace(&mut self, doc: OpenDoc) {
+        self.drop_copy();
         self.state.message = doc.upgraded.then(|| Message::info(text::UPGRADED));
         self.doc = Some(doc);
         self.state.reset_views();
@@ -425,11 +558,27 @@ impl PlnwrkApp {
     fn open(&mut self, path: PathBuf, passphrase: Option<SecretString>) {
         let retry = passphrase.is_some();
         match OpenDoc::open(&path, passphrase) {
-            Ok(doc) => {
+            Ok(mut doc) => {
+                // A recovery copy opens as an unsaved workspace: saving asks for a place, and
+                // the copy goes once the work is saved somewhere.
+                let recovered = self
+                    .autosave
+                    .folder()
+                    .is_some_and(|folder| path.parent().is_some_and(|p| same_place(p, folder)));
+                let copy = if recovered {
+                    doc.detach_as_untitled()
+                } else {
+                    None
+                };
                 if let Some(path) = doc.path() {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
                 self.replace(doc);
+                if let Some(copy) = copy {
+                    self.state.recovered.retain(|p| !same_place(p, &copy));
+                    self.autosave.adopt(copy);
+                    self.state.message = Some(Message::info(text::RECOVERED_OPENED));
+                }
             }
             Err(StoreError::PassphraseRequired) => {
                 self.state.open_dialog(Dialog::Passphrase {
@@ -477,6 +626,7 @@ impl PlnwrkApp {
                 if let Some(path) = doc.path() {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
+                self.autosave.saved();
                 self.state.message = Some(Message::info(text::SAVED));
                 true
             }
@@ -525,6 +675,11 @@ impl eframe::App for PlnwrkApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         #[cfg(not(target_arch = "wasm32"))]
         self.emergency_save();
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Called also while the window is minimised or covered, when `ui` is not.
+        self.autosave_tick(ctx);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

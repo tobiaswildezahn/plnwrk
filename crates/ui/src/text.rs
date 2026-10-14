@@ -15,7 +15,7 @@ pub const SAVE: &str = "Speichern";
 pub const SAVE_AS: &str = "Speichern unter…";
 pub const CLOSE_FILE: &str = "Datei schließen";
 pub const RECENT: &str = "Zuletzt geöffnet";
-pub const RECOVERED: &str = "Notkopien (beim Beenden ohne Speichern gesichert)";
+pub const RECOVERED: &str = "Wiederherstellen (automatisch gesichert, nicht gespeichert)";
 pub const FILE_MENU: &str = "Datei";
 pub const EDIT_MENU: &str = "Bearbeiten";
 pub const UNDO: &str = "Rückgängig";
@@ -40,7 +40,6 @@ pub const APPLY: &str = "Übernehmen";
 pub const CANCEL: &str = "Abbrechen";
 pub const CREATE: &str = "Anlegen";
 pub const DELETE: &str = "Löschen";
-pub const CLOSE: &str = "Schließen";
 
 pub const TITLE: &str = "Titel";
 pub const KIND: &str = "Art";
@@ -59,7 +58,10 @@ pub const NOBODY: &str = "–";
 
 pub const NEW_TASK_HINT: &str = "Neue Aufgabe … (Enter)";
 pub const NEW_SUBTASK_HINT: &str = "Neue Unteraufgabe … (Enter)";
-pub const ADD_SUBTASK: &str = "+ Unteraufgabe";
+pub const ADD_SUBTASK: &str = "Unteraufgabe hinzufügen";
+pub const DELETE_MILESTONE: &str = "Meilenstein löschen";
+pub const CLOSE_DETAILS: &str = "Details schließen";
+pub const RENAME_HINT: &str = "Doppelklick: umbenennen";
 pub const NO_TASKS: &str = "Noch keine Aufgaben.";
 pub const NEW_MILESTONE: &str = "+ Meilenstein";
 pub const NO_MILESTONES: &str = "Noch keine Meilensteine.";
@@ -82,12 +84,36 @@ pub const NEW_PERSON: &str = "+ Person";
 pub const I_AM: &str = "Ich arbeite als";
 
 pub const PASSPHRASE: &str = "Passphrase";
+pub const PASSPHRASE_AGAIN: &str = "Passphrase wiederholen";
+pub const PROTECT: &str = "Mit Passphrase schützen…";
+pub const PROTECT_BUTTON: &str = "Schützen";
+pub const PROTECT_HINT: &str = "Mindestens 12 Zeichen. Ohne Passphrase ist die Datei nicht mehr zu öffnen – sie lässt sich nicht zurücksetzen.";
+pub const UNPROTECT: &str = "Schutz entfernen…";
+pub const UNPROTECT_BUTTON: &str = "Schutz entfernen";
+pub const UNPROTECT_QUESTION: &str = "Die Datei wird danach unverschlüsselt gespeichert.";
+pub const PROTECTED: &str = "Die Datei ist jetzt mit Passphrase geschützt.";
+pub const UNPROTECTED: &str = "Die Datei ist jetzt unverschlüsselt.";
+pub const PROTECTION_UNCHANGED: &str = "Schutz nicht geändert.";
+pub const PASSPHRASES_DIFFER: &str = "Die beiden Eingaben stimmen nicht überein.";
+pub const PASSPHRASE_TOO_SHORT: &str = "Die Passphrase braucht mindestens 12 Zeichen.";
 pub const PASSPHRASE_QUESTION: &str = "Die Datei ist verschlüsselt. Passphrase:";
 pub const UNSAVED_TITLE: &str = "Ungespeicherte Änderungen";
 pub const UNSAVED_QUESTION: &str = "Die Änderungen sind noch nicht gespeichert.";
 pub const DISCARD: &str = "Verwerfen";
 pub const SAVED: &str = "Gespeichert.";
 pub const ALREADY_OPEN: &str = "Diese Datei ist bereits geöffnet.";
+pub const RECOVERY_FAILED: &str = "Wiederherstellungskopie nicht möglich:";
+pub const RECOVERY_SAVED: &str = "Wiederherstellungskopie";
+pub const RECOVERY_SAVED_HINT: &str =
+    "Automatisch gesichert. Nach einem Absturz steht sie beim nächsten Start auf der Startseite.";
+pub const RECOVERY_WRITER_STOPPED: &str = "Das Schreiben wurde unterbrochen.";
+pub const DELETE_COPY: &str = "Kopie löschen";
+pub const DELETE_COPY_QUESTION: &str =
+    "Die Wiederherstellungskopie wird endgültig gelöscht. Ihr Inhalt ist dann verloren.";
+pub const PREVIOUS_MONTH: &str = "Vormonat";
+pub const NEXT_MONTH: &str = "Folgemonat";
+pub const RECOVERED_OPENED: &str =
+    "Wiederhergestellt. Bitte mit „Speichern unter…“ an ihren Platz speichern.";
 pub const NOT_SAVED: &str = "• ungespeichert";
 
 pub const VS_NFD: &str = "VS – NUR FÜR DEN DIENSTGEBRAUCH";

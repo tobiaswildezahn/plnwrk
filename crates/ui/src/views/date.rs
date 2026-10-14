@@ -73,7 +73,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
     let mut choice = None;
     let mut next = shown;
     ui.horizontal(|ui| {
-        if ui.small_button("⏴").on_hover_text("Vormonat").clicked() {
+        if super::icon_button(ui, "⏴", text::PREVIOUS_MONTH).clicked() {
             next = month_start(shown, -1);
         }
         let name = MONTHS
@@ -81,7 +81,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
             .copied()
             .unwrap_or_default();
         ui.strong(format!("{name} {}", shown.year()));
-        if ui.small_button("⏵").on_hover_text("Folgemonat").clicked() {
+        if super::icon_button(ui, "⏵", text::NEXT_MONTH).clicked() {
             next = month_start(shown, 1);
         }
     });
@@ -152,7 +152,7 @@ pub fn date_input(
             if let Some(label) = label {
                 field = field.labelled_by(label);
             }
-            let button = ui.small_button("📅").on_hover_text(text::PICK_DATE);
+            let button = super::icon_button(ui, "📅", text::PICK_DATE);
             let current = dates::parse(value).ok().flatten();
             let popup = Popup::from_toggle_button_response(&button)
                 .id(id.with("calendar"))
@@ -211,11 +211,7 @@ pub fn deadline_input(
                     .desired_width(48.0),
             );
             input.time_done = field.lost_focus();
-        } else if ui
-            .small_button("🕑")
-            .on_hover_text(text::ADD_TIME)
-            .clicked()
-        {
+        } else if super::icon_button(ui, "🕑", text::ADD_TIME).clicked() {
             ui.ctx().data_mut(|d| d.insert_temp(open_id, true));
         }
         input

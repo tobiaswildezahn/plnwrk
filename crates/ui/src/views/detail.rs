@@ -51,7 +51,7 @@ pub fn panel(
                         out.push(Intent::Select(Some(parent.id)));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🗙").on_hover_text(text::CLOSE).clicked() {
+                        if super::icon_button(ui, "🗙", text::CLOSE_DETAILS).clicked() {
                             out.push(Intent::Select(None));
                         }
                     });

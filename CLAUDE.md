@@ -57,6 +57,9 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   klickt und tippt mit **egui_kittest** über den Barrierefreiheitsbaum. Eingabefelder darum
   immer per `.labelled_by(label.id)` mit ihrer Beschriftung verknüpfen (hilft Screenreadern
   und Tests). Ansichten ändern nie Daten selbst, sondern legen `Intent`s ab.
+- Jede neue Eingabestelle (Feld, das erst bei Fokusverlust übernimmt) muss in
+  `PlnwrkApp::has_unsaved_changes` gezählt und in `flush_draft` übernommen werden – sonst gehen
+  getippte Werte bei Speichern/Schließen verloren (drei Review-Funde hatten genau diese Ursache).
 - UI-Texte gehören nach `crates/ui/src/text.rs` (einige Dialog-Hinweise stehen noch direkt in
   den Ansichten; sie ziehen mit der Übersetzung in 3b um). Nur Zeichen verwenden, die die eingebauten Schriften
   haben (Ubuntu-Light, NotoEmoji, emoji-icon-font) – z. B. ♦ • 🗙 statt ◆ ● ✕.

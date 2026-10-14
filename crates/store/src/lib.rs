@@ -26,7 +26,10 @@ use plnwrk_engine::{Change, Session};
 
 pub use container::Limits;
 use container::Packing;
-pub use crypto::{MAX_READ_WORK_FACTOR, WORK_FACTOR, WORK_FACTOR_RANGE};
+pub use crypto::{
+    MAX_READ_WORK_FACTOR, MIN_PASSPHRASE_CHARS, WORK_FACTOR, WORK_FACTOR_RANGE,
+    passphrase_long_enough,
+};
 pub use error::StoreError;
 pub use manifest::Manifest;
 pub use replay::replay;

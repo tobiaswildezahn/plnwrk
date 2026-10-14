@@ -101,6 +101,18 @@ fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, out: &mut Vec<Intent>) {
                     if ui.button(text::SAVE_AS).clicked() {
                         out.push(Intent::File(FileAction::SaveAs));
                     }
+                    ui.separator();
+                    let encrypted = doc.is_some_and(OpenDoc::encrypted);
+                    if !encrypted && ui.button(text::PROTECT).clicked() {
+                        out.push(Intent::Open(Dialog::Protect {
+                            first: String::new(),
+                            second: String::new(),
+                        }));
+                    }
+                    if encrypted && ui.button(text::UNPROTECT).clicked() {
+                        out.push(Intent::Open(Dialog::Unprotect));
+                    }
+                    ui.separator();
                     if ui.button(text::CLOSE_FILE).clicked() {
                         out.push(Intent::File(FileAction::Close));
                     }
@@ -159,6 +171,22 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     );
                 }
             }
+            if doc.is_some() {
+                match &state.recovery {
+                    Some(crate::autosave::Written::At(time)) => {
+                        ui.weak(format!("{} {time}", text::RECOVERY_SAVED))
+                            .on_hover_text(text::RECOVERY_SAVED_HINT);
+                    }
+                    Some(crate::autosave::Written::Failed(reason)) => {
+                        ui.label(
+                            RichText::new(text::RECOVERY_FAILED.trim_end_matches(':'))
+                                .color(ui.visuals().error_fg_color),
+                        )
+                        .on_hover_text(reason);
+                    }
+                    None => {}
+                }
+            }
             if let Some(message) = &state.message {
                 ui.separator();
                 let color = if message.error {
@@ -199,13 +227,18 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
-                if ui
-                    .link(name)
-                    .on_hover_text(path.display().to_string())
-                    .clicked()
-                {
-                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
-                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .link(name)
+                        .on_hover_text(path.display().to_string())
+                        .clicked()
+                    {
+                        out.push(Intent::File(FileAction::OpenPath(path.clone())));
+                    }
+                    if icon_button(ui, "🗑", text::DELETE_COPY).clicked() {
+                        out.push(Intent::Open(Dialog::DeleteCopy(path.clone())));
+                    }
+                });
             }
         }
         if !state.recent.is_empty() {
@@ -317,6 +350,15 @@ fn status_tag(ui: &mut egui::Ui, status: TaskStatus) {
     if !matches!(status, TaskStatus::Todo | TaskStatus::Done) {
         ui.label(RichText::new(text::task_status(status)).small().weak());
     }
+}
+
+/// A small button showing only a symbol, with a spoken name for screen readers (and as
+/// tooltip): "📅" is read as "Im Kalender wählen", not as "calendar emoji".
+pub fn icon_button(ui: &mut egui::Ui, icon: &str, name: &str) -> egui::Response {
+    let response = ui.small_button(icon).on_hover_text(name);
+    let enabled = ui.is_enabled();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+    response
 }
 
 /// A text field that commits on Enter or when it loses focus; returns whether to commit.

@@ -5,6 +5,7 @@ use plnwrk_core::PersonId;
 use plnwrk_engine::query;
 use plnwrk_store::SecretString;
 use serde_json::json;
+use zeroize::Zeroize as _;
 
 use crate::doc::OpenDoc;
 use crate::state::{Dialog, Message, State};
@@ -191,6 +192,71 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     }
                     if ui.button(text::DISCARD).clicked() {
                         out.push(Intent::Discard(action.clone()));
+                    }
+                    if ui.button(text::CANCEL).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
+            Dialog::Protect { first, second } => {
+                ui.heading(text::PROTECT.trim_end_matches('…'));
+                ui.label(text::PROTECT_HINT);
+                ui.add_space(6.0);
+                egui::Grid::new("protect").num_columns(2).show(ui, |ui| {
+                    let label = ui.label(text::PASSPHRASE);
+                    let field = ui
+                        .add(egui::TextEdit::singleline(first).password(true))
+                        .labelled_by(label.id);
+                    focus_once(&field, serial);
+                    ui.end_row();
+                    let label = ui.label(text::PASSPHRASE_AGAIN);
+                    ui.add(egui::TextEdit::singleline(second).password(true))
+                        .labelled_by(label.id);
+                    ui.end_row();
+                });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::PROTECT_BUTTON).clicked() {
+                        if first != second {
+                            message = Some(text::PASSPHRASES_DIFFER.to_owned());
+                        } else if !plnwrk_store::passphrase_long_enough(first) {
+                            message = Some(text::PASSPHRASE_TOO_SHORT.to_owned());
+                        } else {
+                            second.zeroize();
+                            let secret = SecretString::from(std::mem::take(first));
+                            out.push(Intent::Protect(secret));
+                        }
+                    }
+                    if ui.button(text::CANCEL).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
+            Dialog::Unprotect => {
+                ui.heading(format!("{}?", text::UNPROTECT_BUTTON));
+                ui.label(text::UNPROTECT_QUESTION);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::UNPROTECT_BUTTON).clicked() {
+                        out.push(Intent::Unprotect);
+                    }
+                    if ui.button(text::CANCEL).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
+            Dialog::DeleteCopy(path) => {
+                ui.heading(format!("{}?", text::DELETE_COPY));
+                ui.label(
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                );
+                ui.label(text::DELETE_COPY_QUESTION);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::DELETE).clicked() {
+                        out.push(Intent::DeleteCopy(path.clone()));
                     }
                     if ui.button(text::CANCEL).clicked() {
                         out.push(Intent::CloseDialog);
