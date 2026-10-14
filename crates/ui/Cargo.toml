@@ -1,0 +1,17 @@
+[package]
+name = "plnwrk-ui"
+description = "egui user interface of plnwrk, shared by desktop and web."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+eframe.workspace = true
+egui.workspace = true
+plnwrk-engine.workspace = true
+
+[lints]
+workspace = true
