@@ -36,16 +36,8 @@ fn recovery_key() -> String {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
-    // The process id keeps two plnwrk windows opened in the same second apart. The browser has
-    // no process ids (asking for one stops the page); a random part keeps two tabs apart.
-    #[cfg(not(target_arch = "wasm32"))]
-    let apart = std::process::id().to_string();
-    #[cfg(target_arch = "wasm32")]
-    let apart = {
-        use plnwrk_core::IdSource as _;
-        RandomIds::default().next_ulid().to_string()
-    };
-    format!("{stamp} {apart}-{n}")
+    // Keeps two plnwrk windows (or browser tabs) opened in the same second apart.
+    format!("{stamp} {}-{n}", plnwrk_platform::instance())
 }
 
 fn session(doc: Document) -> Session {
@@ -361,7 +353,10 @@ mod tests {
     use serde_json::json;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("plnwrk-ui-doc-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "plnwrk-ui-doc-{}-{name}",
+            plnwrk_platform::instance()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

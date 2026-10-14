@@ -6,6 +6,20 @@ use jiff::civil::Date;
 use plnwrk_core::{Clock, IdSource};
 use ulid::Ulid;
 
+/// Tells this running app apart from others on the same computer: the process id on the
+/// desktop, a random value in the browser (which has no process ids; asking for one stops the
+/// page).
+pub fn instance() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::process::id().to_string()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        RandomIds::default().next_ulid().to_string()
+    }
+}
+
 /// The system clock; "today" in the computer's time zone.
 pub struct SystemClock;
 

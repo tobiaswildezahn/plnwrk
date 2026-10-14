@@ -1,0 +1,12 @@
+# Replaces the root clippy.toml for this crate, so the test allowances are repeated.
+
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-print-in-tests = true
+
+# The interface also runs in the browser (WebAssembly), where these stop the page.
+disallowed-methods = [
+  { path = "std::process::id", reason = "stops the page in the browser; use plnwrk_platform::instance" },
+]

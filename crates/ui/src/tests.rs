@@ -65,7 +65,10 @@ fn task_named(app: &PlnwrkApp, title: &str) -> Option<Task> {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("plnwrk-ui-app-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "plnwrk-ui-app-{}-{name}",
+        plnwrk_platform::instance()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir

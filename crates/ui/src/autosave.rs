@@ -286,8 +286,10 @@ mod tests {
     use serde_json::json;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("plnwrk-autosave-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "plnwrk-autosave-{}-{name}",
+            plnwrk_platform::instance()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
