@@ -20,6 +20,8 @@ enum Step {
     Change,
     /// A title typed in the list, not taken yet.
     Type,
+    /// A description typed in the detail panel, not taken yet.
+    Describe,
     /// Time passes (seconds).
     Wait(u16),
     Undo,
@@ -41,6 +43,7 @@ fn step() -> impl Strategy<Value = Step> {
     prop_oneof![
         4 => Just(Step::Change),
         2 => Just(Step::Type),
+        2 => Just(Step::Describe),
         4 => (0u16..150).prop_map(Step::Wait),
         2 => Just(Step::Undo),
         1 => Just(Step::Redo),
@@ -76,6 +79,8 @@ struct World {
     changed: bool,
     /// A title typed in the list and not taken.
     typed: Option<String>,
+    /// A description typed in the detail panel and not taken.
+    described: Option<String>,
     /// When the data last changed.
     last_change: f64,
     /// Every state of the data since the file was last saved or opened (a copy holds one).
@@ -127,6 +132,7 @@ impl World {
             saved: saved.clone(),
             changed: false,
             typed: None,
+            described: None,
             last_change: 0.0,
             states: vec![saved],
         };
@@ -176,6 +182,7 @@ impl World {
         self.saved = read(&self.file);
         self.changed = false;
         self.typed = None;
+        self.described = None;
         self.states = vec![self.saved.clone()];
         self.last_change = self.time;
     }
@@ -195,6 +202,15 @@ impl World {
                 self.app.state.forms.inline = Some((self.task, title.clone()));
                 self.typed = Some(title);
             }
+            Step::Describe => {
+                let text = format!("D{}", self.serial);
+                let task = self.workspace().task(self.task).cloned().unwrap();
+                self.app.state.select(Some(self.task));
+                let mut draft = crate::state::TaskDraft::of(&task);
+                draft.description.clone_from(&text);
+                self.app.state.forms.task = Some(draft);
+                self.described = Some(text);
+            }
             Step::Wait(seconds) => self.time += f64::from(*seconds),
             Step::Undo | Step::Redo => {
                 let session = &self.app.doc().unwrap().session;
@@ -209,7 +225,16 @@ impl World {
             }
             Step::Save => {
                 let typed = self.typed.clone();
+                let described = self.described.clone();
                 self.app.apply(Intent::File(FileAction::Save));
+                if let Some(text) = described {
+                    let stored = read(&self.file)
+                        .task(self.task)
+                        .unwrap()
+                        .description
+                        .clone();
+                    assert_eq!(stored, text, "typed description is saved");
+                }
                 assert_eq!(read(&self.file), self.workspace(), "saved what is shown");
                 if let Some(title) = typed {
                     let stored = read(&self.file).task(self.task).unwrap().title.clone();
@@ -248,6 +273,9 @@ impl World {
                 assert_eq!(read(copy), self.workspace(), "the copy holds what is shown");
                 if let Some(title) = &self.typed {
                     assert_eq!(&read(copy).task(self.task).unwrap().title, title);
+                }
+                if let Some(text) = &self.described {
+                    assert_eq!(&read(copy).task(self.task).unwrap().description, text);
                 }
                 self.states.push(read(copy));
             }
@@ -296,7 +324,7 @@ impl World {
         assert_eq!(doc.is_dirty(), self.changed, "data changed since saving");
         assert_eq!(
             self.app.has_unsaved_changes(),
-            self.changed || self.typed.is_some(),
+            self.changed || self.typed.is_some() || self.described.is_some(),
             "unsaved = changed or typed"
         );
         let copies = self.copies();

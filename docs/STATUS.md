@@ -126,6 +126,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   getippt. Technische Gründe aus Speicher/Engine (`reason`) erscheinen englisch hinter der
   übersetzten Meldung. Meldungen in der Statuszeile bleiben nach einem Sprachwechsel in der alten
   Sprache, bis die nächste kommt.
+- **Art-Vorschläge** sind sprachabhängig („Vorgang“/„Case“); weil die Art Freitext ist,
+  können Dateien beide Wörter enthalten.
+- **Getippter, nicht übernommener Text** (Feld hat noch den Cursor) steht nicht in der
+  Minutenkopie, nur in der Notsicherung beim Beenden; bei einem harten Absturz ist er weg.
 - **Autosave:** macOS „App Nap“ kann den Takt eines verdeckten Programms verzögern; nach
   Rückgängig bis zum gespeicherten Stand und Wiederholen entsteht die Kopie erst 60 s später neu;
   Entschützen einer ungespeicherten VS-NfD-Datei fragt erst nach dem Ort und lehnt dann ab.

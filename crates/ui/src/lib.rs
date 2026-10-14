@@ -303,6 +303,14 @@ impl PlnwrkApp {
                 // Refused (e.g. empty title): back to what is stored, and say so.
                 warnings.push(format!("{} {}", text::t().not_taken, message.text));
                 self.state.forms.task = Some(state::TaskDraft::of(&task));
+            } else if let Some(stored) = self
+                .doc
+                .as_ref()
+                .and_then(|d| d.session.workspace().task(task.id))
+                && let Some(draft) = &mut self.state.forms.task
+            {
+                // Taken: the draft now matches what is stored, also before the next frame.
+                draft.rebase(stored);
             }
         }
         let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));

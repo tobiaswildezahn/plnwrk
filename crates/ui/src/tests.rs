@@ -2181,10 +2181,15 @@ fn a_half_edited_project_form_is_not_lost() {
     click(&mut harness, text::t().new_project);
     type_into(&mut harness, text::t().title, "Umzug", false);
     click(&mut harness, text::t().create);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(!harness.state().has_unsaved_changes(), "saved");
     open_project_form(&mut harness);
     type_into(&mut harness, text::t().title, "Umzug NEU", false);
     // The palette neither reopens the form nor archives behind it.
     palette(&mut harness, "projekt bearbeiten");
+    let id = projects(harness.state()).first().unwrap().id;
+    harness.state_mut().apply(crate::Intent::EditProject(id));
     assert_eq!(
         harness
             .state()
