@@ -2110,3 +2110,33 @@ fn the_palette_speaks_english_too() {
         .collect();
     assert!(german.is_empty(), "German in the palette: {german:?}");
 }
+
+#[test]
+fn undo_after_switching_the_language_does_not_bring_a_date_back() {
+    let mut harness = with_project("Lage");
+    type_into(&mut harness, text::t().new_task_hint, "Bericht", true);
+    click(&mut harness, "Bericht");
+    type_into(&mut harness, text::t().due, "01.12.2026", true);
+    click(&mut harness, text::t().description);
+    let due = |h: &Harness<'_, PlnwrkApp>| task_named(h.state(), "Bericht").unwrap().due;
+    assert_eq!(due(&harness).map(|d| d.to_string()).as_deref(), Some("2026-12-01"));
+    to_english(&mut harness);
+    // The untouched field now reads in English.
+    assert_eq!(
+        harness.get_by_label(text::EN.due).value().as_deref(),
+        Some("2026-12-01")
+    );
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    harness.run();
+    assert_eq!(due(&harness), None, "undone");
+    let draft_pending = harness
+        .state()
+        .state
+        .forms
+        .task
+        .as_ref()
+        .is_some_and(crate::state::TaskDraft::is_pending);
+    assert!(!draft_pending, "nothing typed: the field follows the undo");
+    click(&mut harness, text::EN.overview);
+    assert_eq!(due(&harness), None, "and the old date is not written back");
+}

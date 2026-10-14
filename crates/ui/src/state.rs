@@ -291,6 +291,8 @@ impl TaskDraft {
 
     /// Follows a change of the stored task (undo, another field, a drag on the board) without
     /// losing what is being typed: fields the person has not touched take the new value.
+    /// Dates count as untouched when they read as the stored date in any notation, so a change
+    /// of language (`01.12.2026` → `2026-12-01`) does not make them look typed.
     pub fn rebase(&mut self, task: &Task) {
         let old = Self::of(&self.source);
         let new = Self::of(task);
@@ -302,9 +304,14 @@ impl TaskDraft {
         keep(&mut self.title, &old.title, new.title);
         keep(&mut self.description, &old.description, new.description);
         keep(&mut self.tags, &old.tags, new.tags);
-        keep(&mut self.start, &old.start, new.start);
-        keep(&mut self.due, &old.due, new.due);
-        keep(&mut self.due_time, &old.due_time, new.due_time);
+        if dates::parse(&self.start) == Ok(self.source.start) {
+            self.start = new.start;
+        }
+        let stored_due = self.source.due.map(|day| (day, self.source.due_time));
+        if dates::parse_deadline(&self.due, &self.due_time) == Ok(stored_due) {
+            self.due = new.due;
+            self.due_time = new.due_time;
+        }
         if self.progress == old.progress {
             self.progress = new.progress;
         }

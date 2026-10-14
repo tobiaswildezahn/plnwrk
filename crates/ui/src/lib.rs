@@ -448,7 +448,14 @@ impl PlnwrkApp {
                 #[cfg(target_arch = "wasm32")]
                 let _ = path;
             }
-            Intent::Language(language) => self.set_language(language),
+            Intent::Language(language) => {
+                self.set_language(language);
+                // Untouched dates being edited follow the new notation; typed ones stay.
+                if let Some(draft) = &mut self.state.forms.task {
+                    let source = draft.source.clone();
+                    draft.rebase(&source);
+                }
+            }
             Intent::Theme(theme) => self.state.theme = theme,
             Intent::Tab(tab) => self.state.tab = tab,
             Intent::FocusNewTask => self.state.focus_new_task = true,
