@@ -1,4 +1,4 @@
-# Stabsplan – Agenten-Einstieg
+# plnwrk – Agenten-Einstieg
 
 **Zuerst lesen: [docs/PLAN.md](docs/PLAN.md).** Es ist das verbindliche Steuerdokument
 (Architektur, Regeln, Phasen, Entscheidungsprotokoll). Nichts bauen, was dort nicht vorgesehen

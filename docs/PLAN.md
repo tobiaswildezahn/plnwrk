@@ -1,16 +1,21 @@
-# Stabsplan – Architektur und Implementierungsplan
+# plnwrk – Architektur und Implementierungsplan
 
 > **Dies ist das verbindliche Steuerdokument für alle Agenten und Sessions.**
 > Vor jeder Arbeit lesen. Abweichungen hier eintragen, nicht stillschweigend umsetzen.
 > Status der Phasen wird in Abschnitt 9 gepflegt.
 
-Arbeitstitel: **Stabsplan** (Umbenennung jederzeit trivial, nur Cargo-Namen und Ordner).
+Name: **plnwrk** (gesprochen „Planwerk“). Crates, Apps, Dateiendung und Repo heißen `plnwrk`.
 
 ## 1. Ziel und Leitplanken
 
-**Was:** Eine Projektmanagement-Software, die die Basics vollständig abbildet und auf jedem
-Desktop (macOS, Windows, Linux) und im Browser läuft. Vorbild in Aufbau und Qualitätsanspruch
-ist [RustGIS](https://rustgis.app).
+**Was:** Eine Projekt- und Vorgangsmanagement-Software, die die Basics vollständig abbildet und
+auf jedem Desktop (macOS, Windows, Linux) und im Browser läuft. Vorbild in Aufbau und
+Qualitätsanspruch ist [RustGIS](https://rustgis.app).
+
+**Wozu:** Modernes Projektmanagement in verkrustete Verwaltungsstrukturen bringen. Ein Vorgang
+(Aktenzeichen, Frist, fester Ablauf) und ein Projekt (Ziel, Meilensteine, Team) sind dieselbe
+Sache: ein Container mit Aufgaben. Deshalb gibt es **genau ein Datenmodell**, keine zwei
+Strukturen. Der Einsatz in der Stabsarbeit ist eine Option, nicht der Zweck.
 
 **Warum (Alleinstellung):**
 
@@ -52,7 +57,7 @@ Diese Regeln sind von RustGIS übernommen und gelten für jeden Commit.
 ### 3.1 Workspace-Schichten
 
 ```
-stabsplan/
+plnwrk/
 ├── Cargo.toml                 # Workspace
 ├── CLAUDE.md                  # Agenten-Einstieg → verweist hierher
 ├── docs/PLAN.md               # dieses Dokument
@@ -66,9 +71,9 @@ stabsplan/
 │   ├── mcp/         L3  MCP-Server (stdio) auf Basis von engine
 │   └── ui/          L4  egui-Oberfläche (Desktop und Web identisch)
 └── apps/
-    ├── stabsplan/        Desktop (eframe nativ)
-    ├── stabsplan-web/    Browser (eframe → wasm32, trunk)
-    └── stabsplan-cli/    Kommandozeile: run, query, export, mcp
+    ├── plnwrk/        Desktop (eframe nativ)
+    ├── plnwrk-web/    Browser (eframe → wasm32, trunk)
+    └── plnwrk-cli/    Kommandozeile: run, query, export, mcp
 ```
 
 Abhängigkeitsrichtung strikt nach unten. `ui` kennt `engine`, nie umgekehrt.
@@ -80,13 +85,20 @@ Die vollständigen Basics des Projektmanagements:
 
 | Entität | Felder (Kern) |
 | --- | --- |
-| `Project` | id, name, description, start, end?, status (planned/active/on_hold/done/archived), classification |
+| `Project` | id, title, description (Markdown), **reference?** (Aktenzeichen, frei formatiert), **kind** (frei, z. B. „Projekt“, „SKA“, „Beschaffung“; dient Filter und Vorlagenwahl), owner?, start?, due?, status (draft/active/on_hold/done/archived), **template** (bool: dient als Vorlage), classification |
 | `Task` | id, project, parent? (Unteraufgaben beliebig tief), title, description (Markdown), status (todo/in_progress/blocked/review/done), priority (low/normal/high/critical), assignee?, due?, start?, estimate?, progress 0–100, tags, classification |
 | `Milestone` | id, project, title, date, status (open/reached/missed) |
 | `Dependency` | from_task, to_task, kind (finish_to_start, start_to_start, finish_to_finish), lag_days |
 | `Person` | id, name, email?, role, initials |
 | `Comment` | id, task, author, created, body |
 | `Classification` | open / vs_nfd (erweiterbar), gilt pro Projekt und pro Aufgabe; Aufgabe erbt vom Projekt, darf nur höher sein |
+
+**Ein Modell für Projekt und Vorgang.** Es gibt keinen eigenen Vorgangstyp. Ein Vorgang ist ein
+`Project` mit `reference` und `due`, meist aus einer Vorlage erzeugt (`project.instantiate`
+kopiert Aufgaben, Meilensteine und Abhängigkeiten einer Vorlage mit relativen Terminen auf ein
+Startdatum). „Bearbeitungsschritte“ eines Vorgangs sind Aufgaben, „Frist“ ist `due`,
+„Bearbeiter“ ist `owner`. Die UI darf je nach `kind` „Vorgang“ oder „Projekt“ anzeigen; das ist
+nur ein Label.
 
 Ids: ULID (zeitlich sortierbar, offline erzeugbar, später sync-fähig). Zeiten: `jiff` oder `time`,
 immer UTC in Daten, Lokalzeit nur in der UI.
@@ -118,7 +130,7 @@ pub struct CommandSpec {
 
 ### 3.4 Speicherung (`store`) und Offline-/Team-Vorbereitung
 
-- **Dateiformat `.stabsplan`:** ZIP-Container mit `manifest.json` (Formatversion, Einstufung,
+- **Dateiformat `.plnwrk`:** ZIP-Container mit `manifest.json` (Formatversion, Einstufung,
   Erstellt-mit), `snapshot.json` (aktueller Zustand) und `events.jsonl` (Log). Lesbar, diffbar,
   langfristig archivierbar.
 - **Verschlüsselung (optional, Pflicht bei Einstufung ≥ VS-NfD):** gesamter Container mit
@@ -142,7 +154,7 @@ Warnungen („Meilenstein nicht haltbar“). Reine Funktionen, vollständig unit
 Ein Code für Desktop und Browser (wie RustGIS: `egui`/`eframe`, Web über `wasm32-unknown-unknown`
 mit `trunk`). Ansichten:
 
-1. **Projektübersicht** – Karten je Projekt mit Fortschritt, Überfälliges, nächster Meilenstein
+1. **Übersicht** – Karten je Projekt/Vorgang mit Fortschritt, Frist, Überfälligem, nächstem Meilenstein; Filter nach `kind`; Vorlagen als eigener Bereich
 2. **Liste** – Tabelle mit Filter, Sortierung, Gruppierung, Inline-Bearbeitung
 3. **Board** – Kanban nach Status, Drag & Drop
 4. **Zeitleiste** – Gantt mit Abhängigkeiten, Meilensteinen, kritischem Pfad
@@ -160,7 +172,7 @@ Barrierefreiheit über `accesskit` (bei egui enthalten). Theme hell/dunkel. i18n
   Jede KI-Aktion ist ein Undo-Schritt und im Verlauf als „durch Assistent“ markiert.
 - **Lokal zuerst:** Ollama/OpenAI-kompatibel auf `localhost` ist Standard. Externe Provider
   erfordern explizite Freigabe über `NetworkPolicy`; bei Einstufung ≥ VS-NfD ist extern gesperrt.
-- **MCP-Server:** `stabsplan-cli mcp --project p.stabsplan` über stdio, Crate `rmcp`. Tools:
+- **MCP-Server:** `plnwrk-cli mcp --project p.plnwrk` über stdio, Crate `rmcp`. Tools:
   `list_projects`, `query`, `search_commands`, `run_command`, `read_task`, `search_docs`,
   `read_doc`. Schreiben nur mit `--yes`. Damit kann Claude Code Projekte direkt bearbeiten.
 
@@ -237,19 +249,19 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 - `core`: alle Entitäten aus 3.2, Validierung, Fehler-Typen, Clock/Id-Traits, `Classification`,
   `NetworkPolicy`.
 - `engine`: `Session`, `CommandSpec`, Register, Events, Undo/Redo, Abfragen.
-- Befehle (vollständige Basics): `project.create/update/archive`, `task.create/update/move/
+- Befehle (vollständige Basics): `project.create/update/archive/instantiate` (aus Vorlage), `task.create/update/move/
   reparent/assign/set_status/set_progress/delete`, `milestone.create/update/reach/delete`,
   `dependency.add/remove`, `person.create/update`, `comment.add`, `undo`, `redo`.
 - Abfragen: `tasks(filter, sort, group)`, `board(project)`, `overdue()`, `progress(project)`,
   `history(task)`.
 - Tests: Unit je Befehl, Property-Tests mit Junk-Parametern für jeden Befehl, Snapshot-Tests
   der Abfragen.
-- **DoD:** Headless-Beispiel in `stabsplan-cli` legt Projekt mit Aufgaben an und gibt Board als
+- **DoD:** Headless-Beispiel in `plnwrk-cli` legt Projekt mit Aufgaben an und gibt Board als
   JSON aus. Testabdeckung des Kerns ≥ 90 %.
 
 ### Phase 2 – Speicherung (≈ 2 Sessions)
 
-- `.stabsplan`-Container, Laden/Speichern, Formatversion + Migration, Autosave, atomares Schreiben.
+- `.plnwrk`-Container, Laden/Speichern, Formatversion + Migration, Autosave, atomares Schreiben.
 - Verschlüsselung mit `age`, Hash-Kette im Event-Log, Prüfung beim Laden.
 - CLI: `open`, `save`, `export --format json|csv|markdown`.
 - Tests: Round-Trip, korrupte Dateien (Fuzz-artig), falsches Passwort, manipulierte Kette.
@@ -259,13 +271,14 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 
 - `ui` mit egui: Projektübersicht, Liste, Board (Drag & Drop), Detailpanel, Befehlspalette,
   Theme, i18n de/en, Undo/Redo-Tasten, Dateidialoge.
-- `apps/stabsplan` als eframe-App, Fenster-/Zustandspersistenz.
+- `apps/plnwrk` als eframe-App, Fenster-/Zustandspersistenz.
 - **DoD:** Tobi legt in der App ein Projekt mit Aufgaben, Unteraufgaben und Meilensteinen an,
-  verschiebt Karten im Board, speichert, schließt, öffnet wieder.
+  erzeugt aus einer Vorlage einen Vorgang mit Aktenzeichen und Frist, verschiebt Karten im Board,
+  speichert, schließt, öffnet wieder.
 
 ### Phase 4 – Web (≈ 1–2 Sessions)
 
-- `apps/stabsplan-web` mit trunk; Upload/Download der Projektdatei, Zwischenstand in IndexedDB;
+- `apps/plnwrk-web` mit trunk; Upload/Download der Projektdatei, Zwischenstand in IndexedDB;
   Hinweisbanner zur VS-Eignung; Deploy auf GitHub Pages aus CI.
 - **DoD:** Dieselbe App läuft im Browser mit derselben Datei wie auf dem Desktop.
 
@@ -317,7 +330,8 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 
 | Datum | Eintrag |
 | --- | --- |
-| 2026-10-14 | Plan erstellt. Lösung C gewählt (Einzelnutzer, Team vorbereitet). Arbeitstitel Stabsplan. Rust noch nicht installiert. |
+| 2026-10-14 | Plan erstellt. Lösung C gewählt (Einzelnutzer, Team vorbereitet). Rust noch nicht installiert. |
+| 2026-10-14 | Name **plnwrk** (statt plnwrk: Stabsarbeit ist Option, nicht Zweck). Projekt und Vorgang sind **ein** Modell (`Project` mit `reference`, `kind`, `due`, Vorlagen); keine zweite Struktur. |
 
 | Phase | Status |
 | --- | --- |

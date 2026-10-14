@@ -1,4 +1,4 @@
 target/
 dist/
-*.stabsplan
+*.plnwrk
 .DS_Store
