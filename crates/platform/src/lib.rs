@@ -1,5 +1,5 @@
-//! The real clock and real randomness. They live in the app, never in the pure core
-//! (docs/PLAN.md §2 "Deterministischer Kern").
+//! The real clock and real randomness for plnwrk apps (layer 2). They live outside the pure
+//! core (docs/PLAN.md §2 "Deterministischer Kern") and are handed to a session from outside.
 
 use jiff::Timestamp;
 use jiff::civil::Date;

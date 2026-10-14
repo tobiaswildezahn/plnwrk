@@ -18,6 +18,7 @@ plnwrk-schedule = { path = "crates/schedule" }
 plnwrk-assistant = { path = "crates/assistant" }
 plnwrk-mcp = { path = "crates/mcp" }
 plnwrk-ui = { path = "crates/ui" }
+plnwrk-platform = { path = "crates/platform" }
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
 age = "0.12.1"
 blake3 = "1.8.7"

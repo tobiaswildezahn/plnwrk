@@ -4,12 +4,11 @@ use std::io::IsTerminal as _;
 use std::path::Path;
 
 use plnwrk_engine::Session;
+use plnwrk_platform::{RandomIds, SystemClock};
 use plnwrk_store::{Document, Manifest, Protection, SecretString, StoreError, file};
 use serde_json::{Value, json};
 use unicode_normalization::UnicodeNormalization as _;
 use zeroize::Zeroize as _;
-
-use crate::system::{RandomIds, SystemClock};
 
 /// Environment variable with the passphrase (for scripts and agents).
 pub const PASSPHRASE_VAR: &str = "PLNWRK_PASSPHRASE";
@@ -146,18 +145,10 @@ pub fn save_new(path: &Path, doc: &Document, protection: &Protection) -> Result<
 
 /// A session on a loaded document, with the real clock and real ids.
 pub fn session(doc: Document) -> Session {
-    Session::with_workspace(
-        doc.workspace,
-        doc.log,
-        Box::new(SystemClock),
-        Box::new(RandomIds::default()),
-    )
+    doc.into_session(Box::new(SystemClock), Box::new(RandomIds::default()))
 }
 
 /// The document of a session.
 pub fn document(session: &Session) -> Document {
-    Document {
-        workspace: session.workspace().clone(),
-        log: session.log().to_vec(),
-    }
+    Document::from_session(session)
 }

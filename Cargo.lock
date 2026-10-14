@@ -2242,10 +2242,12 @@ dependencies = [
  "jiff-core",
  "jiff-static",
  "jiff-tzdb-platform",
+ "js-sys",
  "log",
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -3191,14 +3193,11 @@ name = "plnwrk-cli"
 version = "0.0.0"
 dependencies = [
  "clap",
- "getrandom 0.4.3",
- "jiff",
- "plnwrk-core",
  "plnwrk-engine",
+ "plnwrk-platform",
  "plnwrk-store",
  "rpassword",
  "serde_json",
- "ulid",
  "unicode-normalization",
  "zeroize",
 ]
@@ -3234,6 +3233,16 @@ name = "plnwrk-mcp"
 version = "0.0.0"
 dependencies = [
  "plnwrk-engine",
+]
+
+[[package]]
+name = "plnwrk-platform"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "jiff",
+ "plnwrk-core",
+ "ulid",
 ]
 
 [[package]]

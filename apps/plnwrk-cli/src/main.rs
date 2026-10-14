@@ -2,7 +2,6 @@
 //! failures are JSON too (`{"error": …}`) with exit code 1.
 
 mod files;
-mod system;
 
 use std::io::Write as _;
 use std::path::PathBuf;
