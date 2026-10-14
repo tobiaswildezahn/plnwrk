@@ -332,10 +332,12 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | --- | --- |
 | 2026-10-14 | Plan erstellt. Lösung C gewählt (Einzelnutzer, Team vorbereitet). Rust noch nicht installiert. |
 | 2026-10-14 | Name **plnwrk** (statt Stabsplan: Stabsarbeit ist Option, nicht Zweck). Projekt und Vorgang sind **ein** Modell (`Project` mit `reference`, `kind`, `due`, Vorlagen); keine zweite Struktur. |
+| 2026-10-14 | Phase 0: Rust **1.99.0** (in `rust-toolchain.toml` fixiert). Paketnamen `plnwrk-*` (ein Crate darf nicht `core` heißen). Zusätzlich zur Plan-Fassung: Reinheitsprüfung für core/engine in `xtask` (kein fs/net/env/thread/clock/rand) und Clippy-Lauf für `wasm32`. Minimale egui-App schon in Phase 0, damit Desktop- und Web-Pfad ab Tag 1 in CI geprüft werden. |
+| 2026-10-14 | WASM-Risiko (§8) geprüft per Wegwerf-Build: `age` 0.12, `zip` 9 (ohne Default-Features, `deflate`), `ulid` 3, `jiff` 0.2, `blake3` 1 bauen für `wasm32-unknown-unknown`. **Auflagen:** (1) Web-App muss `getrandom` 0.2 mit Feature `js` und 0.4 mit `wasm_js` aktivieren (age zieht beides). (2) `ulid` 3 hat kein `Ulid::new()` ohne Zufallsquelle – passt zur Regel „deterministischer Kern“: IDs per `Ulid::from_parts(zeit, zufall)` aus Clock-/Id-Traits, die die Apps liefern. `jiff::Timestamp::now()` nie im Kern verwenden. |
 
 | Phase | Status |
 | --- | --- |
-| 0 Fundament | offen |
+| 0 Fundament | fertig (2026-10-14) |
 | 1 Kern | offen |
 | 2 Speicherung | offen |
 | 3 Desktop-UI | offen |
