@@ -361,7 +361,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
 | 1 Kern | fertig (2026-10-14, PR #2, zwei Reviews) |
-| 2 Speicherung | umgesetzt, PR offen (2026-10-14) |
+| 2 Speicherung | fertig (2026-10-14, PR #3, Security-Review + Nachreview, CI grün auf Linux/macOS/Windows/Web) |
 | 3 Desktop-UI | offen |
 | 4 Web | offen |
 | 5 Zeitplanung | offen |

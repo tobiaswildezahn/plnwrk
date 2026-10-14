@@ -14,7 +14,7 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | --- | --- | --- |
 | 0 Fundament | **fertig**, gemergt | [#1](https://github.com/tobiaswildezahn/plnwrk/pull/1) |
 | 1 Kern (Modell, 23 Befehle, 9 Abfragen, Undo/Redo, CLI) | **fertig**, gemergt, 2 Reviews | [#2](https://github.com/tobiaswildezahn/plnwrk/pull/2) |
-| 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **umgesetzt, PR offen**, 2 Security-Reviews eingearbeitet | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
+| 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, gemergt, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
 | 3 Desktop-UI | offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
@@ -24,16 +24,15 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 
 ## 2. Technischer Ist-Zustand
 
-- **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. Branch `phase-2`
-  (Stand `6a1d4a2`), `main` enthält Phase 0 + 1.
+- **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
+  Phase 0–2 (Merge `322dd4e`). Neue Phase immer auf eigenem Branch `phase-N`.
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
   wasm32 mit `forbid`-Lints, WASM-Build, Tests, Abdeckung core+engine+store ≥ 90 % (aktuell
   ≈ 95 %), cargo-deny. Letzter lokaler Lauf: grün.
-- **CI:** GitHub Actions auf Linux, macOS, Windows + Web-Bundle. Für PR #3 war Windows zuletzt
-  **rot** (Clippy: unmittelbar aufgerufene Closure, nur unter Windows sichtbar); Korrektur
-  `6a1d4a2` ist gepusht, **Ergebnis der CI steht noch aus**.
+- **CI:** GitHub Actions auf Linux, macOS, Windows + Web-Bundle; für PR #3 alle vier grün
+  (Windows braucht ≈ 9 min, die anderen 1–3 min).
 - **Crates:** `core` (Modell, Invarianten, Rang, Policy), `engine` (Befehle, Events, Undo/Redo,
   Abfragen, Fixture), `store` (Dateiformat, Krypto, Export, Dateien), `schedule`/`assistant`/
   `mcp`/`ui` (Gerüste), Apps `plnwrk` (Desktop-Platzhalter), `plnwrk-web`, `plnwrk-cli`.
@@ -49,11 +48,9 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-1. **CI von PR #3 prüfen.** Wenn alle vier Prüfungen grün sind: PR #3 mergen, in PLAN.md §9
-   „2 Speicherung“ auf *fertig* setzen, `main` lokal nachziehen.
-2. **Phase 3 (Desktop-UI) planen:** Phasenplan unter `docs/plans/` (writing-plans), vorher die
+1. **Phase 3 (Desktop-UI) planen:** Phasenplan unter `docs/plans/` (writing-plans), vorher die
    Entscheidungen aus Abschnitt 4 einholen, soweit sie Phase 3 betreffen (Punkt 4.4).
-3. Optional vorab: `cargo xtask mutants` (siehe 5.1).
+2. Optional vorab: `cargo xtask mutants` (siehe 5.1).
 
 ## 4. Offene Entscheidungen des Nutzers
 
