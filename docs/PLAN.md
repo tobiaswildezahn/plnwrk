@@ -395,6 +395,8 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 2026-10-14 | Nachreview Phase 5 (kein Blocker, 6 Punkte) → behoben (`e824e71`): Planende = Ende der offenen Arbeit mit Datum (früh erledigte Aufgaben und Aufgaben ohne Datum verdecken den kritischen Pfad nicht mehr); erledigte Aufgaben ohne Datum tragen die Kette auch rückwärts; Aufgaben ganz auf freien Tagen = Arbeitstag vor ihrem Ende; `Calendar::step` sucht halbierend über `count` statt tageweise, Datumsrechnung bleibt an den Kalenderenden stehen (vorher möglicher Absturz über `Span::days`); Gantt-Fenster für erledigte und weit entfernte Projekte; `flush_draft` gleicht den Entwurf vor dem Senden an (ein anderswo geänderter Beginn wurde zurückgeschrieben). Neuer Eigenschaftstest: Puffer exakt (Rutschen um den Puffer harmlos, ein Tag mehr nicht). |
 | 2026-10-14 | Kurzprüfung Phase 5 (kein Blocker) → behoben (`f03bfc4`): Aufgabe nur mit Beginn an einem freien Tag beginnt am Arbeitstag danach (die Nachreview-Korrektur hatte sie auf den Tag davor gelegt, mit falscher Warnung); letzte Kalendertage einmal gezählt; „mitverschoben“-Meldung bleibt beim Speichern mit Datum und Text. Zufallspläne enthalten nun auch Aufgaben nur mit Beginn/nur mit Frist. Bewusst so: Meilenstein am Samstag nach einer Projektfrist am Freitag wird gewarnt (Zeitpunkt). Differenzielle Prüfung des Prüfers: 300 000 Kalenderschritte gegen tageweises Zählen, ≈ 199 000 Puffer exakt. |
 
+| 2026-10-14 | Phase 5 gemergt (PR #9, `c67cd2b`) nach Tobis „ja, merge“; vorher noch ein Zeittest gelockert, der auf der instrumentierten Linux-CI 2,01 s statt < 2 s brauchte (Feiertage jetzt ohne Speicheranforderung gezählt). |
+| 2026-10-14 | **Entscheidungen Tobi Phase 6:** 6b (Assistent in der App) bis auf Weiteres ausgesetzt; 6a MCP-Server: kein VS-NfD (harte Sperre), jede Datei per Pfad, Lesen und Schreiben (jede Änderung ein Rückgängig-Schritt, „durch KI“), verschlüsselte Dateien nicht über MCP. **Abweichung:** ohne `rmcp` – eigenes zeilenweises JSON-RPC über stdio (kleine Protokollfläche, kein tokio/async). Plan `docs/plans/2026-10-14-phase-6a.md`. |
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
@@ -402,7 +404,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 2 Speicherung | fertig (2026-10-14, PR #3, Security-Review + Nachreview, CI grün auf Linux/macOS/Windows/Web) |
 | 3 Desktop-UI | 3a Desktop-MVP fertig (2026-10-14, PR #4); 3b-1 Termine und Meilensteine fertig (PR #5, Format 2); 3b-2 Nichts verlieren fertig (PR #6); je Review + Nachreview; 3b-3 Palette/Englisch/Theme fertig (PR #7); je Review + Nachreview – **Phase 3 abgeschlossen** |
 | 4 Web | fertig (PR #8, `21305ec`) |
-| 5 Zeitplanung | fertig, Review + Nachreview eingearbeitet (PR #9, Merge offen) |
-| 6 KI | offen |
+| 5 Zeitplanung | fertig (PR #9, `c67cd2b`) |
+| 6 KI | 6a MCP-Server in Arbeit; 6b Assistent in der App ausgesetzt |
 | 7 VS-Härtung | offen |
 | 8 Veröffentlichung | offen |
