@@ -126,7 +126,12 @@ pub fn panel(
                         if start.commit() {
                             match dates::parse(&draft.start) {
                                 Ok(date) if date != task.start => {
-                                    out.push(update(id, "start", dates::param(date)));
+                                    out.push(Intent::Reschedule {
+                                        task: id,
+                                        start: date,
+                                        due: task.due,
+                                        due_time: None,
+                                    });
                                 }
                                 Ok(_) => {}
                                 Err(message) => state.message = Some(Message::error(message)),
@@ -148,7 +153,12 @@ pub fn panel(
                         if due.commit() {
                             match dates::parse_deadline(&draft.due, &draft.due_time) {
                                 Ok(due) if due != task.due.map(|day| (day, task.due_time)) => {
-                                    out.push(update(id, "due", dates::deadline_param(due)));
+                                    out.push(Intent::Reschedule {
+                                        task: id,
+                                        start: task.start,
+                                        due: due.map(|(day, _)| day),
+                                        due_time: Some(due.and_then(|(_, time)| time)),
+                                    });
                                 }
                                 Ok(_) => {}
                                 Err(message) => state.message = Some(Message::error(message)),
@@ -221,6 +231,7 @@ pub fn panel(
                 }
 
                 subtasks(ui, doc, id, state, out);
+                dependencies(ui, doc, id, out);
                 comments(ui, doc, id, state, out);
                 history(ui, doc, id);
 
@@ -284,6 +295,65 @@ fn subtasks(
             }),
             then: Then::Nothing,
             clear: Some(Clear::DetailSubtask),
+        });
+    }
+}
+
+/// What the task waits for (editable) and what waits for it (to go there).
+fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Intent>) {
+    let ws = doc.session.workspace();
+    let Some(task) = ws.task(id) else { return };
+    ui.add_space(6.0);
+    ui.strong(text::t().waits_for);
+    let incoming: Vec<_> = ws.dependencies().filter(|d| d.to == id).collect();
+    for dependency in &incoming {
+        let Some(from) = ws.task(dependency.from) else {
+            continue;
+        };
+        ui.horizontal(|ui| {
+            if ui.link(&from.title).clicked() {
+                out.push(Intent::Select(Some(from.id)));
+            }
+            if super::icon_button(ui, "🗙", text::t().remove_dependency).clicked() {
+                out.push(Intent::run(
+                    "dependency.remove",
+                    json!({"dependency": dependency.id.to_string()}),
+                ));
+            }
+        });
+    }
+    let mut candidates: Vec<_> = ws
+        .tasks_of(task.project)
+        .filter(|t| t.id != id && !incoming.iter().any(|d| d.from == t.id))
+        .collect();
+    candidates.sort_by(|a, b| a.title.cmp(&b.title));
+    if !candidates.is_empty() {
+        egui::ComboBox::from_id_salt(("predecessor", id))
+            .selected_text(text::t().add_predecessor)
+            .show_ui(ui, |ui| {
+                for candidate in candidates {
+                    if ui.selectable_label(false, &candidate.title).clicked() {
+                        out.push(Intent::run(
+                            "dependency.add",
+                            json!({"from": candidate.id.to_string(), "to": id.to_string()}),
+                        ));
+                    }
+                }
+            });
+    }
+    let outgoing: Vec<_> = ws
+        .dependencies()
+        .filter(|d| d.from == id)
+        .filter_map(|d| ws.task(d.to))
+        .collect();
+    if !outgoing.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.weak(text::t().followed_by);
+            for next in outgoing {
+                if ui.link(&next.title).clicked() {
+                    out.push(Intent::Select(Some(next.id)));
+                }
+            }
         });
     }
 }

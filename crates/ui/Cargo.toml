@@ -16,6 +16,7 @@ jiff.workspace = true
 plnwrk-core.workspace = true
 plnwrk-engine.workspace = true
 plnwrk-platform.workspace = true
+plnwrk-schedule.workspace = true
 plnwrk-store.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true

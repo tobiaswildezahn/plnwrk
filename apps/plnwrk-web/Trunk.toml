@@ -1,0 +1,4 @@
+# `trunk serve` watches only this folder by default: changes in the shared crates (the
+# interface lives in crates/ui) would not rebuild the page.
+[watch]
+watch = ["src", "index.html", "Cargo.toml", "../../crates"]

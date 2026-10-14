@@ -34,6 +34,8 @@ pub enum Tab {
     Board,
     /// Milestones.
     Milestones,
+    /// Schedule (Gantt).
+    Schedule,
 }
 
 /// Where a file to open comes from: a path (desktop) or an upload (browser).

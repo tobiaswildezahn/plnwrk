@@ -39,11 +39,8 @@ pub const ELSEWHERE: &[(&str, &str)] = &[
     ("task.reparent", "dragging in the list"),
     ("task.assign", "field of the detail panel"),
     ("task.set_progress", "field of the detail panel"),
-    ("dependency.add", "no interface yet (scheduling, Phase 5)"),
-    (
-        "dependency.remove",
-        "no interface yet (scheduling, Phase 5)",
-    ),
+    ("dependency.add", "field waits-for in the detail panel"),
+    ("dependency.remove", "field waits-for in the detail panel"),
     ("comment.add", "field of the detail panel"),
     (
         "workspace.upgrade",
@@ -228,12 +225,14 @@ fn actions(list: &mut List, doc: &OpenDoc, state: &State) {
         && let Some(project) = ws.project(id)
     {
         let here = project.title.as_str();
-        for (tab, name) in [
-            (Tab::List, t.list),
-            (Tab::Board, t.board),
-            (Tab::Milestones, t.milestones),
-        ] {
-            list.add(name, here, None, &[], vec![Intent::Tab(tab)]);
+        let tabs: [(Tab, &str, &'static [&'static str]); 4] = [
+            (Tab::List, t.list, &[]),
+            (Tab::Board, t.board, &[]),
+            (Tab::Milestones, t.milestones, &[]),
+            (Tab::Schedule, t.schedule_tab, &["task.reschedule"]),
+        ];
+        for (tab, name, commands) in tabs {
+            list.add(name, here, None, commands, vec![Intent::Tab(tab)]);
         }
         // While the project form is open, its head shows the form instead of the buttons
         // "Bearbeiten" and "Archivieren"; the palette follows that.

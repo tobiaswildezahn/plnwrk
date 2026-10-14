@@ -146,6 +146,14 @@ pub(crate) enum Intent {
     FocusNewTask,
     /// Open the form to edit this project.
     EditProject(ProjectId),
+    /// New dates for a task; what waits for it moves along (one step). `due_time`: a new time
+    /// of day for the deadline (`Some(None)` clears it), `None` keeps it.
+    Reschedule {
+        task: TaskId,
+        start: Option<jiff::civil::Date>,
+        due: Option<jiff::civil::Date>,
+        due_time: Option<Option<jiff::civil::Time>>,
+    },
 }
 
 impl Intent {
@@ -682,6 +690,12 @@ impl PlnwrkApp {
             }
             Intent::Theme(theme) => self.state.theme = theme,
             Intent::Tab(tab) => self.state.tab = tab,
+            Intent::Reschedule {
+                task,
+                start,
+                due,
+                due_time,
+            } => self.reschedule(task, start, due, due_time),
             Intent::FocusNewTask => self.state.focus_new_task = true,
             Intent::EditProject(id) => {
                 let open = self
@@ -740,6 +754,62 @@ impl PlnwrkApp {
                 }
             }
             Err(error) => self.state.message = Some(Message::error(text::command_error(&error))),
+        }
+    }
+
+    /// New dates for a task. Whatever waits for it moves later as far as needed, counted in
+    /// Hamburg working days and keeping its length; milestones stay (the schedule warns).
+    /// One command, so one undo step takes it all back.
+    fn reschedule(
+        &mut self,
+        task: TaskId,
+        start: Option<jiff::civil::Date>,
+        due: Option<jiff::civil::Date>,
+        due_time: Option<Option<jiff::civil::Time>>,
+    ) {
+        let Some(doc) = &self.doc else { return };
+        let ws = doc.session.workspace();
+        let Some(current) = ws.task(task) else { return };
+        let unchanged = start == current.start
+            && due == current.due
+            && due_time.is_none_or(|t| t == current.due_time);
+        if unchanged {
+            return;
+        }
+        let plan =
+            plnwrk_schedule::Plan::of(ws, current.project, plnwrk_schedule::Calendar::hamburg());
+        let own = plnwrk_schedule::Move { task, start, due };
+        let mut moves = plan.push(own);
+        if !moves.iter().any(|m| m.task == task) {
+            moves.insert(0, own);
+        }
+        let along = moves.iter().filter(|m| m.task != task).count();
+        let list: Vec<Value> = moves
+            .iter()
+            .map(|m| {
+                let mut entry = serde_json::json!({
+                    "task": m.task.to_string(),
+                    "start": dates::param(m.start),
+                    "due": dates::param(m.due),
+                });
+                if m.task == task
+                    && let Some(time) = due_time
+                    && let Some(fields) = entry.as_object_mut()
+                {
+                    let time = time.map_or(Value::Null, |t| Value::from(dates::format_time(t)));
+                    fields.insert("due_time".to_owned(), time);
+                }
+                entry
+            })
+            .collect();
+        self.run(
+            "task.reschedule",
+            &serde_json::json!({ "moves": list }),
+            Then::Nothing,
+            None,
+        );
+        if along > 0 && self.state.message.as_ref().is_none_or(|m| !m.error) {
+            self.state.message = Some(Message::info(text::moved_along(along)));
         }
     }
 

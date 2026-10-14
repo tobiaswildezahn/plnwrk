@@ -74,6 +74,9 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 - Sperren und Prüfungen (z. B. VS-NfD im Browser) **vor** `Session::run`, nie durch
   Rückgängig danach: Das Protokoll hängt nur an, ein zurückgenommener Befehl bleibt im Verlauf
   und zählt für die Einstufung der Datei (`plnwrk_store::classification_of`).
+- Zeitplanung: Rechnen nur in `plnwrk-schedule` (rein, Daten als Parameter); die Oberfläche
+  berechnet Schübe dort und schickt **einen** `task.reschedule` (ein Rückgängig-Schritt).
+  Browser-Vorschau zeigt nach Änderungen alte Stände? Seite mit `?v=<n>` neu laden (Cache).
 - Neuer Befehl im Register → Eintrag in der Befehlspalette (`crates/ui/src/palette.rs`) oder
   mit Begründung in `palette::ELSEWHERE`; ein Test prüft das.
 - kittest: Untermenü-Knöpfe heißen „Name⏵“ (Hilfsfunktion `submenu` in `tests.rs`); Tippen in

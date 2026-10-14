@@ -1,7 +1,7 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14, nach dem
-> Umsetzung von Phase 4 (Web)** (PR offen). Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Umsetzung von Phase 5 (Zeitplanung)** (PR offen); Phase 4 (Web) ist gemergt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -20,8 +20,8 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
-| 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **umgesetzt**, PR offen | – |
-| 5 Zeitplanung | offen | – |
+| 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **fertig**, Review + 3 Nachprüfungen | [#8](https://github.com/tobiaswildezahn/plnwrk/pull/8) |
+| 5 Zeitplanung (Arbeitstage Hamburg, Nachfolger schieben, kritischer Pfad, Gantt) | **umgesetzt**, PR offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
@@ -32,7 +32,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–3b-3 (Merge `3d6fbde`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–4 (Merge `21305ec`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
@@ -79,10 +79,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    gezielt geprüft: minimiert + „Sofort beenden“ in der Aktivitätsanzeige.
 4. **Tobi testet Phase 4** (Demo im Plan `docs/plans/2026-10-14-phase-4.md`), besonders das
    Hochladen über den echten Dateidialog (nur über Tests belegt).
-5. **Veröffentlichen?** Der Workflow `pages` (von Hand) stellt die Browser-Version unter eine
-   öffentliche Adresse. Braucht Tobis Entscheidung und Pages in den Repo-Einstellungen.
-6. Danach Phase 5 (Zeitplanung) oder 4.6 (KI früher).
-5. Optional: `cargo xtask mutants` (5.1).
+5. **Tobi testet Phase 5** (Demo im Plan `docs/plans/2026-10-14-phase-5.md`): Zeitplan,
+   Balken ziehen, „Wartet auf“.
+6. **Veröffentlichen?** Der Workflow `pages` (von Hand) braucht eine eigene (Sub-)Domain.
+7. Danach **4.6 / Phase 6 (KI, MCP)** – von Tobi für „heute Nacht“ angekündigt.
+8. Optional: `cargo xtask mutants` (5.1).
 
 ## 4. Offene Entscheidungen des Nutzers
 
@@ -127,6 +128,13 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   öffnet noch nichts (Apple Event). Uhrzeiten werden intern
   als `HH:MM:SS` gespeichert (Eingabe `HH:MM`). Frist „00:00“ liest sich am Vorabend als
   „morgen fällig“.
+- **Zeitplan:** Nachfolger rutschen beim Ändern von Terminen im Detailbereich und beim Ziehen
+  im Zeitplan mit – nicht, wenn ein getippter, noch nicht übernommener Termin erst beim
+  Speichern/Schließen übernommen wird, und nicht bei `task.update` über CLI/MCP (dort
+  `task.reschedule` mit selbst berechneten Schüben). Eine neue Abhängigkeit verschiebt nichts,
+  sondern wird gewarnt, falls sie nicht passt. Kalender fest Hamburg (Mo–Fr ohne Feiertage);
+  Oberaufgaben fassen ihre Unteraufgaben nicht zusammen; in der Oberfläche nur „Ende →
+  Anfang“ anlegbar (die anderen Arten über CLI). Der Zeitplan zeigt höchstens 800 Tage.
 - **Sprache:** Kopien-Namen („– Wiederherstellung“, Ordner „Notkopien“) und die
   VS-NfD-Kennzeichnung bleiben deutsch; Daten (Titel, Art „Projekt“/„Vorgang“) bleiben, wie
   getippt. Technische Gründe aus Speicher/Engine (`reason`) erscheinen englisch hinter der
