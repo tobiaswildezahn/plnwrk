@@ -443,10 +443,13 @@ fn reschedule(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> 
     for change in params.req("moves", p::moves)? {
         let mut task = load(tx, change.task)?;
         task.start = change.start;
-        if change.due.is_none() {
+        task.due = change.due;
+        if let Some(time) = change.due_time {
+            task.due_time = time;
+        }
+        if task.due.is_none() {
             task.due_time = None;
         }
-        task.due = change.due;
         tx.put(Entity::Task(task));
     }
     Ok(())
@@ -455,7 +458,7 @@ fn reschedule(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> 
 /// `task.reschedule`
 pub const RESCHEDULE: CommandSpec = CommandSpec {
     id: "task.reschedule",
-    summary: "Gives several tasks new start and due days at once (one undo step), e.g. a task and the successors that move with it. A due time of day stays.",
+    summary: "Gives several tasks new start and due days at once (one undo step), e.g. a task and the successors that move with it. A due time of day stays unless due_time is given.",
     params: &[P::required(
         "moves",
         K::Moves,

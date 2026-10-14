@@ -209,15 +209,26 @@ mod junk {
                     1 => Just(Value::Null),
                     1 => Just(Value::from("2026-02-30")),
                 ];
+                let time = prop_oneof![
+                    2 => Just(None),
+                    1 => Just(Some(Value::Null)),
+                    1 => prop::sample::select(vec!["09:30", "24:00", "9:30"]).prop_map(|t| Some(Value::from(t))),
+                ];
                 prop::collection::vec(
-                    (prop::sample::select(tasks), day.clone(), day),
+                    (prop::sample::select(tasks), day.clone(), day, time),
                     0..4,
                 )
                 .prop_map(|moves| {
                     Value::from(
                         moves
                             .into_iter()
-                            .map(|(task, start, due)| serde_json::json!({"task": task, "start": start, "due": due}))
+                            .map(|(task, start, due, time)| {
+                                let mut entry = serde_json::json!({"task": task, "start": start, "due": due});
+                                if let (Some(time), Some(map)) = (time, entry.as_object_mut()) {
+                                    map.insert("due_time".to_owned(), time);
+                                }
+                                entry
+                            })
                             .collect::<Vec<_>>(),
                     )
                 })

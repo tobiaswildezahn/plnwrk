@@ -41,7 +41,8 @@ pub enum ParamKind {
     Bool,
     /// A list of labels (tags).
     Labels,
-    /// New dates for several tasks: `[{"task": id, "start": day|null, "due": day|null}]`.
+    /// New dates for several tasks: `[{"task": id, "start": day|null, "due": day|null,
+    /// "due_time"?: "HH:MM"|null}]`.
     Moves,
 }
 
@@ -136,6 +137,11 @@ impl ParamSpec {
                         "task": {"type": "string", "x-entity": EntityKind::Task},
                         "start": {"type": ["string", "null"], "format": "date"},
                         "due": {"type": ["string", "null"], "format": "date"},
+                        "due_time": {
+                            "type": ["string", "null"],
+                            "pattern": "^[0-9]{2}:[0-9]{2}$",
+                            "description": "Left out: the time of day stays",
+                        },
                     },
                 },
             }),
@@ -325,6 +331,8 @@ pub struct DateMove {
     pub task: plnwrk_core::TaskId,
     pub start: Option<Date>,
     pub due: Option<Date>,
+    /// A new time of day for the deadline (`Some(None)` clears it); `None`: it stays.
+    pub due_time: Option<Option<Time>>,
 }
 
 /// Parses `[{"task": id, "start": day|null, "due": day|null}]`: at least one, each task once,
@@ -345,11 +353,11 @@ pub fn moves(name: &str, value: &Value) -> Result<Vec<DateMove>, CommandError> {
                 .ok_or_else(|| CommandError::bad(name, "each move must be an object"))?;
             if fields
                 .keys()
-                .any(|k| !["task", "start", "due"].contains(&k.as_str()))
+                .any(|k| !["task", "start", "due", "due_time"].contains(&k.as_str()))
             {
                 return Err(CommandError::bad(
                     name,
-                    "a move has task, start and due only",
+                    "a move has task, start, due and due_time only",
                 ));
             }
             let field = |key: &str| {
@@ -369,10 +377,20 @@ pub fn moves(name: &str, value: &Value) -> Result<Vec<DateMove>, CommandError> {
                     date(name, value).map(Some)
                 }
             };
+            let due_time = match fields.get("due_time") {
+                None => None,
+                Some(Value::Null) => Some(None),
+                Some(time) => {
+                    let text = string(name, time)?;
+                    let (_, time) = deadline(name, &Value::from(format!("2000-01-01T{text}")))?;
+                    Some(time)
+                }
+            };
             Ok(DateMove {
                 task,
                 start: day("start")?,
                 due: day("due")?,
+                due_time,
             })
         })
         .collect()

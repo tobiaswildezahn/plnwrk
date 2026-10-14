@@ -567,6 +567,24 @@ mod commands {
         );
         let ta = get(&h, a);
         assert_eq!((ta.start, ta.due, ta.due_time), (None, None, None));
+        // A time of day can be set and cleared with the dates.
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": "2026-10-12", "due": "2026-10-13", "due_time": "09:30"}]}),
+        );
+        assert_eq!(
+            get(&h, a).due_time.map(|t| t.to_string()).as_deref(),
+            Some("09:30:00")
+        );
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": "2026-10-12", "due": "2026-10-13", "due_time": null}]}),
+        );
+        assert_eq!(get(&h, a).due_time, None);
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": null, "due": null}]}),
+        );
         // Due before start: nothing changes, also not the other task.
         let error = h.err(
             "task.reschedule",
@@ -590,6 +608,8 @@ mod commands {
             {"task": a.to_string(), "start": null, "due": null},
         ]});
         assert!(is_bad_param(&h.err("task.reschedule", twice), "moves"));
+        let late = json!({"moves": [{"task": b.to_string(), "start": "2026-10-12", "due": "2026-10-13", "due_time": "25:00"}]});
+        assert!(is_bad_param(&h.err("task.reschedule", late), "moves"));
         let missing = json!({"moves": [{"task": a.to_string(), "start": null}]});
         assert!(is_bad_param(&h.err("task.reschedule", missing), "moves"));
         assert!(is_bad_param(
