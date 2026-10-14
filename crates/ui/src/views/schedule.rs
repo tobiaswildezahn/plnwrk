@@ -32,10 +32,13 @@ fn days_from(first: Date, date: Date) -> i32 {
     first.until(date).map_or(0, |span| span.get_days())
 }
 
-/// The day `days` days after `date`.
+/// The day `days` days after `date` (the calendar's first or last day beyond its ends).
 fn plus(date: Date, days: i32) -> Date {
-    date.checked_add(jiff::Span::new().days(days))
-        .unwrap_or(date)
+    jiff::Span::new()
+        .try_days(days)
+        .ok()
+        .and_then(|span| date.checked_add(span).ok())
+        .unwrap_or(if days >= 0 { Date::MAX } else { Date::MIN })
 }
 
 /// The plan of a project and what follows from it, worked out once per change of the data.
@@ -68,29 +71,27 @@ fn worked(ui: &egui::Ui, doc: &OpenDoc, project: &Project) -> Arc<Worked> {
 }
 
 /// The days to draw: the first and how many. Everything, with today, if it fits into
-/// [`MOST_DAYS`]; otherwise from the earliest open task on (but never so early that today falls
-/// out), so old finished work does not push the current work out of view.
+/// [`MOST_DAYS`]. Otherwise from the earliest open task on, with today in view unless all open
+/// work starts more than half a window later; without open work, the last of the work. So
+/// old finished work does not push the current work out of view.
 fn window(
     all: &[(Date, Date)],
     open: &[(Date, Date)],
     today: Date,
     due: Option<Date>,
 ) -> Option<(Date, i32)> {
-    let earliest = all.iter().map(|(start, _)| *start).min()?.min(today);
-    let latest = all
-        .iter()
-        .map(|(_, end)| *end)
-        .chain([today])
-        .chain(due)
-        .max()?;
-    let first = if days_from(earliest, latest) + 8 <= MOST_DAYS {
-        earliest
+    let earliest = all.iter().map(|(start, _)| *start).min()?;
+    let last_work = all.iter().map(|(_, end)| *end).max()?;
+    let latest = [last_work, today].into_iter().chain(due).max()?;
+    let first = if days_from(earliest.min(today), latest) + 8 <= MOST_DAYS {
+        earliest.min(today)
     } else {
-        open.iter()
-            .map(|(start, _)| *start)
-            .min()
-            .unwrap_or(today)
-            .max(plus(today, -MOST_DAYS / 2))
+        let half = MOST_DAYS / 2;
+        match open.iter().map(|(start, _)| *start).min() {
+            Some(start) if start > plus(today, half) => start,
+            Some(start) => start.min(today).max(plus(today, -half)),
+            None => plus(last_work, 9 - MOST_DAYS),
+        }
     };
     let first = plus(first, -3);
     Some((first, (days_from(first, latest) + 6).clamp(1, MOST_DAYS)))
@@ -327,23 +328,22 @@ pub fn show(
             if response.drag_stopped() {
                 ui.data_mut(|d| d.remove::<i32>(kept));
             }
-            // Where it would land: the same working days as when it is dropped.
-            let shown = if shift == 0 {
-                bar
-            } else {
-                plan.shifted(task.id, plus(start, shift))
-                    .and_then(|m| {
-                        Item {
-                            id: task.id,
-                            start: m.start,
-                            due: m.due,
-                            milestone: task.milestone,
-                            done: false,
-                        }
-                        .span()
-                    })
-                    .map_or(bar, |span| bar_of(task.milestone, span, y))
-            };
+            // Where it would land: the same working days as when it is dropped. Shown, and
+            // named for screen readers, while it is dragged.
+            let landing = (shift != 0)
+                .then(|| plan.shifted(task.id, plus(start, shift)))
+                .flatten()
+                .and_then(|m| {
+                    Item {
+                        id: task.id,
+                        start: m.start,
+                        due: m.due,
+                        milestone: task.milestone,
+                        done: false,
+                    }
+                    .span()
+                });
+            let shown = landing.map_or(bar, |span| bar_of(task.milestone, span, y));
             let fill = if task.status == TaskStatus::Done {
                 visuals.widgets.inactive.bg_fill
             } else if critical {
@@ -363,10 +363,11 @@ pub fn show(
             } else {
                 painter.rect_filled(shown, 3.0, fill);
             }
-            let when = if start == end {
-                dates::format(end)
+            let (from, to) = landing.unwrap_or((start, end));
+            let when = if from == to {
+                dates::format(to)
             } else {
-                format!("{} – {}", dates::format(start), dates::format(end))
+                format!("{} – {}", dates::format(from), dates::format(to))
             };
             let name = format!("{}: {when}", task.title);
             let enabled = ui.is_enabled();
@@ -524,6 +525,41 @@ mod tests {
             days_from(first, d("2026-10-16")) < days,
             "up to the last end"
         );
+    }
+
+    #[test]
+    fn finished_work_long_ago_is_shown_up_to_its_end() {
+        let all = [(d("2020-01-06"), d("2020-03-10"))];
+        let (first, days) = window(&all, &[], d("2026-10-14"), None).unwrap();
+        assert!((0..days).contains(&days_from(first, d("2020-03-10"))));
+        assert!(
+            days_from(first, d("2020-03-10")) >= days - 12,
+            "the end, not the start"
+        );
+    }
+
+    #[test]
+    fn open_work_far_ahead_is_shown_from_its_start() {
+        let all = [(d("2029-01-08"), d("2029-02-09"))];
+        let (first, days) = window(&all, &all, d("2026-10-14"), None).unwrap();
+        assert_eq!(first, d("2029-01-05"));
+        assert!(days > 30);
+        // Within half a window: from today, both in view.
+        let all = [
+            (d("2027-06-07"), d("2027-06-11")),
+            (d("2025-01-06"), d("2025-01-10")),
+        ];
+        let open = [(d("2027-06-07"), d("2027-06-11"))];
+        let (first, days) = window(&all, &open, d("2026-10-14"), None).unwrap();
+        assert_eq!(first, d("2026-10-11"));
+        assert!((0..days).contains(&days_from(first, d("2027-06-11"))));
+    }
+
+    #[test]
+    fn far_dates_do_not_break_the_window() {
+        let all = [(Date::MIN, Date::MAX)];
+        assert!(window(&all, &all, d("2026-10-14"), Some(Date::MAX)).is_some());
+        assert!(window(&all, &[], d("2026-10-14"), None).is_some());
     }
 
     #[test]

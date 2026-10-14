@@ -3278,6 +3278,106 @@ fn a_push_too_big_for_one_step_is_refused_plainly() {
 }
 
 #[test]
+fn the_drag_preview_names_the_working_days_it_will_land_on() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    // Mon 12 – Wed 14, dragged four days on: Friday 16th, so it lands Fri 16 – Tue 20.
+    let from = bar(&harness, "Ausschreibung").center();
+    let to = from + egui::vec2(4.0 * 22.0, 0.0);
+    harness.drag_at(from);
+    harness.run_steps(2);
+    harness.hover_at(from + egui::vec2(10.0, 0.0));
+    harness.run_steps(2);
+    harness.hover_at(to);
+    harness.run_steps(2);
+    assert!(
+        harness
+            .query_by_label("Ausschreibung: 16.10.2026 – 20.10.2026")
+            .is_some()
+    );
+    harness.drop_at(to);
+    harness.run_steps(2);
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let t = ws.task(first).unwrap();
+    assert_eq!(
+        (t.start.unwrap().to_string(), t.due.unwrap().to_string()),
+        ("2026-10-16".into(), "2026-10-20".into()),
+        "lands where the preview showed"
+    );
+}
+
+#[test]
+fn bars_hidden_under_the_titles_cannot_be_taken() {
+    let mut harness = with_project("Alt und neu");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    for (title, start, due) in [("Alt", day(-60), day(-58)), ("Jetzt", day(0), day(2))] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    harness.run();
+    // Opened a week before today: the old bar lies under the column with the titles.
+    let has_bar = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(&format!("{title}: ")))
+        })
+        .is_some()
+    };
+    assert!(has_bar(&harness, "Jetzt"));
+    assert!(!has_bar(&harness, "Alt"));
+}
+
+#[test]
+fn a_refused_typed_date_is_put_back_and_named() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, "Ausschreibung");
+    // A deadline before the start.
+    type_into(&mut harness, text::t().due, "01.10.2026", false);
+    let warning = harness.state_mut().flush_draft().unwrap();
+    assert!(warning.starts_with(text::t().not_taken), "{warning}");
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    assert_eq!(
+        ws.task(first).unwrap().due.unwrap().to_string(),
+        "2026-10-14"
+    );
+    assert_eq!(
+        harness.state().state.forms.task.as_ref().unwrap().due,
+        "14.10.2026"
+    );
+}
+
+#[test]
+fn a_date_changed_elsewhere_is_not_written_back_by_saving() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, "Ausschreibung");
+    // A deadline typed; meanwhile (no frame in between) the start changes elsewhere.
+    type_into(&mut harness, text::t().due, "16.10.2026", false);
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "task.update",
+            &serde_json::json!({"task": first.to_string(), "start": "2026-10-13"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    assert!(harness.state_mut().flush_draft().is_none());
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let t = ws.task(first).unwrap();
+    assert_eq!(t.start.unwrap().to_string(), "2026-10-13", "not put back");
+    assert_eq!(t.due.unwrap().to_string(), "2026-10-16");
+}
+
+#[test]
 fn the_schedule_shows_bars_and_dragging_moves_what_waits() {
     let (mut harness, first, second) = two_dated_tasks();
     let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});

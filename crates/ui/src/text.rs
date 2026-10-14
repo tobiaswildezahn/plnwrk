@@ -769,7 +769,7 @@ pub fn overdue_tasks(count: usize) -> String {
     pick(format!("{count} überfällig"), format!("{count} overdue"))
 }
 
-/// "2 Nachfolger mitverschoben".
+/// A push larger than one step can take, refused.
 pub fn too_many_moves(count: usize) -> String {
     pick(
         format!(
@@ -781,6 +781,7 @@ pub fn too_many_moves(count: usize) -> String {
     )
 }
 
+/// "2 Nachfolger mitverschoben".
 pub fn moved_along(count: usize) -> String {
     match (language(), count) {
         (Language::German, 1) => "1 Nachfolger mitverschoben.".to_owned(),

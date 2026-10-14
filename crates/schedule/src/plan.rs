@@ -162,6 +162,23 @@ impl Plan {
         self.calendar
     }
 
+    /// The working days `item` lies on, if it has dates: from the first working day at or
+    /// after its start to the last at or before its end. A task lying wholly on days off counts
+    /// as the working day before its end. A milestone keeps its date.
+    fn placed(&self, item: &Item) -> Option<(Date, Date)> {
+        let (start, end) = item.span()?;
+        if item.milestone {
+            return Some((start, end));
+        }
+        let cal = &self.calendar;
+        let (first, last) = (cal.next_working(start), cal.previous_working(end));
+        Some(if first <= last {
+            (first, last)
+        } else {
+            (last, last)
+        })
+    }
+
     /// Length of `item` on `span` in working days: none for a milestone and for a task without
     /// dates (the chain runs through it), otherwise at least one.
     fn duration(&self, item: &Item, (start, end): (Date, Date)) -> i32 {
@@ -286,7 +303,7 @@ impl Plan {
                     ..item.clone()
                 },
             );
-            if let Some(span) = item.span().or_else(|| self.passing(&item, &spans)) {
+            if let Some(span) = self.placed(&item).or_else(|| self.passing(&item, &spans)) {
                 spans.insert(*id, span);
             }
         }
@@ -317,7 +334,7 @@ impl Plan {
                     ..item.clone()
                 },
             );
-            let span = match current.span() {
+            let span = match self.placed(&current) {
                 Some(span) => {
                     let length = self.duration(&current, span);
                     match self.required(&current, &spans, length) {
@@ -408,10 +425,7 @@ impl Plan {
         }
         if let Some(due) = self.project_due {
             for item in self.items.values().filter(|i| !i.done) {
-                if item
-                    .span()
-                    .is_some_and(|(_, end)| cal.previous_working(end) > due)
-                {
+                if self.placed(item).is_some_and(|(_, end)| end > due) {
                     analysis
                         .warnings
                         .push(Warning::AfterProjectDue { task: item.id });
@@ -419,8 +433,18 @@ impl Plan {
             }
         }
         // Backward pass: the latest end each task may have without moving the end of the plan
-        // (or a milestone). Done tasks stay where they are and limit nothing before them.
-        let Some(finish) = spans.values().map(|(_, end)| *end).max() else {
+        // (or a milestone). The end of the plan is that of the open work with dates: a task
+        // done early keeps its deadline, a task without dates is not to be seen. Done tasks
+        // with dates stay where they are and limit nothing before them; a task without dates
+        // limits only through what comes after it.
+        let ends = |open: bool| {
+            self.items
+                .values()
+                .filter(|i| !(open && i.done))
+                .filter_map(|i| self.placed(i).map(|(_, end)| end))
+                .max()
+        };
+        let Some(finish) = ends(true).or_else(|| ends(false)) else {
             return analysis;
         };
         let mut latest_end: BTreeMap<TaskId, Date> = BTreeMap::new();
@@ -428,11 +452,16 @@ impl Plan {
             let (Some(item), Some(span)) = (self.items.get(id), spans.get(id)) else {
                 continue;
             };
-            if item.done {
+            let dated = item.span().is_some();
+            if item.done && dated {
                 continue;
             }
             let length = self.duration(item, *span);
-            let mut end = if item.milestone { span.1 } else { finish };
+            let mut end = match (item.milestone, dated) {
+                (true, _) => Some(span.1),
+                (false, true) => Some(finish),
+                (false, false) => None,
+            };
             for link in self.links.iter().filter(|l| l.from == *id) {
                 let (Some(next), Some(next_span), Some(next_end)) = (
                     self.items.get(&link.to),
@@ -445,20 +474,27 @@ impl Plan {
                 let next_start = cal.previous_working(self.start_of(next, *next_end, next_length));
                 let limit = match link.kind {
                     DependencyKind::FinishToStart if next.milestone => {
-                        cal.after_end(next_start, -link.lag)
+                        cal.after_end(next_start, link.lag.saturating_neg())
                     }
                     DependencyKind::FinishToStart => {
-                        cal.after_end(next_start, -link.lag.saturating_add(1))
+                        cal.after_end(next_start, link.lag.saturating_add(1).saturating_neg())
                     }
-                    DependencyKind::StartToStart => {
-                        self.end_of(item, cal.after_end(next_start, -link.lag), length)
+                    DependencyKind::StartToStart => self.end_of(
+                        item,
+                        cal.after_end(next_start, link.lag.saturating_neg()),
+                        length,
+                    ),
+                    DependencyKind::FinishToFinish => {
+                        cal.after_end(*next_end, link.lag.saturating_neg())
                     }
-                    DependencyKind::FinishToFinish => cal.after_end(*next_end, -link.lag),
                 };
-                end = end.min(limit);
+                end = Some(end.map_or(limit, |end| end.min(limit)));
             }
+            let Some(end) = end else {
+                continue;
+            };
             latest_end.insert(*id, end);
-            if item.span().is_none() {
+            if !dated {
                 continue;
             }
             let float = if item.milestone {
@@ -1035,6 +1071,99 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_task_done_early_does_not_hide_the_critical_path() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-14"),
+                task(2, "2026-10-15", "2026-10-16"),
+                done(3, "2026-10-12", "2026-11-30"),
+            ],
+            vec![fs(1, 2)],
+        );
+        let a = p.analyse();
+        assert_eq!(a.critical, BTreeSet::from([id(1), id(2)]));
+        // A task without dates (with a lag) does not set the end either.
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-14"),
+                task(2, "2026-10-15", "2026-10-16"),
+                open(3),
+            ],
+            vec![
+                fs(1, 2),
+                Link {
+                    lag: 10,
+                    ..fs(2, 3)
+                },
+            ],
+        );
+        assert_eq!(p.analyse().critical, BTreeSet::from([id(1), id(2)]));
+    }
+
+    #[test]
+    fn a_done_task_without_dates_still_carries_the_chain_backwards() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-14"),
+                Item {
+                    done: true,
+                    ..open(2)
+                },
+                task(3, "2026-10-15", "2026-10-16"),
+            ],
+            vec![fs(1, 2), fs(2, 3)],
+        );
+        assert_eq!(p.analyse().float.get(&id(1)), Some(&0));
+        assert_eq!(p.push(moved(1, "2026-10-13", "2026-10-15")).len(), 2);
+    }
+
+    #[test]
+    fn a_task_wholly_on_days_off_is_the_working_day_before() {
+        // Only a deadline, on Saturday 17th: it stands for Friday 16th.
+        let saturday = Item {
+            start: None,
+            ..task(2, "2026-10-17", "2026-10-17")
+        };
+        let p = plan(
+            vec![task(1, "2026-10-12", "2026-10-16"), saturday.clone()],
+            vec![fs(1, 2)],
+        );
+        assert_eq!(
+            p.analyse().warnings,
+            vec![Warning::Violated {
+                from: id(1),
+                to: id(2)
+            }],
+            "Friday is the predecessor's last day"
+        );
+        // The latest task, alone: no float lost, nothing negative.
+        let p = plan(vec![saturday.clone()], vec![]);
+        assert_eq!(p.analyse().float.get(&id(2)), Some(&0));
+        // Before a plan ending Wednesday 21st: three working days to spare (Mon, Tue, Wed).
+        let p = plan(
+            vec![saturday.clone(), task(3, "2026-10-19", "2026-10-21")],
+            vec![],
+        );
+        assert_eq!(p.analyse().float.get(&id(2)), Some(&3));
+        // Pushed, it stays one working day long.
+        let p = plan(
+            vec![task(1, "2026-10-12", "2026-10-14"), saturday],
+            vec![fs(1, 2)],
+        );
+        assert_eq!(
+            p.push(moved(1, "2026-10-14", "2026-10-16")),
+            vec![
+                moved(1, "2026-10-14", "2026-10-16"),
+                Move {
+                    task: id(2),
+                    start: None,
+                    due: Some(d("2026-10-19"))
+                },
+            ]
+        );
+    }
+
     /// A random plan: tasks 0..n on working days of October/November 2026, dependencies only
     /// forward (no circles), some milestones and some tasks without dates.
     fn random_plan() -> impl Strategy<Value = (Vec<Item>, Vec<Link>)> {
@@ -1053,6 +1182,10 @@ mod tests {
                         let n = i as u128 + 1;
                         match kind {
                             0 => open(n),
+                            3 => Item {
+                                done: true,
+                                ..open(n)
+                            },
                             1 => Item {
                                 id: id(n),
                                 start: None,
@@ -1089,11 +1222,62 @@ mod tests {
         })
     }
 
+    /// The end of the open work of `p` and whether a milestone cannot hold.
+    fn outcome(p: &Plan) -> (Option<Date>, bool) {
+        let end = p
+            .items()
+            .filter(|i| !i.done)
+            .filter_map(|i| p.placed(i).map(|(_, end)| end))
+            .max();
+        let late = p
+            .analyse()
+            .warnings
+            .iter()
+            .any(|w| matches!(w, Warning::Milestone { .. }));
+        (end, late)
+    }
+
     proptest! {
+        #[test]
+        fn slipping_by_the_float_is_harmless_and_one_day_more_is_not((items, links) in random_plan(), pick in 0usize..12) {
+            let p = plan(items.clone(), links.clone());
+            let a = p.analyse();
+            // Float only means something for a plan that holds.
+            if !a.warnings.is_empty() {
+                return Ok(());
+            }
+            let Some(target) = items
+                .iter()
+                .filter(|i| !i.milestone && !i.done && i.span().is_some())
+                .nth(pick % items.len().max(1))
+            else {
+                return Ok(());
+            };
+            let Some(&float) = a.float.get(&target.id) else {
+                return Ok(());
+            };
+            let cal = Calendar::hamburg();
+            let start = p.placed(target).unwrap().0;
+            let before = outcome(&p);
+            let slipped = |days: i32| {
+                let first = p.shifted(target.id, cal.from_start(start, days)).unwrap();
+                let moves = p.push(first);
+                let after: Vec<Item> = items
+                    .iter()
+                    .map(|i| match moves.iter().find(|m| m.task == i.id) {
+                        Some(m) => Item { start: m.start, due: m.due, ..i.clone() },
+                        None => i.clone(),
+                    })
+                    .collect();
+                outcome(&plan(after, links.clone()))
+            };
+            prop_assert_eq!(slipped(float), before, "float {} of {:?} is too much", float, target.id);
+            prop_assert_ne!(slipped(float + 1), before, "float {} of {:?} is too little", float, target.id);
+        }
+
         #[test]
         fn pushing_keeps_every_dependency_and_every_length((items, links) in random_plan(), pick in 0usize..12, later in 0i32..15) {
             let p = plan(items.clone(), links.clone());
-            let cal = Calendar::hamburg();
             let Some(target) = items.iter().filter(|i| i.span().is_some() && !i.milestone).nth(pick % items.len().max(1)) else {
                 return Ok(());
             };
@@ -1117,7 +1301,8 @@ mod tests {
                     if old.id != target.id && (old.milestone || old.done) {
                         prop_assert_eq!(a, b, "a milestone or done task does not move");
                     } else if !old.milestone {
-                        prop_assert_eq!(cal.count(a.0, a.1).max(1), cal.count(b.0, b.1).max(1));
+                        let length = |i: &Item| p.duration(i, p.placed(i).unwrap());
+                        prop_assert_eq!(length(old), length(new), "{:?} changed its length", new.id);
                     }
                 }
             }

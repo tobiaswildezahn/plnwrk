@@ -36,10 +36,14 @@ pub fn easter(year: i16) -> Option<Date> {
     Date::new(year, i8::try_from(month).ok()?, i8::try_from(day).ok()?).ok()
 }
 
-/// The day `days` days after `date` (before, if negative); `date` itself at the calendar's end.
+/// The day `days` days after `date` (before, if negative); the first or last day of the
+/// calendar beyond its ends.
 fn plus(date: Date, days: i32) -> Date {
-    date.checked_add(jiff::Span::new().days(days))
-        .unwrap_or(date)
+    jiff::Span::new()
+        .try_days(days)
+        .ok()
+        .and_then(|span| date.checked_add(span).ok())
+        .unwrap_or(if days >= 0 { Date::MAX } else { Date::MIN })
 }
 
 impl Calendar {
@@ -142,22 +146,58 @@ impl Calendar {
         self.step(self.next_working(start), days)
     }
 
-    /// `days` working days on from `from` (back, if negative), skipping days off.
+    /// `days` working days on from `from` (back, if negative), skipping days off. Found by
+    /// halving with [`Calendar::count`], so far dates cost no more than near ones; at an end of
+    /// the calendar, the last working day there.
     fn step(&self, from: Date, days: i32) -> Date {
-        let mut day = from;
-        let step = if days >= 0 { 1 } else { -1 };
-        for _ in 0..days.unsigned_abs() {
-            let next = plus(day, step);
-            if next == day {
-                break;
-            }
-            day = if step > 0 {
-                self.next_working(next)
-            } else {
-                self.previous_working(next)
-            };
+        if days == 0 {
+            return from;
         }
-        day
+        // Working days in the range, both ends included, that the result must reach.
+        let need = days.unsigned_abs().saturating_add(1);
+        // Never fewer than 4 working days a week: twice the days plus a fortnight is enough.
+        let reach = i32::try_from(need)
+            .unwrap_or(i32::MAX)
+            .saturating_mul(2)
+            .saturating_add(14);
+        let forward = days > 0;
+        let counted = |far: Date| -> u32 {
+            let n = if forward {
+                self.count(from, far)
+            } else {
+                self.count(far, from)
+            };
+            n.unsigned_abs()
+        };
+        let (mut near, mut far) = if forward {
+            (from, plus(from, reach))
+        } else {
+            (plus(from, -reach), from)
+        };
+        // Forward: the earliest day with `need` working days; back: the latest.
+        while near < far {
+            let gap = near.until(far).map_or(0, |span| span.get_days());
+            if forward {
+                let mid = plus(near, gap / 2);
+                if counted(mid) >= need {
+                    far = mid;
+                } else {
+                    near = plus(mid, 1);
+                }
+            } else {
+                let mid = plus(far, -(gap / 2));
+                if counted(mid) >= need {
+                    near = mid;
+                } else {
+                    far = plus(mid, -1);
+                }
+            }
+        }
+        if forward {
+            self.previous_working(near)
+        } else {
+            self.next_working(near)
+        }
     }
 
     /// How many working days lie in `start..=end` (0 if `end` is before `start`). Counted
@@ -267,6 +307,43 @@ mod tests {
         assert_eq!(hh.between(d("2026-10-16"), d("2026-10-19")), 1);
         assert_eq!(hh.between(d("2026-10-19"), d("2026-10-16")), -1);
         assert_eq!(hh.between(d("2026-10-19"), d("2026-10-19")), 0);
+    }
+
+    /// Day by day, as a reference.
+    fn walk(cal: &Calendar, from: Date, days: i32) -> Date {
+        let mut day = from;
+        let step = if days >= 0 { 1 } else { -1 };
+        for _ in 0..days.unsigned_abs() {
+            day = plus(day, step);
+            while !cal.is_working(day) {
+                day = plus(day, step);
+            }
+        }
+        day
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn stepping_matches_walking_day_by_day(offset in 0i32..4000, days in -600i32..600) {
+            let hh = Calendar::hamburg();
+            let from = hh.next_working(plus(d("2020-01-01"), offset));
+            proptest::prop_assert_eq!(hh.step(from, days), walk(&hh, from, days));
+        }
+    }
+
+    #[test]
+    fn far_dates_are_quick() {
+        let hh = Calendar::hamburg();
+        let start = std::time::Instant::now();
+        let far = hh.add(d("2026-10-14"), 1_500_000);
+        assert!(far.year() > 7000, "{far}");
+        assert_eq!(hh.between(d("2026-10-14"), far), 1_500_000);
+        assert_eq!(hh.add(far, -1_500_000), d("2026-10-14"));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
