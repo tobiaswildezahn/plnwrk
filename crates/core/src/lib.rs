@@ -5,6 +5,8 @@
 pub mod clock;
 pub mod ids;
 pub mod kinds;
+pub mod policy;
+pub mod rank;
 pub mod text;
 
 pub use clock::{Clock, FixedClock};
@@ -14,3 +16,5 @@ pub use ids::{
 pub use kinds::{
     Classification, DependencyKind, MilestoneStatus, Priority, ProjectStatus, TaskStatus,
 };
+pub use policy::{Destination, NetworkPolicy};
+pub use rank::{Rank, RankError};
