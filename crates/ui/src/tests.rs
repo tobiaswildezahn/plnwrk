@@ -2838,8 +2838,8 @@ fn a_full_storage_is_reported_and_tried_again_later() {
     let wait = app.autosave_at(now + 1.0);
     assert!(wait.is_some_and(|w| w > 1.0), "{wait:?}");
     assert!(stored_copies(&browser).is_empty());
-    // Written once it works again; afterwards only the tab's sign of life is due.
-    assert_eq!(app.autosave_at(1.0e6), Some(crate::browser_copy::HEARTBEAT));
+    // Written once it works again.
+    assert!(app.autosave_at(1.0e6).is_none());
     assert_eq!(
         stored_copies(&browser).len(),
         1,
@@ -2878,55 +2878,6 @@ fn copy_of_another_tab(browser: &crate::host::TestBrowser, tab: &str, downloaded
     let value = crate::browser_copy::encode("andere", &file_bytes(&sample), tab, downloaded);
     browser.0.borrow_mut().storage.insert(key.clone(), value);
     key
-}
-
-#[test]
-fn the_copy_of_an_open_tab_is_not_offered_to_another() {
-    let browser = crate::host::TestBrowser::default();
-    browser.0.borrow_mut().tab = "mein-tab".to_owned();
-    copy_of_another_tab(&browser, "tab-b", false);
-    // Tab B said a moment ago that it is open.
-    let now = jiff::Timestamp::now().as_second();
-    browser.0.borrow_mut().storage.insert(
-        format!("{}tab-b", crate::browser_copy::LIVE),
-        now.to_string(),
-    );
-    let harness = reload(&browser);
-    assert!(harness.state().state.stored_copies.is_empty(), "B is open");
-    // B was closed a minute ago: its copy is offered.
-    browser.0.borrow_mut().storage.insert(
-        format!("{}tab-b", crate::browser_copy::LIVE),
-        (now - 60).to_string(),
-    );
-    let harness = reload(&browser);
-    assert_eq!(harness.state().state.stored_copies.len(), 1);
-    // The own tab's copy is offered after a reload even though the tab said it is open.
-    browser.0.borrow_mut().storage.insert(
-        format!("{}mein-tab", crate::browser_copy::LIVE),
-        now.to_string(),
-    );
-    copy_of_another_tab(&browser, "mein-tab", false);
-    let harness = reload(&browser);
-    assert_eq!(harness.state().state.stored_copies.len(), 2);
-}
-
-#[test]
-fn an_open_tab_says_so_while_it_has_a_copy() {
-    let browser = crate::host::TestBrowser::default();
-    browser.0.borrow_mut().tab = "tab-a".to_owned();
-    let mut harness = reload(&browser);
-    let live = format!("{}tab-a", crate::browser_copy::LIVE);
-    click(&mut harness, text::t().open_sample);
-    assert!(browser.0.borrow().storage.contains_key(&live));
-    browser.0.borrow_mut().storage.remove(&live);
-    let now = harness.ctx.input(|i| i.time);
-    harness
-        .state_mut()
-        .autosave_at(now + crate::browser_copy::HEARTBEAT + 0.1);
-    assert!(
-        browser.0.borrow().storage.contains_key(&live),
-        "again after a while"
-    );
 }
 
 #[test]
@@ -3001,39 +2952,6 @@ fn protecting_in_the_browser_leaves_no_plain_copy() {
 }
 
 #[test]
-fn a_tab_in_the_background_keeps_its_copy_to_itself() {
-    let browser = crate::host::TestBrowser::default();
-    browser.0.borrow_mut().tab = "tab-a".to_owned();
-    let mut harness = reload(&browser);
-    click(&mut harness, text::t().open_sample);
-    // Tab A goes to the background and says so.
-    browser.0.borrow_mut().hidden = true;
-    let now = harness.ctx.input(|i| i.time);
-    harness
-        .state_mut()
-        .autosave_at(now + crate::browser_copy::HEARTBEAT + 0.1);
-    let live = format!("{}tab-a", crate::browser_copy::LIVE);
-    let value = browser.0.borrow().storage.get(&live).cloned().unwrap();
-    assert!(value.ends_with("hidden"), "{value}");
-    // Ten minutes later (the browser slowed tab A down): tab B still leaves it alone.
-    let seen = jiff::Timestamp::now().as_second() - 600;
-    browser
-        .0
-        .borrow_mut()
-        .storage
-        .insert(live, format!("{seen} hidden"));
-    let other = crate::host::TestBrowser(std::rc::Rc::clone(&browser.0));
-    let tab_b = harness_in_tab(&other, "tab-b");
-    assert!(tab_b.state().state.stored_copies.is_empty());
-}
-
-/// Another tab on the same browser storage.
-fn harness_in_tab(browser: &crate::host::TestBrowser, tab: &str) -> Harness<'static, PlnwrkApp> {
-    browser.0.borrow_mut().tab = tab.to_owned();
-    reload(browser)
-}
-
-#[test]
 fn a_failed_rewrite_at_download_keeps_the_older_copy() {
     let (mut harness, browser) = in_browser();
     click(&mut harness, text::t().open_sample);
@@ -3065,4 +2983,49 @@ fn all_offered_copies_can_be_deleted_at_once() {
     click(&mut harness, text::t().delete);
     assert!(stored_copies(&browser).is_empty());
     assert!(harness.state().state.stored_copies.is_empty());
+}
+
+#[test]
+fn copies_of_open_tabs_are_not_offered_to_another() {
+    let browser = crate::host::TestBrowser::default();
+    browser.0.borrow_mut().tab = "mein-tab".to_owned();
+    copy_of_another_tab(&browser, "tab-b", false);
+    copy_of_another_tab(&browser, "mein-tab", false);
+    // The browser has not told yet which tabs are open: only the own copy.
+    browser.0.borrow_mut().live_unknown = true;
+    let mut harness = reload(&browser);
+    let offered = |h: &Harness<'_, PlnwrkApp>| {
+        h.state()
+            .state
+            .stored_copies
+            .iter()
+            .map(|c| c.tab.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(offered(&harness), ["mein-tab"]);
+    // Tab B is open.
+    browser.0.borrow_mut().live_unknown = false;
+    browser.0.borrow_mut().live = vec!["mein-tab".to_owned(), "tab-b".to_owned()];
+    browser.0.borrow_mut().live_changed = true;
+    harness.run();
+    assert_eq!(offered(&harness), ["mein-tab"]);
+    // Tab B ended (closed, crashed, discarded): its copy is offered at once.
+    browser.0.borrow_mut().live = vec!["mein-tab".to_owned()];
+    browser.0.borrow_mut().live_changed = true;
+    harness.run();
+    let mut tabs = offered(&harness);
+    tabs.sort();
+    assert_eq!(tabs, ["mein-tab", "tab-b"]);
+}
+
+#[test]
+fn signs_of_life_of_an_older_version_are_removed() {
+    let browser = crate::host::TestBrowser::default();
+    browser
+        .0
+        .borrow_mut()
+        .storage
+        .insert("plnwrk.live.alt".to_owned(), "1791997538 hidden".to_owned());
+    let _harness = reload(&browser);
+    assert!(!browser.0.borrow().storage.contains_key("plnwrk.live.alt"));
 }

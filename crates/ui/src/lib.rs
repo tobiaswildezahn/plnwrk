@@ -28,7 +28,6 @@ use plnwrk_engine::Origin;
 use plnwrk_store::{SecretString, StoreError};
 use serde_json::Value;
 
-pub use browser_copy::{LIVE, keep_tab_id_now, live_now};
 pub use doc::OpenDoc;
 pub use host::{Host, NoDialogs, Upload};
 use state::{Dialog, FileAction, FileSource, Message, State, Tab, View};
@@ -175,8 +174,6 @@ pub struct PlnwrkApp {
     autosave: autosave::Autosave,
     /// Browser: the recovery copy in the browser's storage.
     browser_copy: browser_copy::BrowserCopy,
-    /// Browser: the id of this tab (its copies are its own).
-    tab: String,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -210,9 +207,10 @@ impl PlnwrkApp {
 
     /// An app without stored settings, using these dialogs.
     pub fn with_host(mut host: Box<dyn Host>) -> Self {
-        let tab = host.tab();
         let stored_copies = if host.browser() {
-            browser_copy::offered(&mut *host, &tab, jiff::Timestamp::now())
+            let tab = host.tab();
+            let live = host.live_tabs();
+            browser_copy::offered(&mut *host, &tab, live.as_deref(), jiff::Timestamp::now())
         } else {
             Vec::new()
         };
@@ -228,7 +226,6 @@ impl PlnwrkApp {
             leave_warning: false,
             autosave: autosave::Autosave::default(),
             browser_copy: browser_copy::BrowserCopy::default(),
-            tab,
         }
     }
 
@@ -456,6 +453,10 @@ impl PlnwrkApp {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         text::set_language(self.state.language);
         // A file chosen in the browser arrives some frames after it was asked for.
+        // Another tab opened or closed: its copies are offered or no longer.
+        if self.state.browser && self.host.live_changed() {
+            self.refresh_stored_copies();
+        }
         match self.host.uploaded() {
             Some(Ok(upload)) => self.file(FileAction::Upload(upload)),
             Some(Err(reason)) => {
@@ -498,8 +499,9 @@ impl PlnwrkApp {
     fn autosave_at(&mut self, time: f64) -> Option<f64> {
         let before = self.copy_status();
         let wait = if self.state.browser {
+            let tab = self.host.tab();
             self.browser_copy
-                .tick(&mut *self.host, &self.tab, self.doc.as_ref(), time)
+                .tick(&mut *self.host, &tab, self.doc.as_ref(), time)
         } else {
             self.autosave.tick(self.doc.as_ref(), time)
         };
@@ -530,11 +532,17 @@ impl PlnwrkApp {
     /// Browser: the recovered copies to offer, without the one of the open work.
     fn refresh_stored_copies(&mut self) {
         let own = self.browser_copy.key().map(str::to_owned);
-        self.state.stored_copies =
-            browser_copy::offered(&mut *self.host, &self.tab, jiff::Timestamp::now())
-                .into_iter()
-                .filter(|copy| Some(&copy.key) != own.as_ref())
-                .collect();
+        let tab = self.host.tab();
+        let live = self.host.live_tabs();
+        self.state.stored_copies = browser_copy::offered(
+            &mut *self.host,
+            &tab,
+            live.as_deref(),
+            jiff::Timestamp::now(),
+        )
+        .into_iter()
+        .filter(|copy| Some(&copy.key) != own.as_ref())
+        .collect();
     }
 
     /// Browser: opens a recovered copy as unsaved work; it stays until the work is saved.
@@ -995,8 +1003,8 @@ impl PlnwrkApp {
             Ok(()) => {
                 doc.mark_saved();
                 self.autosave.saved();
-                self.browser_copy
-                    .downloaded(&mut *self.host, &self.tab, doc);
+                let tab = self.host.tab();
+                self.browser_copy.downloaded(&mut *self.host, &tab, doc);
                 self.state.message =
                     Some(Message::info(format!("{} {name}", text::t().downloaded)));
                 true

@@ -68,8 +68,14 @@ pub trait Host {
         String::new()
     }
 
-    /// Browser: whether the tab is in the background (the browser slows it down).
-    fn hidden(&self) -> bool {
+    /// Browser: the ids of the tabs open now (each holds a lock of the browser on its id);
+    /// `None` while the browser has not told yet.
+    fn live_tabs(&mut self) -> Option<Vec<String>> {
+        Some(Vec::new())
+    }
+
+    /// Browser: whether the open tabs (or this tab's id) changed since the last call.
+    fn live_changed(&mut self) -> bool {
         false
     }
 }
@@ -117,8 +123,12 @@ pub struct BrowserLog {
     pub upload: Option<Result<Upload, String>>,
     /// The id of this tab.
     pub tab: String,
-    /// The tab is in the background.
-    pub hidden: bool,
+    /// The other open tabs as the browser tells them.
+    pub live: Vec<String>,
+    /// The browser has not told yet which tabs are open.
+    pub live_unknown: bool,
+    /// They changed since the app last asked.
+    pub live_changed: bool,
     /// Every download, oldest first.
     pub downloads: Vec<Upload>,
     /// Downloads fail with this reason.
@@ -162,8 +172,13 @@ impl Host for TestBrowser {
         self.0.borrow().tab.clone()
     }
 
-    fn hidden(&self) -> bool {
-        self.0.borrow().hidden
+    fn live_tabs(&mut self) -> Option<Vec<String>> {
+        let log = self.0.borrow();
+        (!log.live_unknown).then(|| log.live.clone())
+    }
+
+    fn live_changed(&mut self) -> bool {
+        std::mem::take(&mut self.0.borrow_mut().live_changed)
     }
 
     fn download(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {

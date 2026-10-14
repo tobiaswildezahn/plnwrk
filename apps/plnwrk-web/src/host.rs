@@ -44,24 +44,90 @@ fn all_stored() -> Vec<(String, String)> {
         .collect()
 }
 
-/// The id of this tab: kept in the tab's own session storage, so it survives a reload (and
-/// the tab finds its own recovery copies), but every other tab has its own – also a
-/// duplicated tab, which inherits the session storage (see `plnwrk_ui::keep_tab_id_now`).
-fn tab_id() -> String {
-    const KEY: &str = "plnwrk.tab";
+/// Session storage key of this tab's id.
+const TAB_KEY: &str = "plnwrk.tab";
+/// Name of the browser lock an open tab holds: this, then its id.
+const LOCK: &str = "plnwrk.tab.";
+
+/// The tab's id from its own session storage (survives a reload, copied with a duplicated
+/// tab), or a new one.
+fn stored_tab_id() -> String {
     let storage = web_sys::window().and_then(|w| w.session_storage().ok().flatten());
     if let Some(id) = storage
         .as_ref()
-        .and_then(|s| s.get_item(KEY).ok().flatten())
-        && plnwrk_ui::keep_tab_id_now(&all_stored(), &id)
+        .and_then(|s| s.get_item(TAB_KEY).ok().flatten())
     {
         return id;
     }
+    new_tab_id()
+}
+
+/// A new id for this tab, kept in its session storage.
+fn new_tab_id() -> String {
     let id = plnwrk_platform::instance();
-    if let Some(storage) = storage {
-        let _ = storage.set_item(KEY, &id);
+    if let Some(storage) = web_sys::window().and_then(|w| w.session_storage().ok().flatten()) {
+        let _ = storage.set_item(TAB_KEY, &id);
     }
     id
+}
+
+/// The browser's lock manager (Web Locks API), if it has one. Reached through JavaScript
+/// directly: web-sys has it only behind an unstable flag.
+fn lock_manager() -> Option<JsValue> {
+    let navigator = web_sys::window()?.navigator();
+    let locks = js_sys::Reflect::get(&navigator, &JsValue::from_str("locks")).ok()?;
+    (!locks.is_undefined() && !locks.is_null()).then_some(locks)
+}
+
+/// Asks for the lock `name` and holds it as long as the page lives. `if_available`: do not
+/// wait for it. `got` learns whether this page holds it.
+fn hold_lock(locks: &JsValue, name: &str, if_available: bool, got: impl FnOnce(bool) + 'static) {
+    let options = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(
+        &options,
+        &JsValue::from_str("ifAvailable"),
+        &JsValue::from_bool(if_available),
+    );
+    let callback = Closure::once_into_js(move |lock: JsValue| -> js_sys::Promise {
+        let held = !lock.is_null() && !lock.is_undefined();
+        got(held);
+        if held {
+            // Never settles: the lock is released only when the page ends.
+            js_sys::Promise::new(&mut |_, _| {})
+        } else {
+            js_sys::Promise::resolve(&JsValue::UNDEFINED)
+        }
+    });
+    let request = js_sys::Reflect::get(locks, &JsValue::from_str("request"))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok());
+    if let Some(request) = request {
+        let _ = request.call3(locks, &JsValue::from_str(name), &options, &callback);
+    }
+}
+
+/// The ids of the tabs that hold their lock now.
+async fn open_tabs(locks: &JsValue) -> Option<Vec<String>> {
+    let query = js_sys::Reflect::get(locks, &JsValue::from_str("query"))
+        .ok()?
+        .dyn_into::<js_sys::Function>()
+        .ok()?;
+    let promise = query
+        .call0(locks)
+        .ok()?
+        .dyn_into::<js_sys::Promise>()
+        .ok()?;
+    let snapshot = wasm_bindgen_futures::JsFuture::from(promise).await.ok()?;
+    let held = js_sys::Reflect::get(&snapshot, &JsValue::from_str("held")).ok()?;
+    let held: js_sys::Array = held.dyn_into().ok()?;
+    let mut tabs: Vec<String> = held
+        .iter()
+        .filter_map(|lock| js_sys::Reflect::get(&lock, &JsValue::from_str("name")).ok())
+        .filter_map(|name| name.as_string())
+        .filter_map(|name| name.strip_prefix(LOCK).map(str::to_owned))
+        .collect();
+    tabs.sort();
+    Some(tabs)
 }
 
 /// The browser around the app.
@@ -70,8 +136,10 @@ pub struct WebHost {
     ctx: egui::Context,
     /// The file chosen last (or why it could not be read), until the app takes it.
     upload: Rc<RefCell<Option<Result<Upload, String>>>>,
-    /// The id of this tab.
-    tab: String,
+    /// The id of this tab (a duplicated tab gets a new one once the lock shows it).
+    tab: Rc<RefCell<String>>,
+    /// The tabs open now (`None` until the browser told), and whether that changed.
+    live: Rc<RefCell<(Option<Vec<String>>, bool)>>,
     /// Whether leaving the page asks first.
     leave: Rc<Cell<bool>>,
 }
@@ -97,61 +165,68 @@ impl WebHost {
         }
         // Lives as long as the page.
         on_leave.forget();
-        let tab = tab_id();
-        Self::watch_page(&tab);
-        Self {
+        let host = Self {
             ctx,
             upload: Rc::new(RefCell::new(None)),
-            tab,
+            tab: Rc::new(RefCell::new(stored_tab_id())),
+            live: Rc::new(RefCell::new((None, false))),
             leave,
-        }
+        };
+        host.watch_tabs();
+        host
     }
 
-    /// Keeps this tab's sign of life right when the page changes: gone when the page goes
-    /// (reload, close), marked "hidden" when the tab goes to the background (where the browser
-    /// slows it down and it cannot say it is open).
-    fn watch_page(tab: &str) {
-        let Some(window) = web_sys::window() else {
+    /// Holds this tab's lock (taking a new id if another open tab holds it: a duplicate) and
+    /// asks the browser every few seconds which tabs are open. Without Web Locks every other
+    /// tab counts as closed.
+    fn watch_tabs(&self) {
+        let Some(locks) = lock_manager() else {
+            *self.live.borrow_mut() = (Some(Vec::new()), true);
             return;
         };
-        let key = format!("{}{tab}", plnwrk_ui::LIVE);
-        let gone_key = key.clone();
-        // The page going hides it too ("visibilitychange" comes after "pagehide"): it must not
-        // write its sign of life back then. A page restored from the back/forward cache lives
-        // again.
-        let leaving = Rc::new(Cell::new(false));
-        let gone = Rc::clone(&leaving);
-        let on_gone = Closure::<dyn FnMut()>::new(move || {
-            gone.set(true);
-            if let Ok(storage) = local_storage() {
-                let _ = storage.remove_item(&gone_key);
+        let tab = Rc::clone(&self.tab);
+        let changed = Rc::clone(&self.live);
+        let again = locks.clone();
+        let id = tab.borrow().clone();
+        hold_lock(&locks, &format!("{LOCK}{id}"), true, move |held| {
+            if !held {
+                // Another open tab has this id: this one is a duplicate.
+                let id = new_tab_id();
+                hold_lock(&again, &format!("{LOCK}{id}"), false, |_| {});
+                *tab.borrow_mut() = id;
+                changed.borrow_mut().1 = true;
             }
         });
-        let back = Rc::clone(&leaving);
-        let on_back = Closure::<dyn FnMut()>::new(move || back.set(false));
-        let on_hidden = Closure::<dyn FnMut()>::new(move || {
-            let hidden = document().is_ok_and(|d| d.hidden());
-            if hidden
-                && !leaving.get()
-                && let Ok(storage) = local_storage()
-            {
-                let _ = storage.set_item(&key, &plnwrk_ui::live_now(true));
-            }
+        let live = Rc::clone(&self.live);
+        let ctx = self.ctx.clone();
+        let ask = Closure::<dyn FnMut()>::new(move || {
+            let live = Rc::clone(&live);
+            let ctx = ctx.clone();
+            let locks = locks.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let Some(tabs) = open_tabs(&locks).await else {
+                    return;
+                };
+                let mut known = live.borrow_mut();
+                if known.0.as_ref() != Some(&tabs) {
+                    *known = (Some(tabs), true);
+                    ctx.request_repaint();
+                }
+            });
         });
-        let _ =
-            window.add_event_listener_with_callback("pagehide", on_gone.as_ref().unchecked_ref());
-        let _ =
-            window.add_event_listener_with_callback("pageshow", on_back.as_ref().unchecked_ref());
-        if let Ok(document) = document() {
-            let _ = document.add_event_listener_with_callback(
-                "visibilitychange",
-                on_hidden.as_ref().unchecked_ref(),
+        if let Some(window) = web_sys::window() {
+            // Right away, then every two seconds.
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                ask.as_ref().unchecked_ref(),
+                0,
+            );
+            let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                ask.as_ref().unchecked_ref(),
+                2_000,
             );
         }
-        // Live as long as the page.
-        on_gone.forget();
-        on_back.forget();
-        on_hidden.forget();
+        // Lives as long as the page.
+        ask.forget();
     }
 
     fn ask_for_file(&self) -> Result<(), String> {
@@ -240,7 +315,7 @@ impl Host for WebHost {
     }
 
     fn tab(&mut self) -> String {
-        self.tab.clone()
+        self.tab.borrow().clone()
     }
 
     fn download(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {
@@ -264,7 +339,11 @@ impl Host for WebHost {
         all_stored()
     }
 
-    fn hidden(&self) -> bool {
-        document().is_ok_and(|d| d.hidden())
+    fn live_tabs(&mut self) -> Option<Vec<String>> {
+        self.live.borrow().0.clone()
+    }
+
+    fn live_changed(&mut self) -> bool {
+        std::mem::take(&mut self.live.borrow_mut().1)
     }
 }

@@ -142,9 +142,9 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   `<owner>.github.io`). Verschlüsselte Arbeit bekommt keinen Zwischenstand. Speichern =
   Herunterladen; ob der Browser die Datei wirklich ablegt, erfährt die Seite nicht, darum
   bleibt die Kopie danach 7 Tage (markiert „heruntergeladen“; „Alle Zwischenstände löschen“
-  auf der Startseite für gemeinsam genutzte Rechner). Ein Tab im Hintergrund gilt 12 h als
-  offen (der Browser bremst ihn); stürzt er dort ab, sehen andere Tabs seine Kopie erst danach –
-  er selbst findet sie nach dem Wiederherstellen sofort. Öffnen per Tastatur (⌘O, Palette) könnte Safari als
+  auf der Startseite für gemeinsam genutzte Rechner). Offene Tabs halten eine Browser-Sperre
+  (Web Locks: Chrome, Firefox, Safari ≥ 15.4) auf ihre Kennung; ohne Web Locks gelten andere
+  Tabs als geschlossen (dann können zwei Tabs dieselbe Kopie übernehmen). Öffnen per Tastatur (⌘O, Palette) könnte Safari als
   „nicht vom Menschen ausgelöst“ ignorieren – Knopf „Datei öffnen…“ geht immer. Der
   Dateidialog des Browsers lässt sich nicht automatisiert prüfen.
   eframe registriert sein eigenes Speichern beim Verlassen unter einem falschen Ereignisnamen
