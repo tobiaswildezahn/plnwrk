@@ -1,1 +1,198 @@
 //! The `.plnwrk` file format of plnwrk (layer 2). See `docs/PLAN.md` §3.4.
+//!
+//! A file is always a ZIP with a readable `manifest.json`. Unencrypted, it also holds
+//! `workspace.json` (the current state) and `log.jsonl` (every change, hash-chained).
+//! Encrypted, those lie in an inner ZIP stored as `payload.age`. Loading replays the log from
+//! nothing and requires the result to equal the stored state, so data and history cannot drift
+//! apart unnoticed. This crate works on bytes only and runs in the browser; [`file`] adds atomic
+//! writing on desktop systems.
+
+pub mod chain;
+mod container;
+mod crypto;
+mod error;
+pub mod manifest;
+mod replay;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file;
+
+use std::collections::BTreeMap;
+
+pub use age::secrecy::SecretString;
+use plnwrk_core::{Classification, Workspace};
+use plnwrk_engine::Change;
+
+pub use container::Limits;
+pub use crypto::WORK_FACTOR_RANGE;
+pub use error::StoreError;
+pub use manifest::Manifest;
+pub use replay::replay;
+
+const MANIFEST: &str = "manifest.json";
+const WORKSPACE: &str = "workspace.json";
+const LOG: &str = "log.jsonl";
+const PAYLOAD: &str = "payload.age";
+
+/// What a file holds: the data and its full history.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Document {
+    /// The current state.
+    pub workspace: Workspace,
+    /// Every change that led to it, oldest first.
+    pub log: Vec<Change>,
+}
+
+/// How a file is protected.
+#[derive(Clone)]
+pub enum Protection {
+    /// Not encrypted. Refused for classified content.
+    None,
+    /// Encrypted with this passphrase.
+    Passphrase(SecretString),
+}
+
+/// Tuning for [`save_with`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SaveOptions {
+    /// scrypt work factor; `None` lets age pick about one second of work.
+    pub work_factor: Option<u8>,
+}
+
+/// Writes a document with default options.
+pub fn save(doc: &Document, protection: &Protection) -> Result<Vec<u8>, StoreError> {
+    save_with(doc, protection, SaveOptions::default())
+}
+
+/// Writes a document. Refuses broken data and classified content without encryption.
+pub fn save_with(
+    doc: &Document,
+    protection: &Protection,
+    options: SaveOptions,
+) -> Result<Vec<u8>, StoreError> {
+    let violations = doc.workspace.check();
+    if !violations.is_empty() {
+        return Err(StoreError::Invalid { violations });
+    }
+    let classification = doc.workspace.highest_classification();
+    if classification >= Classification::VsNfd && matches!(protection, Protection::None) {
+        return Err(StoreError::ClassifiedUnencrypted);
+    }
+    let (log, head) = chain::seal(&doc.log)?;
+    let workspace = serde_json::to_vec(&doc.workspace)
+        .map_err(|e| StoreError::corrupt(format!("workspace: {e}")))?;
+    let inner = Manifest {
+        format: manifest::FORMAT.to_owned(),
+        version: manifest::VERSION,
+        classification,
+        encrypted: false,
+        created_with: manifest::created_with(),
+        changes: Some(u64::try_from(doc.log.len()).unwrap_or(u64::MAX)),
+        head,
+    };
+    let plain = container::write_zip(&[
+        (MANIFEST, &inner.to_bytes()?),
+        (WORKSPACE, &workspace),
+        (LOG, log.as_bytes()),
+    ])?;
+    match protection {
+        Protection::None => Ok(plain),
+        Protection::Passphrase(passphrase) => {
+            let payload = crypto::encrypt(&plain, passphrase, options.work_factor)?;
+            let outer = Manifest {
+                encrypted: true,
+                changes: None,
+                head: None,
+                ..inner
+            };
+            container::write_zip(&[(MANIFEST, &outer.to_bytes()?), (PAYLOAD, &payload)])
+        }
+    }
+}
+
+/// Reads only the manifest – works without the passphrase.
+pub fn peek(bytes: &[u8]) -> Result<Manifest, StoreError> {
+    let entries = container::read_zip(bytes, Limits::default())?;
+    let manifest = entries.get(MANIFEST).ok_or(StoreError::NotPlnwrk)?;
+    Manifest::parse(manifest)
+}
+
+/// Reads and fully verifies a document with default limits.
+pub fn load(bytes: &[u8], passphrase: Option<&SecretString>) -> Result<Document, StoreError> {
+    load_with(bytes, passphrase, Limits::default())
+}
+
+/// Reads and fully verifies a document.
+pub fn load_with(
+    bytes: &[u8],
+    passphrase: Option<&SecretString>,
+    limits: Limits,
+) -> Result<Document, StoreError> {
+    let entries = container::read_zip(bytes, limits)?;
+    let manifest = Manifest::parse(entries.get(MANIFEST).ok_or(StoreError::NotPlnwrk)?)?;
+    let doc = if manifest.encrypted {
+        let payload = entries
+            .get(PAYLOAD)
+            .ok_or_else(|| StoreError::corrupt("encrypted content is missing"))?;
+        let passphrase = passphrase.ok_or(StoreError::PassphraseRequired)?;
+        let plain = crypto::decrypt(payload, passphrase)?;
+        let inner_entries = container::read_zip(&plain, limits)?;
+        let inner = Manifest::parse(
+            inner_entries
+                .get(MANIFEST)
+                .ok_or_else(|| StoreError::corrupt("encrypted content has no manifest"))?,
+        )?;
+        let matches = !inner.encrypted
+            && inner.format == manifest.format
+            && inner.version == manifest.version
+            && inner.classification == manifest.classification
+            && inner.created_with == manifest.created_with;
+        if !matches {
+            return Err(StoreError::corrupt(
+                "the readable head does not match the encrypted content",
+            ));
+        }
+        read_plain(&inner, &inner_entries)?
+    } else {
+        read_plain(&manifest, &entries)?
+    };
+    let actual = doc.workspace.highest_classification();
+    if actual > manifest.classification {
+        return Err(StoreError::corrupt(
+            "the content is classified higher than the head says",
+        ));
+    }
+    if actual >= Classification::VsNfd && !manifest.encrypted {
+        return Err(StoreError::ClassifiedUnencrypted);
+    }
+    Ok(doc)
+}
+
+fn text(entries: &BTreeMap<String, Vec<u8>>, name: &str) -> Result<String, StoreError> {
+    let bytes = entries
+        .get(name)
+        .ok_or_else(|| StoreError::corrupt(format!("{name} is missing")))?;
+    String::from_utf8(bytes.clone()).map_err(|_| StoreError::corrupt(format!("{name} is not text")))
+}
+
+fn read_plain(
+    manifest: &Manifest,
+    entries: &BTreeMap<String, Vec<u8>>,
+) -> Result<Document, StoreError> {
+    let workspace: Workspace = serde_json::from_str(&text(entries, WORKSPACE)?)
+        .map_err(|e| StoreError::corrupt(format!("workspace: {e}")))?;
+    let log = chain::unseal(&text(entries, LOG)?, manifest.head.as_deref())?;
+    if manifest.changes != Some(u64::try_from(log.len()).unwrap_or(u64::MAX)) {
+        return Err(StoreError::corrupt(
+            "number of changes does not match the head",
+        ));
+    }
+    if replay(&log)? != workspace {
+        return Err(StoreError::SnapshotMismatch);
+    }
+    let violations = workspace.check();
+    if !violations.is_empty() {
+        return Err(StoreError::Invalid { violations });
+    }
+    Ok(Document { workspace, log })
+}

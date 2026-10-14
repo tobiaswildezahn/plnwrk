@@ -19,6 +19,8 @@ plnwrk-assistant = { path = "crates/assistant" }
 plnwrk-mcp = { path = "crates/mcp" }
 plnwrk-ui = { path = "crates/ui" }
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+age = "0.12.1"
+blake3 = "1.8.7"
 clap = "4.6.7"
 egui = "0.36.2"
 getrandom = "0.4.3"
@@ -31,6 +33,8 @@ thiserror = "2.0.21"
 ulid = { version = "3.0.0", default-features = false }
 serde_json = "1.0.154"
 wasm-bindgen = "0.2"
+zip = { version = "9.0.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+rpassword = "7.5.4"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 

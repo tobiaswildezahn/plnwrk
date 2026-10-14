@@ -10,8 +10,9 @@ use crate::{layers, purity};
 /// (docs/PLAN.md §2, §3.1), so a new crate is checked for wasm32 unless it is listed here.
 const NATIVE_ONLY: &[&str] = &["plnwrk-mcp", "plnwrk", "plnwrk-cli", "xtask"];
 
-/// Pure crates and the share of their lines the tests must cover (docs/PLAN.md §7 Phase 1).
-const COVERAGE: (&[&str], &str) = (&["plnwrk-core", "plnwrk-engine"], "90");
+/// Crates whose lines the tests must cover to this share: the pure core and the file format
+/// (docs/PLAN.md §7 Phase 1 and 2).
+const COVERAGE: (&[&str], &str) = (&["plnwrk-core", "plnwrk-engine", "plnwrk-store"], "90");
 
 /// Never-crash lints, forbidden on the command line so they hold for every crate regardless of
 /// its manifest (docs/PLAN.md §2).
@@ -187,7 +188,7 @@ pub fn all() -> Result<(), String> {
     step("tests");
     cargo(&["test", "--workspace", "--locked"])?;
 
-    step("coverage of the pure crates");
+    step("coverage of core, engine and store");
     let mut coverage = vec![
         "llvm-cov",
         "--locked",
