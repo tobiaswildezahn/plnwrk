@@ -63,7 +63,8 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 
 1. Phasenplan unter `docs/plans/` lesen oder (nach Freigabe) anlegen.
 2. Kleine Commits: `<crate>: <was>` (z. B. `engine: add task.move command`).
-3. Branch je Phase, Merge nur mit grüner CI.
+3. Branch je Phase, Merge nur mit grüner CI. Windows-CI läuft nur vor dem Merge: Label `merge`
+   an den PR (`gh pr edit <nr> --add-label merge`), grün abwarten, dann mergen.
 4. Phasenende: Demo-Schritt für Tobi (kein Rust-Wissen voraussetzen) und Status in PLAN.md §9.
 
 ## Der Mensch im Projekt

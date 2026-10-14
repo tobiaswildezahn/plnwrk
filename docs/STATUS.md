@@ -32,8 +32,9 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
   wasm32 mit `forbid`-Lints, WASM-Build, Tests, Abdeckung core+engine+store ≥ 90 % (aktuell
   ≈ 95 %), cargo-deny. Letzter lokaler Lauf: grün.
-- **CI:** GitHub Actions auf Linux, macOS, Windows + Web-Bundle; für PR #3 alle vier grün
-  (Windows braucht ≈ 9 min, die anderen 1–3 min).
+- **CI:** GitHub Actions. Linux, macOS und Web-Bundle bei jedem Push (1–3 min); **Windows
+  (≈ 15 min) nur vor dem Merge**, ausgelöst durch das PR-Label `merge` (Entscheidung Tobi
+  2026-10-14).
 - **Crates:** `core` (Modell, Invarianten, Rang, Policy), `engine` (Befehle, Events, Undo/Redo,
   Abfragen, Fixture), `store` (Dateiformat, Krypto, Export, Dateien), `schedule`/`assistant`/
   `platform` (echte Uhr, Zufalls-IDs), `ui` (egui-Oberfläche, Desktop-MVP),
