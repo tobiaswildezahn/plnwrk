@@ -337,7 +337,7 @@ fn list(
             {
                 ui.horizontal(|ui| {
                     ui.add_space((depth + 1) as f32 * 20.0 + 24.0);
-                    if enter_field(ui, title, text::t().new_subtask_hint, 320.0) {
+                    if enter_field(ui, title, text::t().new_subtask_hint, 320.0, false) {
                         out.push(Intent::Run {
                             command: "task.create",
                             params: json!({
@@ -360,11 +360,13 @@ fn list(
             }
         }
         ui.add_space(6.0);
+        let focus = std::mem::take(&mut state.focus_new_task);
         if enter_field(
             ui,
             &mut state.forms.new_task,
             text::t().new_task_hint,
             360.0,
+            focus,
         ) {
             out.push(Intent::Run {
                 command: "task.create",

@@ -78,6 +78,8 @@ pub enum Dialog {
     Unprotect,
     /// Confirm deleting a recovery copy.
     DeleteCopy(PathBuf),
+    /// The command palette: what is typed and the highlighted line.
+    Palette { query: String, selected: usize },
 }
 
 /// A line in the status bar.
@@ -401,6 +403,8 @@ pub struct State {
     pub language: crate::text::Language,
     /// Light, dark or like the system.
     pub theme: egui::ThemePreference,
+    /// The field for a new task takes the cursor in the next frame.
+    pub focus_new_task: bool,
 }
 
 impl State {

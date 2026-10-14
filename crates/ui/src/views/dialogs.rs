@@ -15,6 +15,9 @@ use crate::{Clear, Intent, Then, text};
 
 pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
     let serial = state.dialog_serial;
+    // Built before the dialog is borrowed: the palette offers what fits the current view.
+    let mut offered = matches!(state.dialog, Some(Dialog::Palette { .. }))
+        .then(|| crate::palette::entries(doc, state));
     let Some(dialog) = &mut state.dialog else {
         return;
     };
@@ -32,6 +35,16 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
     let response = Modal::new(Id::new("dialog")).show(ctx, |ui| {
         ui.set_min_width(380.0);
         match dialog {
+            Dialog::Palette { query, selected } => {
+                palette(
+                    ui,
+                    offered.take().unwrap_or_default(),
+                    query,
+                    selected,
+                    serial,
+                    out,
+                );
+            }
             Dialog::NewProject(form) => {
                 ui.heading(text::t().new_project_title);
                 ui.weak(text::t().new_project_hint);
@@ -305,6 +318,78 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
     }
     if let Some(error) = message {
         state.message = Some(Message::error(error));
+    }
+}
+
+/// The command palette: a search field over a list; arrows choose, Enter or a click runs.
+fn palette(
+    ui: &mut egui::Ui,
+    offered: Vec<crate::palette::Entry>,
+    query: &mut String,
+    selected: &mut usize,
+    serial: u64,
+    out: &mut Vec<Intent>,
+) {
+    let (down, up) = ui.input_mut(|i| {
+        (
+            i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
+            i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
+        )
+    });
+    let label = ui.label(text::t().palette.trim_end_matches('…'));
+    let field = ui
+        .add(
+            egui::TextEdit::singleline(query)
+                .hint_text(text::t().palette_hint)
+                .desired_width(f32::INFINITY),
+        )
+        .labelled_by(label.id);
+    focus_once(&field, serial);
+    let found = crate::palette::search(offered, query);
+    if field.changed() {
+        *selected = 0;
+    }
+    let last = found.len().saturating_sub(1);
+    if down {
+        *selected = (*selected + 1).min(last);
+    }
+    if up {
+        *selected = selected.saturating_sub(1);
+    }
+    *selected = (*selected).min(last);
+    let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+    let mut chosen = (entered && !found.is_empty()).then_some(*selected);
+    if entered && found.is_empty() {
+        field.request_focus();
+    }
+    ui.add_space(4.0);
+    egui::ScrollArea::vertical()
+        .max_height(360.0)
+        .show(ui, |ui| {
+            if found.is_empty() {
+                ui.weak(text::t().palette_empty);
+            }
+            for (index, entry) in found.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let response = ui.selectable_label(index == *selected, &entry.label);
+                    if index == *selected && (up || down) {
+                        response.scroll_to_me(None);
+                    }
+                    if response.clicked() {
+                        chosen = Some(index);
+                    }
+                    ui.weak(&entry.detail);
+                    if let Some(shortcut) = &entry.shortcut {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.weak(ui.ctx().format_shortcut(shortcut));
+                        });
+                    }
+                });
+            }
+        });
+    if let Some(entry) = chosen.and_then(|index| found.into_iter().nth(index)) {
+        out.push(Intent::CloseDialog);
+        out.extend(entry.intents);
     }
 }
 

@@ -274,7 +274,7 @@ fn subtasks(
         });
     }
     let title = &mut state.forms.detail_subtask;
-    if enter_field(ui, title, text::t().new_subtask_hint, 260.0) {
+    if enter_field(ui, title, text::t().new_subtask_hint, 260.0, false) {
         out.push(Intent::Run {
             command: "task.create",
             params: json!({

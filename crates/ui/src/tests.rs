@@ -1859,3 +1859,254 @@ fn unknown_stored_settings_are_ignored() {
     assert_eq!(app.state.language, text::Language::German);
     assert_eq!(app.state.theme, egui::ThemePreference::System);
 }
+
+/// Opens the palette with Cmd+K, types and presses Enter.
+fn palette(harness: &mut Harness<'_, PlnwrkApp>, query: &str) {
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    harness.run();
+    let field = text::t().palette.trim_end_matches('…').to_owned();
+    type_into(harness, &field, query, true);
+}
+
+fn project_named(app: &PlnwrkApp, title: &str) -> plnwrk_core::ProjectId {
+    projects(app)
+        .into_iter()
+        .find(|p| p.title == title)
+        .unwrap()
+        .id
+}
+
+#[test]
+fn the_palette_goes_to_a_project_by_typing() {
+    let mut harness = harness_with_sample();
+    palette(&mut harness, "digi");
+    let app = harness.state();
+    assert!(app.state.dialog.is_none(), "chosen: the palette closes");
+    assert_eq!(
+        app.shown_project(),
+        Some(project_named(app, "Digitalfunk Umrüstung Wachen"))
+    );
+}
+
+#[test]
+fn the_palette_goes_to_a_task_in_another_project() {
+    let mut harness = harness_with_sample();
+    palette(&mut harness, "sirene");
+    palette(&mut harness, "leistungsverz");
+    let app = harness.state();
+    let task = task_named(app, "Leistungsverzeichnis").unwrap();
+    assert_eq!(app.shown_project(), Some(task.project));
+    assert_eq!(app.state.selected, Some(task.id));
+    assert!(harness.query_by_label(text::t().close_details).is_some());
+}
+
+#[test]
+fn the_palette_runs_what_the_menus_and_buttons_do() {
+    let dir = scratch("palette-save");
+    let host = Scripted {
+        save: vec![dir.join("lage.plnwrk")],
+        open: Vec::new(),
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    palette(&mut harness, "beispiel");
+    assert!(harness.state().doc().is_some(), "file menu");
+    palette(&mut harness, "digi");
+    palette(&mut harness, "board");
+    assert_eq!(harness.state().state.tab, Tab::Board, "tabs of the project");
+    palette(&mut harness, "speich");
+    assert!(
+        dir.join("lage.plnwrk").exists(),
+        "Speichern comes before Speichern unter"
+    );
+    assert!(!harness.state().has_unsaved_changes());
+
+    palette(&mut harness, "neue aufgabe");
+    assert_eq!(harness.state().state.tab, Tab::List);
+    harness.run();
+    // The cursor is in the field for a new task: typing goes there.
+    harness.event(egui::Event::Text("a".to_owned()));
+    harness.run();
+    let typed = harness.state().state.forms.new_task.clone();
+    assert_eq!(typed, "a", "the new task field has the cursor");
+
+    palette(&mut harness, "projekt bearbeiten");
+    assert!(
+        harness.state().state.forms.project.is_some(),
+        "edit form open"
+    );
+    assert!(harness.query_by_label(text::t().apply).is_some());
+
+    palette(&mut harness, "english");
+    assert_eq!(harness.state().state.language, text::Language::English);
+    palette(&mut harness, "dark");
+    assert_eq!(harness.state().state.theme, egui::ThemePreference::Dark);
+}
+
+#[test]
+fn the_palette_sets_the_status_of_the_selected_task_and_asks_before_deleting() {
+    let mut harness = harness_with_sample();
+    palette(&mut harness, "vergabevermerk");
+    let id = task_named(harness.state(), "Vergabevermerk").unwrap().id;
+    palette(&mut harness, "status erledigt");
+    let task = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .task(id)
+        .cloned();
+    assert_eq!(task.unwrap().status, TaskStatus::Done);
+    palette(&mut harness, "aufgabe löschen");
+    assert!(
+        matches!(
+            harness.state().state.dialog,
+            Some(crate::state::Dialog::DeleteTask(_))
+        ),
+        "deleting still asks"
+    );
+    click(&mut harness, text::t().cancel);
+    assert!(task_named(harness.state(), "Vergabevermerk").is_some());
+}
+
+#[test]
+fn arrows_choose_and_escape_closes_without_doing_anything() {
+    let mut harness = harness_with_sample();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    harness.run();
+    let field = text::t().palette.trim_end_matches('…').to_owned();
+    type_into(&mut harness, &field, "vorlage", false);
+    // "Vorlagen" first (the name starts with it), then "Aus Vorlage anlegen" – and nothing
+    // more: the choice stops at both ends.
+    for key in [Key::ArrowUp, Key::ArrowDown, Key::ArrowDown, Key::ArrowDown] {
+        harness.key_press(key);
+        harness.run();
+    }
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::Palette { selected: 1, .. })
+    ));
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::FromTemplate(_))
+    ));
+    click(&mut harness, text::t().cancel);
+
+    let before = harness.state().state.view;
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    harness.run();
+    type_into(&mut harness, &field, "personen", false);
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(harness.state().state.dialog.is_none());
+    assert_eq!(harness.state().state.view, before);
+}
+
+#[test]
+fn nothing_found_keeps_the_palette_open() {
+    let mut harness = harness_with_sample();
+    palette(&mut harness, "xyzzy");
+    assert!(harness.query_by_label(text::t().palette_empty).is_some());
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::Palette { .. })
+    ));
+}
+
+#[test]
+fn text_typed_before_the_palette_is_kept() {
+    let dir = scratch("palette-typed");
+    let host = Scripted {
+        save: vec![dir.join("lage.plnwrk")],
+        open: Vec::new(),
+    };
+    let mut app = PlnwrkApp::with_host(Box::new(host));
+    app.file(crate::state::FileAction::New);
+    let mut harness = harness(app);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Lage", false);
+    click(&mut harness, text::t().create);
+    type_into(&mut harness, text::t().new_task_hint, "Bericht", true);
+    click(&mut harness, "Bericht");
+    // Typed in the detail panel, still in the field, then Cmd+K → Speichern.
+    type_into(&mut harness, text::t().description, "Lage um 10 Uhr", false);
+    palette(&mut harness, "speichern");
+    let bytes = std::fs::read(dir.join("lage.plnwrk")).unwrap();
+    let saved = crate::OpenDoc::from_bytes(&bytes, None).unwrap();
+    let task = saved
+        .session
+        .workspace()
+        .tasks()
+        .find(|t| t.title == "Bericht")
+        .cloned()
+        .unwrap();
+    assert_eq!(task.description, "Lage um 10 Uhr");
+}
+
+#[test]
+fn every_command_can_be_reached_from_the_palette_or_has_its_place() {
+    let mut harness = harness_with_sample();
+    palette(&mut harness, "vergabevermerk");
+    // Something to undo and to redo.
+    palette(&mut harness, "status erledigt");
+    palette(&mut harness, "status in arbeit");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    harness.run();
+    let app = harness.state();
+    let reached: std::collections::BTreeSet<&str> = crate::palette::entries(app.doc(), &app.state)
+        .iter()
+        .flat_map(|e| e.commands.iter().copied())
+        .collect();
+    let elsewhere: std::collections::BTreeSet<&str> = crate::palette::ELSEWHERE
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+    for spec in plnwrk_engine::registry() {
+        assert!(
+            reached.contains(spec.id) || elsewhere.contains(spec.id),
+            "{} is neither in the palette nor in palette::ELSEWHERE",
+            spec.id
+        );
+        assert!(
+            !(reached.contains(spec.id) && elsewhere.contains(spec.id)),
+            "{} is in the palette: take it off palette::ELSEWHERE",
+            spec.id
+        );
+    }
+    for id in reached.iter().chain(&elsewhere) {
+        assert!(
+            plnwrk_engine::command::find(id).is_some(),
+            "{id} is not a command"
+        );
+    }
+}
+
+#[test]
+fn the_palette_speaks_english_too() {
+    let mut harness = harness_with_sample();
+    to_english(&mut harness);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    harness.run();
+    let shown: Vec<String> = shown_texts(&harness)
+        .into_iter()
+        .filter(|t| looks_german(t))
+        .collect();
+    // Names of projects and tasks are data and stay as typed; everything else is English.
+    let data: Vec<String> = tasks(harness.state())
+        .iter()
+        .map(|t| t.title.clone())
+        .chain(projects(harness.state()).iter().map(|p| p.title.clone()))
+        .chain(
+            projects(harness.state())
+                .iter()
+                .filter_map(|p| p.kind.clone()),
+        )
+        .collect();
+    let german: Vec<&String> = shown
+        .iter()
+        .filter(|t| !data.iter().any(|d| t.contains(d.as_str())))
+        .collect();
+    assert!(german.is_empty(), "German in the palette: {german:?}");
+}

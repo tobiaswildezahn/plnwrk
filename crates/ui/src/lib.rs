@@ -15,6 +15,7 @@ mod autosave;
 mod dates;
 mod doc;
 mod host;
+mod palette;
 mod state;
 mod text;
 mod views;
@@ -112,6 +113,12 @@ pub(crate) enum Intent {
     Language(text::Language),
     /// Use this theme.
     Theme(egui::ThemePreference),
+    /// Show this part of the project view.
+    Tab(Tab),
+    /// Put the cursor into the field for a new task.
+    FocusNewTask,
+    /// Open the form to edit this project.
+    EditProject(ProjectId),
 }
 
 impl Intent {
@@ -443,6 +450,18 @@ impl PlnwrkApp {
             }
             Intent::Language(language) => self.set_language(language),
             Intent::Theme(theme) => self.state.theme = theme,
+            Intent::Tab(tab) => self.state.tab = tab,
+            Intent::FocusNewTask => self.state.focus_new_task = true,
+            Intent::EditProject(id) => {
+                if let Some(project) = self
+                    .doc
+                    .as_ref()
+                    .and_then(|d| d.session.workspace().project(id))
+                {
+                    self.state.forms.project =
+                        Some((project.clone(), state::ProjectForm::of(project)));
+                }
+            }
             Intent::Unprotect => {
                 // VS-NfD stays encrypted: saving without protection is refused by the store,
                 // and the old protection is put back.

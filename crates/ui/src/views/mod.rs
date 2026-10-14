@@ -8,7 +8,7 @@ mod overview;
 mod people;
 mod project;
 
-use egui::{Key, KeyboardShortcut, Modifiers, RichText};
+use egui::{Key, RichText};
 use plnwrk_core::{Classification, TaskStatus};
 use plnwrk_engine::query;
 
@@ -16,22 +16,38 @@ use crate::doc::OpenDoc;
 use crate::state::{Dialog, FileAction, ProjectForm, State, TemplateForm, View};
 use crate::{Intent, text};
 
+/// The keyboard shortcuts (Cmd on the Mac, Ctrl elsewhere).
+pub mod keys {
+    use egui::{Key, KeyboardShortcut, Modifiers};
+
+    const COMMAND_SHIFT: Modifiers = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+    pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
+    pub const SAVE_AS: KeyboardShortcut = KeyboardShortcut::new(COMMAND_SHIFT, Key::S);
+    pub const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
+    pub const REDO: KeyboardShortcut = KeyboardShortcut::new(COMMAND_SHIFT, Key::Z);
+    pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+    pub const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
+    pub const PALETTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::K);
+}
+
 /// Keyboard shortcuts. Undo/redo only when no text field is being edited (text fields have
 /// their own undo).
 pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
     let typing = ctx.egui_wants_keyboard_input();
-    let save = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
-    let save_as = KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::S);
-    let undo = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
-    let redo = KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
-    let open_file = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
-    let quit = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
+    let (save, save_as, undo, redo) = (keys::SAVE, keys::SAVE_AS, keys::UNDO, keys::REDO);
     ctx.input_mut(|input| {
-        if input.consume_shortcut(&quit) {
+        if input.consume_shortcut(&keys::QUIT) {
             out.push(Intent::File(FileAction::Quit));
             return;
         }
-        if input.consume_shortcut(&open_file) {
+        if input.consume_shortcut(&keys::PALETTE) {
+            out.push(Intent::Open(Dialog::Palette {
+                query: String::new(),
+                selected: 0,
+            }));
+            return;
+        }
+        if input.consume_shortcut(&keys::OPEN) {
             out.push(Intent::File(FileAction::Open));
         }
         if !open {
@@ -132,8 +148,17 @@ fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State, out: &mut V
     });
 }
 
-/// Language and theme.
+/// Command palette, language and theme.
 fn view_menu(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
+    let palette = egui::Button::new(text::t().palette)
+        .shortcut_text(ui.ctx().format_shortcut(&keys::PALETTE));
+    if ui.add(palette).clicked() {
+        out.push(Intent::Open(Dialog::Palette {
+            query: String::new(),
+            selected: 0,
+        }));
+    }
+    ui.separator();
     ui.menu_button(text::t().language_menu, |ui| {
         for language in text::Language::ALL {
             if ui
@@ -406,12 +431,16 @@ fn commit_field(response: &egui::Response) -> bool {
 }
 
 /// A single-line input that commits on Enter only (and keeps the focus for the next entry).
-fn enter_field(ui: &mut egui::Ui, value: &mut String, hint: &str, width: f32) -> bool {
+/// `focus`: it takes the cursor now.
+fn enter_field(ui: &mut egui::Ui, value: &mut String, hint: &str, width: f32, focus: bool) -> bool {
     let response = ui.add(
         egui::TextEdit::singleline(value)
             .hint_text(hint)
             .desired_width(width),
     );
+    if focus {
+        response.request_focus();
+    }
     let entered = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
     if entered {
         response.request_focus();
