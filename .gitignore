@@ -2,3 +2,6 @@ target/
 dist/
 *.plnwrk
 .DS_Store
+
+# Real files of older format versions are test material and must be kept.
+!crates/store/tests/fixtures/*.plnwrk
