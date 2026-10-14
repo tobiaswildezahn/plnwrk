@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use plnwrk_core::{Project, Task, TaskStatus};
+use plnwrk_core::{Project, Task, TaskId, TaskStatus};
 
 use crate::host::Scripted;
 use crate::state::{Tab, View};
@@ -3028,4 +3028,468 @@ fn signs_of_life_of_an_older_version_are_removed() {
         .insert("plnwrk.live.alt".to_owned(), "1791997538 hidden".to_owned());
     let _harness = reload(&browser);
     assert!(!browser.0.borrow().storage.contains_key("plnwrk.live.alt"));
+}
+
+/// A project with two dated tasks, shown in its list: (project, first, second).
+fn two_dated_tasks() -> (Harness<'static, PlnwrkApp>, TaskId, TaskId) {
+    let mut harness = with_project("Funk");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    for (title, start, due) in [
+        ("Ausschreibung", "2026-10-12", "2026-10-14"),
+        ("Vergabe", "2026-10-15", "2026-10-16"),
+    ] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    let first = task_named(harness.state(), "Ausschreibung").unwrap().id;
+    let second = task_named(harness.state(), "Vergabe").unwrap().id;
+    (harness, first, second)
+}
+
+#[test]
+fn a_later_deadline_moves_what_waits_in_one_step() {
+    let (mut harness, first, second) = two_dated_tasks();
+    // "Vergabe" waits for "Ausschreibung", chosen in the detail panel.
+    click(&mut harness, "Vergabe");
+    harness
+        .get_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
+        .click();
+    harness.run();
+    harness
+        .get_all_by_label("Ausschreibung")
+        .last()
+        .unwrap()
+        .click();
+    harness.run();
+    let ws = |h: &Harness<'_, PlnwrkApp>| h.state().doc().unwrap().session.workspace().clone();
+    assert!(
+        ws(&harness)
+            .dependencies()
+            .any(|d| d.from == first && d.to == second)
+    );
+    // The first now ends on Friday: the second starts Monday, still two days long.
+    // The list comes first (the detail panel names it too, under "Wartet auf").
+    harness
+        .get_all_by_label("Ausschreibung")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    type_into(&mut harness, text::t().due, "16.10.2026", true);
+    let day = |h: &Harness<'_, PlnwrkApp>, id: TaskId| {
+        let t = ws(h).task(id).cloned().unwrap();
+        (
+            t.start.map(|d| d.to_string()).unwrap_or_default(),
+            t.due.map(|d| d.to_string()).unwrap_or_default(),
+        )
+    };
+    assert_eq!(
+        day(&harness, first),
+        ("2026-10-12".into(), "2026-10-16".into())
+    );
+    assert_eq!(
+        day(&harness, second),
+        ("2026-10-19".into(), "2026-10-20".into())
+    );
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::moved_along(1)
+    );
+    // One undo takes both back.
+    harness.key_press(Key::Escape);
+    harness.run();
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    assert_eq!(
+        day(&harness, first),
+        ("2026-10-12".into(), "2026-10-14".into())
+    );
+    assert_eq!(
+        day(&harness, second),
+        ("2026-10-15".into(), "2026-10-16".into())
+    );
+}
+
+#[test]
+fn a_deadline_typed_and_left_by_saving_moves_what_waits_too() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, "Ausschreibung");
+    // Typed, the field still has the focus; then saved, closed or another task chosen.
+    type_into(&mut harness, text::t().due, "16.10.2026", false);
+    assert!(harness.state_mut().flush_draft().is_none());
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let dates = |id: TaskId| {
+        let t = ws.task(id).unwrap();
+        (t.start.unwrap().to_string(), t.due.unwrap().to_string())
+    };
+    assert_eq!(dates(first), ("2026-10-12".into(), "2026-10-16".into()));
+    assert_eq!(dates(second), ("2026-10-19".into(), "2026-10-20".into()));
+}
+
+#[test]
+fn waits_for_does_not_offer_what_would_make_a_circle() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Abnahme"}),
+    ));
+    let third = task_named(harness.state(), "Abnahme").unwrap().id;
+    for (from, to) in [(first, second), (second, third)] {
+        let link = serde_json::json!({"from": from.to_string(), "to": to.to_string()});
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("dependency.add", link));
+    }
+    // Both others wait for the first (one through the other): nothing left to offer.
+    click(&mut harness, "Ausschreibung");
+    assert!(
+        harness
+            .query_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
+            .is_none()
+    );
+    // The last may still wait for the first directly.
+    click(&mut harness, "Abnahme");
+    assert!(
+        harness
+            .query_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
+            .is_some()
+    );
+}
+
+#[test]
+fn a_dependency_is_removed_in_the_detail_panel() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, "Vergabe");
+    assert!(harness.query_by_label(text::t().waits_for).is_some());
+    click(&mut harness, text::t().remove_dependency);
+    assert_eq!(
+        harness
+            .state()
+            .doc()
+            .unwrap()
+            .session
+            .workspace()
+            .dependencies()
+            .count(),
+        0
+    );
+}
+
+/// The bar of a task in the schedule, by its title.
+fn bar(harness: &Harness<'_, PlnwrkApp>, title: &str) -> egui::Rect {
+    harness
+        .get_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(&format!("{title}: ")))
+        })
+        .rect()
+}
+
+#[test]
+fn the_schedule_follows_every_change_and_its_titles_choose_tasks() {
+    let (mut harness, _, second) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let before = bar(&harness, "Vergabe").left();
+    // Worked out once and kept; a change (also an undo) must show at once.
+    harness.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": second.to_string(), "start": "2026-10-19", "due": "2026-10-20"}),
+    ));
+    harness.run();
+    assert!(bar(&harness, "Vergabe").left() > before + 3.0 * 22.0);
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    harness.run();
+    assert!((bar(&harness, "Vergabe").left() - before).abs() < 1.0);
+    // The title in the left column chooses the task.
+    harness.get_all_by_label("Vergabe").next().unwrap().click();
+    harness.run();
+    assert_eq!(harness.state().state.selected, Some(second));
+}
+
+#[test]
+fn a_push_too_big_for_one_step_is_refused_plainly() {
+    let mut harness = with_project("Lang");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let count = plnwrk_engine::params::MOVES_MAX + 1;
+    let mut ids = Vec::new();
+    for n in 0..count {
+        let outcome = harness
+            .state_mut()
+            .doc
+            .as_mut()
+            .unwrap()
+            .session
+            .run(
+                "task.create",
+                &serde_json::json!({"project": project, "title": format!("T{n}"), "due": "2026-10-12"}),
+                plnwrk_engine::Origin::User,
+            )
+            .unwrap();
+        let Some(plnwrk_core::EntityKey::Task(id)) = outcome.created.first().copied() else {
+            panic!("no task");
+        };
+        ids.push(id);
+    }
+    // One fan: all wait for the first.
+    for id in &ids[1..] {
+        harness
+            .state_mut()
+            .doc
+            .as_mut()
+            .unwrap()
+            .session
+            .run(
+                "dependency.add",
+                &serde_json::json!({"from": ids[0].to_string(), "to": id.to_string()}),
+                plnwrk_engine::Origin::User,
+            )
+            .unwrap();
+    }
+    harness.state_mut().apply(crate::Intent::Reschedule {
+        task: ids[0],
+        start: None,
+        due: Some("2026-10-13".parse().unwrap()),
+        due_time: None,
+    });
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(message.error);
+    assert_eq!(message.text, text::too_many_moves(count - 1));
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    assert_eq!(
+        ws.task(ids[0]).unwrap().due.unwrap().to_string(),
+        "2026-10-12",
+        "nothing moved"
+    );
+}
+
+#[test]
+fn the_drag_preview_names_the_working_days_it_will_land_on() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    // Mon 12 – Wed 14, dragged four days on: Friday 16th, so it lands Fri 16 – Tue 20.
+    let from = bar(&harness, "Ausschreibung").center();
+    let to = from + egui::vec2(4.0 * 22.0, 0.0);
+    harness.drag_at(from);
+    harness.run_steps(2);
+    harness.hover_at(from + egui::vec2(10.0, 0.0));
+    harness.run_steps(2);
+    harness.hover_at(to);
+    harness.run_steps(2);
+    assert!(
+        harness
+            .query_by_label("Ausschreibung: 16.10.2026 – 20.10.2026")
+            .is_some()
+    );
+    harness.drop_at(to);
+    harness.run_steps(2);
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let t = ws.task(first).unwrap();
+    assert_eq!(
+        (t.start.unwrap().to_string(), t.due.unwrap().to_string()),
+        ("2026-10-16".into(), "2026-10-20".into()),
+        "lands where the preview showed"
+    );
+}
+
+#[test]
+fn bars_hidden_under_the_titles_cannot_be_taken() {
+    let mut harness = with_project("Alt und neu");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    for (title, start, due) in [("Alt", day(-60), day(-58)), ("Jetzt", day(0), day(2))] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    harness.run();
+    // Opened a week before today: the old bar lies under the column with the titles.
+    let has_bar = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(&format!("{title}: ")))
+        })
+        .is_some()
+    };
+    assert!(has_bar(&harness, "Jetzt"));
+    assert!(!has_bar(&harness, "Alt"));
+}
+
+#[test]
+fn saving_a_date_and_a_text_together_keeps_the_moved_along_message() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, "Ausschreibung");
+    type_into(&mut harness, text::t().due, "16.10.2026", false);
+    harness
+        .state_mut()
+        .state
+        .forms
+        .task
+        .as_mut()
+        .unwrap()
+        .description = "Angebote".to_owned();
+    assert!(harness.state_mut().flush_draft().is_none());
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    assert_eq!(ws.task(first).unwrap().description, "Angebote");
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::moved_along(1)
+    );
+}
+
+#[test]
+fn a_refused_typed_date_is_put_back_and_named() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, "Ausschreibung");
+    // A deadline before the start.
+    type_into(&mut harness, text::t().due, "01.10.2026", false);
+    let warning = harness.state_mut().flush_draft().unwrap();
+    assert!(warning.starts_with(text::t().not_taken), "{warning}");
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    assert_eq!(
+        ws.task(first).unwrap().due.unwrap().to_string(),
+        "2026-10-14"
+    );
+    assert_eq!(
+        harness.state().state.forms.task.as_ref().unwrap().due,
+        "14.10.2026"
+    );
+}
+
+#[test]
+fn a_date_changed_elsewhere_is_not_written_back_by_saving() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, "Ausschreibung");
+    // A deadline typed; meanwhile (no frame in between) the start changes elsewhere.
+    type_into(&mut harness, text::t().due, "16.10.2026", false);
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "task.update",
+            &serde_json::json!({"task": first.to_string(), "start": "2026-10-13"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    assert!(harness.state_mut().flush_draft().is_none());
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let t = ws.task(first).unwrap();
+    assert_eq!(t.start.unwrap().to_string(), "2026-10-13", "not put back");
+    assert_eq!(t.due.unwrap().to_string(), "2026-10-16");
+}
+
+#[test]
+fn the_schedule_shows_bars_and_dragging_moves_what_waits() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, text::t().schedule_tab);
+    assert!(
+        harness
+            .query_by_label("Ausschreibung: 12.10.2026 – 14.10.2026")
+            .is_some()
+    );
+    assert!(harness.query_by_label(text::t().critical_hint).is_some());
+    // Two days later, by dragging the bar.
+    let from = bar(&harness, "Ausschreibung").center();
+    let to = from + egui::vec2(2.0 * 22.0, 0.0);
+    // A fixed number of frames: the bar's tooltip keeps asking for more while hovered.
+    harness.drag_at(from);
+    harness.run_steps(2);
+    harness.hover_at(from + egui::vec2(10.0, 0.0));
+    harness.run_steps(2);
+    harness.hover_at(to);
+    harness.run_steps(2);
+    harness.drop_at(to);
+    harness.run_steps(2);
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let day = |id: TaskId| {
+        let t = ws.task(id).cloned().unwrap();
+        (t.start.unwrap().to_string(), t.due.unwrap().to_string())
+    };
+    assert_eq!(day(first), ("2026-10-14".into(), "2026-10-16".into()));
+    assert_eq!(day(second), ("2026-10-19".into(), "2026-10-20".into()));
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    assert_eq!(
+        ws.task(second).unwrap().start.unwrap().to_string(),
+        "2026-10-15",
+        "one undo takes the move and what moved along back"
+    );
+}
+
+#[test]
+fn the_schedule_warns_about_a_milestone_that_cannot_hold() {
+    let (mut harness, first, _) = two_dated_tasks();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Abgabe", "due": "2026-10-13", "milestone": true}),
+    ));
+    let milestone = task_named(harness.state(), "Abgabe").unwrap().id;
+    let link = serde_json::json!({"from": first.to_string(), "to": milestone.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, text::t().schedule_tab);
+    let warning = format!("⚠ {}", text::milestone_unreachable("Abgabe", "14.10.2026"));
+    assert!(harness.query_by_label(&warning).is_some(), "{warning}");
+    click(&mut harness, &warning);
+    assert_eq!(harness.state().state.selected, Some(milestone));
+}
+
+#[test]
+fn an_empty_schedule_says_what_to_do() {
+    let mut harness = with_project("Lage");
+    type_into(&mut harness, text::t().new_task_hint, "Ohne Datum", true);
+    palette(&mut harness, "zeitplan");
+    assert_eq!(harness.state().state.tab, crate::state::Tab::Schedule);
+    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label("Ohne Datum").is_some());
+}
+
+#[test]
+fn the_schedule_speaks_english() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    to_english(&mut harness);
+    click(&mut harness, text::EN.schedule_tab);
+    let data = ["Ausschreibung", "Vergabe", "Funk"];
+    let german: Vec<String> = shown_texts(&harness)
+        .into_iter()
+        .filter(|t| looks_german(t) && !data.iter().any(|d| t.contains(d)))
+        .collect();
+    assert!(german.is_empty(), "German in the schedule: {german:?}");
 }

@@ -514,6 +514,111 @@ mod commands {
     }
 
     #[test]
+    fn reschedule_moves_several_tasks_in_one_undo_step() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "Lage"}));
+        let a = h.task(
+            p,
+            "A",
+            json!({"start": "2026-10-12", "due": "2026-10-14T14:00"}),
+        );
+        let b = h.task(p, "B", json!({"start": "2026-10-15", "due": "2026-10-16"}));
+        let before = (get(&h, a), get(&h, b));
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [
+                {"task": a.to_string(), "start": "2026-10-13", "due": "2026-10-15"},
+                {"task": b.to_string(), "start": "2026-10-16", "due": "2026-10-19"},
+            ]}),
+        );
+        let (ta, tb) = (get(&h, a), get(&h, b));
+        assert_eq!(
+            ta.start.map(|d| d.to_string()).as_deref(),
+            Some("2026-10-13")
+        );
+        assert_eq!(ta.due.map(|d| d.to_string()).as_deref(), Some("2026-10-15"));
+        assert_eq!(
+            ta.due_time.map(|t| t.to_string()).as_deref(),
+            Some("14:00:00"),
+            "the time of day stays"
+        );
+        assert_eq!(tb.due.map(|d| d.to_string()).as_deref(), Some("2026-10-19"));
+        h.undo();
+        assert_eq!(
+            (get(&h, a), get(&h, b)),
+            before,
+            "one step back restores both"
+        );
+    }
+
+    #[test]
+    fn reschedule_clears_with_null_and_refuses_what_does_not_fit() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "Lage"}));
+        let a = h.task(
+            p,
+            "A",
+            json!({"start": "2026-10-12", "due": "2026-10-14T14:00"}),
+        );
+        let b = h.task(p, "B", json!({}));
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": null, "due": null}]}),
+        );
+        let ta = get(&h, a);
+        assert_eq!((ta.start, ta.due, ta.due_time), (None, None, None));
+        // A time of day can be set and cleared with the dates.
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": "2026-10-12", "due": "2026-10-13", "due_time": "09:30"}]}),
+        );
+        assert_eq!(
+            get(&h, a).due_time.map(|t| t.to_string()).as_deref(),
+            Some("09:30:00")
+        );
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": "2026-10-12", "due": "2026-10-13", "due_time": null}]}),
+        );
+        assert_eq!(get(&h, a).due_time, None);
+        h.ok(
+            "task.reschedule",
+            json!({"moves": [{"task": a.to_string(), "start": null, "due": null}]}),
+        );
+        // Due before start: nothing changes, also not the other task.
+        let error = h.err(
+            "task.reschedule",
+            json!({"moves": [
+                {"task": b.to_string(), "start": "2026-10-12", "due": "2026-10-12"},
+                {"task": a.to_string(), "start": "2026-10-14", "due": "2026-10-13"},
+            ]}),
+        );
+        assert_eq!(rule_of(&error), Some(Rule::DateOrder));
+        // Unknown task, the same task twice, a missing date, no moves.
+        let ghost = TaskId::from(ulid::Ulid(99));
+        assert!(matches!(
+            h.err(
+                "task.reschedule",
+                json!({"moves": [{"task": ghost.to_string(), "start": null, "due": null}]}),
+            ),
+            CommandError::NotFound { .. }
+        ));
+        let twice = json!({"moves": [
+            {"task": a.to_string(), "start": null, "due": null},
+            {"task": a.to_string(), "start": null, "due": null},
+        ]});
+        assert!(is_bad_param(&h.err("task.reschedule", twice), "moves"));
+        let late = json!({"moves": [{"task": b.to_string(), "start": "2026-10-12", "due": "2026-10-13", "due_time": "25:00"}]});
+        assert!(is_bad_param(&h.err("task.reschedule", late), "moves"));
+        let missing = json!({"moves": [{"task": a.to_string(), "start": null}]});
+        assert!(is_bad_param(&h.err("task.reschedule", missing), "moves"));
+        assert!(is_bad_param(
+            &h.err("task.reschedule", json!({"moves": []})),
+            "moves"
+        ));
+    }
+
+    #[test]
     fn dependency_rules() {
         let mut h = Harness::new();
         let p = h.project(json!({"title": "P"}));

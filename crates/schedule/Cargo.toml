@@ -9,7 +9,12 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+jiff.workspace = true
 plnwrk-core.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+ulid.workspace = true
 
 [lints]
 workspace = true

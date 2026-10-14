@@ -1,7 +1,9 @@
 # plnwrk – Stand und offene Punkte
 
-> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14, nach dem
-> Umsetzung von Phase 4 (Web)** (PR offen). Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14 abends:
+> Phase 5 (Zeitplanung) fertig, Review + Nachreview eingearbeitet, wartet auf Merge** (Branch
+> `phase-5`, PR #9 offen);
+> Phase 4 (Web) ist gemergt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -20,8 +22,8 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
-| 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **umgesetzt**, PR offen | – |
-| 5 Zeitplanung | offen | – |
+| 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **fertig**, Review + 3 Nachprüfungen | [#8](https://github.com/tobiaswildezahn/plnwrk/pull/8) |
+| 5 Zeitplanung (Arbeitstage Hamburg, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview eingearbeitet, Merge offen | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
 | 6 KI (MCP, Assistent) | offen | – |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
@@ -32,7 +34,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–3b-3 (Merge `3d6fbde`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–4 (Merge `21305ec`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
@@ -69,6 +71,8 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
+0. **Phase 5 mergen** nach Tobis „ja, merge“ (Windows per Label `merge`). Review- und
+   Nachreview-Befunde sind behoben (§3.1).
 1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
@@ -79,10 +83,31 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    gezielt geprüft: minimiert + „Sofort beenden“ in der Aktivitätsanzeige.
 4. **Tobi testet Phase 4** (Demo im Plan `docs/plans/2026-10-14-phase-4.md`), besonders das
    Hochladen über den echten Dateidialog (nur über Tests belegt).
-5. **Veröffentlichen?** Der Workflow `pages` (von Hand) stellt die Browser-Version unter eine
-   öffentliche Adresse. Braucht Tobis Entscheidung und Pages in den Repo-Einstellungen.
-6. Danach Phase 5 (Zeitplanung) oder 4.6 (KI früher).
-5. Optional: `cargo xtask mutants` (5.1).
+5. **Tobi testet Phase 5** (Demo im Plan `docs/plans/2026-10-14-phase-5.md`): Zeitplan,
+   Balken ziehen, „Wartet auf“.
+6. **Veröffentlichen?** Der Workflow `pages` (von Hand) braucht eine eigene (Sub-)Domain.
+7. Danach **4.6 / Phase 6 (KI, MCP)** – von Tobi für „heute Nacht“ angekündigt.
+8. Optional: `cargo xtask mutants` (5.1).
+
+### 3.1 Review-Befunde Phase 5 – behoben (2026-10-14)
+
+Alle 7 Befunde des Reviews und alle Kleinigkeiten sind behoben, jeweils mit Regressionstest und
+Mutationsprobe (`88092e1`, `944cae9`). Das Nachreview fand keinen Blocker, aber 6 weitere Punkte;
+auch die sind behoben (`e824e71`):
+- Eine früh erledigte Aufgabe mit spätem Termin verdeckte den kritischen Pfad.
+- Bei einer erledigten Aufgabe ohne Datum in einer Kette stimmte der Puffer nicht.
+- Eine Aufgabe ganz auf Wochenende/Feiertag wurde uneinheitlich verankert.
+- Ferne Termine waren langsam (Arbeitstage werden jetzt halbierend statt tageweise gesucht).
+- Erledigte Projekte zeigten einen leeren Gantt.
+- Beim Speichern mit getippter Frist wurde ein anderswo geänderter Beginn zurückgeschrieben.
+
+Eine Kurzprüfung dieses Commits fand eine dadurch entstandene Verschlechterung: Eine Aufgabe
+nur mit Beginn an einem Samstag galt als Freitag (falsche Warnung). Behoben in `f03bfc4`, ebenso das
+Doppelzählen der letzten Kalendertage (Jahr 9999) und eine verlorene „mitverschoben“-Meldung.
+
+Zusätzlich belegt ein Eigenschaftstest über zufällige Pläne die Puffer: Rutscht eine Aufgabe um
+ihren Puffer, ändert sich nichts; rutscht sie einen Tag mehr, verschiebt sich das Ende oder ein
+Meilenstein wird unhaltbar.
 
 ## 4. Offene Entscheidungen des Nutzers
 
@@ -98,6 +123,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 | 4.8 | **VS-NfD ohne Passphrase**: Beim Anlegen eines VS-NfD-Projekts sofort zum Schützen zwingen? Heute lässt sich unverschlüsselt weiterarbeiten; Speichern und Autosave scheitern dann (Statuszeile rot). | Beim Einstufen direkt den Schutz-Dialog öffnen | vor Phase 7 |
 | 4.9 | **Wiederherstellungskopien von VS-Dateien** liegen (verschlüsselt) in einem Systemordner, den IT-Sicherheit kaum im Blick hat. Autosave bei VS aus, oder Kopie neben der Datei? | Für VS: Kopie im Ordner der Datei | vor echtem VS-Einsatz |
 | 4.10 | **Wer testet außer Tobi**, mit welchem realistischen (erfundenen) Vorgang? | Eine Person aus der Abteilung, SKA-Ablauf | vor 3b-3 |
+| 4.12 | ~~Erledigte Aufgaben im Zeitplan~~ **entschieden (Tobi, 2026-10-14):** fest wie Meilensteine, nicht kritisch, keine Warnungen über sie | – | umgesetzt |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte
@@ -127,6 +153,17 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
   öffnet noch nichts (Apple Event). Uhrzeiten werden intern
   als `HH:MM:SS` gespeichert (Eingabe `HH:MM`). Frist „00:00“ liest sich am Vorabend als
   „morgen fällig“.
+- **Zeitplan:** Nachfolger rutschen bei jeder Terminänderung in der Oberfläche mit (Detailbereich,
+  auch beim Speichern/Schließen mit getipptem Termin, und Ziehen) – nicht bei `task.update` über
+  CLI/MCP (dort `task.reschedule` mit selbst berechneten Schüben). Ein Termin auf Wochenende
+  oder Feiertag zählt als der Arbeitstag, für den er steht (Ende Sonntag = Freitag, Beginn
+  Samstag = Montag; ganz auf freien Tagen = Arbeitstag vor der Frist, bei nur einem Beginn der
+  danach). Ein Schritt über Jahrtausende (Aufgabe 0001–9999) dauert ≈ 0,25 s. Erledigte Aufgaben stehen fest
+  (4.12). Mehr als 1000 Schübe in einem Schritt werden mit Meldung abgelehnt. Eine neue Abhängigkeit verschiebt nichts,
+  sondern wird gewarnt, falls sie nicht passt. Kalender fest Hamburg (Mo–Fr ohne Feiertage);
+  Oberaufgaben fassen ihre Unteraufgaben nicht zusammen; in der Oberfläche nur „Ende →
+  Anfang“ anlegbar (die anderen Arten über CLI). Der Zeitplan zeigt höchstens 800 Tage: alles,
+  wenn es passt, sonst ab der frühesten offenen Aufgabe (heute bleibt sichtbar).
 - **Sprache:** Kopien-Namen („– Wiederherstellung“, Ordner „Notkopien“) und die
   VS-NfD-Kennzeichnung bleiben deutsch; Daten (Titel, Art „Projekt“/„Vorgang“) bleiben, wie
   getippt. Technische Gründe aus Speicher/Engine (`reason`) erscheinen englisch hinter der

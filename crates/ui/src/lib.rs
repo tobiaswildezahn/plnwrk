@@ -146,6 +146,14 @@ pub(crate) enum Intent {
     FocusNewTask,
     /// Open the form to edit this project.
     EditProject(ProjectId),
+    /// New dates for a task; what waits for it moves along (one step). `due_time`: a new time
+    /// of day for the deadline (`Some(None)` clears it), `None` keeps it.
+    Reschedule {
+        task: TaskId,
+        start: Option<jiff::civil::Date>,
+        due: Option<jiff::civil::Date>,
+        due_time: Option<Option<jiff::civil::Time>>,
+    },
 }
 
 impl Intent {
@@ -366,21 +374,51 @@ impl PlnwrkApp {
             return project_warning;
         };
         let mut warnings: Vec<String> = project_warning.into_iter().collect();
+        // Untouched fields first follow what is stored now, so only what was typed is sent.
+        draft.rebase(&task);
         warnings.extend(draft.drop_invalid_dates());
-        let changes = draft.changes().unwrap_or_default();
+        let mut params = draft.changes().unwrap_or_default();
+        // Typed dates go the way of every date change: what waits for the task moves along.
+        let dates_typed = params.remove("start").is_some() | params.remove("due").is_some();
+        let start = dates::parse(&draft.start).unwrap_or(task.start);
+        let due = dates::parse_deadline(&draft.due, &draft.due_time)
+            .unwrap_or(task.due.map(|day| (day, task.due_time)));
         self.state.forms.task = Some(draft);
-        if !changes.is_empty() {
-            let mut params = changes;
-            params.insert("task".to_owned(), Value::String(task.id.to_string()));
-            self.run("task.update", &Value::Object(params), Then::Nothing, None);
-            if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
-                // Refused (e.g. empty title): back to what is stored, and say so.
-                warnings.push(format!("{} {}", text::t().not_taken, message.text));
-                self.state.forms.task = Some(state::TaskDraft::of(&task));
-            } else if let Some(stored) = self
+        if !params.is_empty() || dates_typed {
+            // Only one field can be typed at a time, so this is one step in practice.
+            let mut taken = true;
+            if dates_typed {
+                taken = self.reschedule(
+                    task.id,
+                    start,
+                    due.map(|(day, _)| day),
+                    Some(due.and_then(|(_, time)| time)),
+                );
+            }
+            if taken && !params.is_empty() {
+                // "N moved along" stays in view after the second command.
+                let moved_along = self.state.message.take();
+                params.insert("task".to_owned(), Value::String(task.id.to_string()));
+                taken = self.run("task.update", &Value::Object(params), Then::Nothing, None);
+                if taken {
+                    self.state.message = moved_along;
+                }
+            }
+            let stored = self
                 .doc
                 .as_ref()
                 .and_then(|d| d.session.workspace().task(task.id))
+                .cloned();
+            if !taken {
+                // Refused (e.g. empty title): back to what is stored, and say so.
+                let reason = self
+                    .state
+                    .message
+                    .as_ref()
+                    .map_or_else(String::new, |m| m.text.clone());
+                warnings.push(format!("{} {reason}", text::t().not_taken));
+                self.state.forms.task = stored.as_ref().map(state::TaskDraft::of);
+            } else if let Some(stored) = &stored
                 && let Some(draft) = &mut self.state.forms.task
             {
                 // Taken: the draft now matches what is stored, also before the next frame.
@@ -593,7 +631,9 @@ impl PlnwrkApp {
                 params,
                 then,
                 clear,
-            } => self.run(command, &params, then, clear),
+            } => {
+                self.run(command, &params, then, clear);
+            }
             Intent::Go(view) => {
                 self.flush_draft();
                 self.state.view = view;
@@ -682,6 +722,14 @@ impl PlnwrkApp {
             }
             Intent::Theme(theme) => self.state.theme = theme,
             Intent::Tab(tab) => self.state.tab = tab,
+            Intent::Reschedule {
+                task,
+                start,
+                due,
+                due_time,
+            } => {
+                self.reschedule(task, start, due, due_time);
+            }
             Intent::FocusNewTask => self.state.focus_new_task = true,
             Intent::EditProject(id) => {
                 let open = self
@@ -709,13 +757,16 @@ impl PlnwrkApp {
         }
     }
 
-    fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) {
-        let Some(doc) = &mut self.doc else { return };
+    /// Runs a command; says whether it was carried out (a refusal is shown as a message).
+    fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) -> bool {
+        let Some(doc) = &mut self.doc else {
+            return false;
+        };
         // Decided before running: a refused change must not even reach the history (undo
         // would leave it there, and the file would count as VS-NfD).
         if self.state.browser && asks_for_classified(params) {
             self.state.message = Some(Message::error(text::t().vs_blocked));
-            return;
+            return false;
         }
         match doc.session.run(command, params, Origin::User) {
             Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
@@ -725,6 +776,7 @@ impl PlnwrkApp {
                     .session
                     .run("undo", &serde_json::json!({}), Origin::User);
                 self.state.message = Some(Message::error(text::t().vs_blocked));
+                false
             }
             Ok(outcome) => {
                 self.state.message = None;
@@ -738,9 +790,78 @@ impl PlnwrkApp {
                 if let Some(clear) = clear {
                     self.state.clear(clear);
                 }
+                true
             }
-            Err(error) => self.state.message = Some(Message::error(text::command_error(&error))),
+            Err(error) => {
+                self.state.message = Some(Message::error(text::command_error(&error)));
+                false
+            }
         }
+    }
+
+    /// New dates for a task. Whatever waits for it moves later as far as needed, counted in
+    /// Hamburg working days and keeping its length; milestones stay (the schedule warns).
+    /// One command, so one undo step takes it all back. Says whether the dates are as asked
+    /// (nothing to do counts as yes); a refusal is shown as a message.
+    fn reschedule(
+        &mut self,
+        task: TaskId,
+        start: Option<jiff::civil::Date>,
+        due: Option<jiff::civil::Date>,
+        due_time: Option<Option<jiff::civil::Time>>,
+    ) -> bool {
+        let Some(doc) = &self.doc else { return false };
+        let ws = doc.session.workspace();
+        let Some(current) = ws.task(task) else {
+            return false;
+        };
+        let unchanged = start == current.start
+            && due == current.due
+            && due_time.is_none_or(|t| t == current.due_time);
+        if unchanged {
+            return true;
+        }
+        let plan =
+            plnwrk_schedule::Plan::of(ws, current.project, plnwrk_schedule::Calendar::hamburg());
+        let own = plnwrk_schedule::Move { task, start, due };
+        let mut moves = plan.push(own);
+        if !moves.iter().any(|m| m.task == task) {
+            moves.insert(0, own);
+        }
+        let along = moves.iter().filter(|m| m.task != task).count();
+        if moves.len() > plnwrk_engine::params::MOVES_MAX {
+            // Said plainly instead of the command's refusal of its parameters.
+            self.state.message = Some(Message::error(text::too_many_moves(along)));
+            return false;
+        }
+        let list: Vec<Value> = moves
+            .iter()
+            .map(|m| {
+                let mut entry = serde_json::json!({
+                    "task": m.task.to_string(),
+                    "start": dates::param(m.start),
+                    "due": dates::param(m.due),
+                });
+                if m.task == task
+                    && let Some(time) = due_time
+                    && let Some(fields) = entry.as_object_mut()
+                {
+                    let time = time.map_or(Value::Null, |t| Value::from(dates::format_time(t)));
+                    fields.insert("due_time".to_owned(), time);
+                }
+                entry
+            })
+            .collect();
+        let taken = self.run(
+            "task.reschedule",
+            &serde_json::json!({ "moves": list }),
+            Then::Nothing,
+            None,
+        );
+        if taken && along > 0 {
+            self.state.message = Some(Message::info(text::moved_along(along)));
+        }
+        taken
     }
 
     /// Carries out a file action; actions that would drop unsaved changes ask first.

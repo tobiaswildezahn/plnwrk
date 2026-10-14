@@ -244,6 +244,16 @@ pub struct Texts {
     pub upload_failed: &'static str,
     pub delete_all_copies: &'static str,
     pub delete_all_copies_question: &'static str,
+    pub waits_for: &'static str,
+    pub followed_by: &'static str,
+    pub add_predecessor: &'static str,
+    pub remove_dependency: &'static str,
+    pub schedule_tab: &'static str,
+    pub no_scheduled: &'static str,
+    pub unscheduled: &'static str,
+    pub critical_hint: &'static str,
+    pub project_due: &'static str,
+    pub critical: &'static str,
     /// Suggestions for the kind of a project.
     pub kinds: [&'static str; 2],
     /// Names of the months, January first.
@@ -416,6 +426,16 @@ pub static DE: Texts = Texts {
     upload_failed: "Die Datei ließ sich nicht lesen:",
     delete_all_copies: "Alle Zwischenstände löschen",
     delete_all_copies_question: "Alle hier angebotenen Zwischenstände werden endgültig aus diesem Browser gelöscht. Ihr Inhalt ist dann verloren.",
+    waits_for: "Wartet auf",
+    followed_by: "Danach",
+    add_predecessor: "+ Vorgänger …",
+    remove_dependency: "Abhängigkeit entfernen",
+    schedule_tab: "Zeitplan",
+    no_scheduled: "Noch keine Aufgabe mit Termin. Beginn oder Frist in den Details setzen.",
+    unscheduled: "Ohne Termin:",
+    critical_hint: "Rot: kritischer Pfad – rutscht eine dieser Aufgaben, rutscht das Ende. Balken ziehen verschiebt, Nachfolger rutschen mit.",
+    project_due: "Projektfrist",
+    critical: "kritisch",
     kinds: ["Projekt", "Vorgang"],
     months: [
         "Januar",
@@ -598,6 +618,16 @@ pub static EN: Texts = Texts {
     upload_failed: "The file could not be read:",
     delete_all_copies: "Delete all interim copies",
     delete_all_copies_question: "All interim copies offered here are deleted from this browser for good. Their content is then lost.",
+    waits_for: "Waits for",
+    followed_by: "Followed by",
+    add_predecessor: "+ Predecessor …",
+    remove_dependency: "Remove dependency",
+    schedule_tab: "Schedule",
+    no_scheduled: "No task with dates yet. Set a start or deadline in the details.",
+    unscheduled: "Without dates:",
+    critical_hint: "Red: critical path – if one of these slips, the end slips. Drag a bar to move it; what waits for it moves along.",
+    project_due: "Project deadline",
+    critical: "critical",
     kinds: ["Project", "Case"],
     months: [
         "January",
@@ -739,6 +769,77 @@ pub fn overdue_tasks(count: usize) -> String {
     pick(format!("{count} überfällig"), format!("{count} overdue"))
 }
 
+/// A push larger than one step can take, refused.
+pub fn too_many_moves(count: usize) -> String {
+    pick(
+        format!(
+            "Nicht verschoben: {count} Nachfolger müssten mit, mehr als in einem Schritt geht. Abhängigkeiten lösen oder in Teilen verschieben."
+        ),
+        format!(
+            "Not moved: {count} successors would have to move along, more than one step can take. Remove dependencies or move in parts."
+        ),
+    )
+}
+
+/// "2 Nachfolger mitverschoben".
+pub fn moved_along(count: usize) -> String {
+    match (language(), count) {
+        (Language::German, 1) => "1 Nachfolger mitverschoben.".to_owned(),
+        (Language::German, n) => format!("{n} Nachfolger mitverschoben."),
+        (Language::English, 1) => "1 successor moved along.".to_owned(),
+        (Language::English, n) => format!("{n} successors moved along."),
+    }
+}
+
+/// "KW 42" (calendar week).
+pub fn week(number: i8) -> String {
+    pick(format!("KW {number}"), format!("CW {number}"))
+}
+
+/// "Puffer: 3 Arbeitstage".
+pub fn float(days: i32) -> String {
+    match (language(), days) {
+        (Language::German, 1) => "Puffer: 1 Arbeitstag".to_owned(),
+        (Language::German, n) => format!("Puffer: {n} Arbeitstage"),
+        (Language::English, 1) => "Float: 1 working day".to_owned(),
+        (Language::English, n) => format!("Float: {n} working days"),
+    }
+}
+
+/// A dependency that does not hold.
+pub fn waits_too_short(from: &str, to: &str) -> String {
+    pick(
+        format!(
+            "{} beginnt, bevor {} so weit ist.",
+            quoted(to),
+            quoted(from)
+        ),
+        format!("{} starts before {} allows.", quoted(to), quoted(from)),
+    )
+}
+
+/// A milestone that cannot hold.
+pub fn milestone_unreachable(task: &str, earliest: &str) -> String {
+    pick(
+        format!(
+            "Meilenstein {} nicht haltbar – frühestens {earliest}.",
+            quoted(task)
+        ),
+        format!(
+            "Milestone {} cannot hold – {earliest} at the earliest.",
+            quoted(task)
+        ),
+    )
+}
+
+/// A task that ends after the project's deadline.
+pub fn after_project_due(task: &str) -> String {
+    pick(
+        format!("{} endet nach der Projektfrist.", quoted(task)),
+        format!("{} ends after the project deadline.", quoted(task)),
+    )
+}
+
 /// Something typed, in quotation marks of the language.
 pub fn quoted(text: &str) -> String {
     pick(format!("„{text}“"), format!("“{text}”"))
@@ -760,8 +861,8 @@ pub fn rule(rule: Rule) -> &'static str {
             "Subtasks and dependencies stay within one project.",
         ),
         Rule::Cycle => pick(
-            "Das ergäbe einen Kreis (eine Aufgabe unter sich selbst).",
-            "That would make a circle (a task below itself).",
+            "Das ergäbe einen Kreis: Eine Aufgabe läge unter sich selbst oder wartete auf sich selbst.",
+            "That would make a circle: a task below itself or waiting for itself.",
         ),
         Rule::DateOrder => pick(
             "Die Frist liegt vor dem Beginn.",

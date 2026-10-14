@@ -3302,7 +3302,10 @@ dependencies = [
 name = "plnwrk-schedule"
 version = "0.0.0"
 dependencies = [
+ "jiff",
  "plnwrk-core",
+ "proptest",
+ "ulid",
 ]
 
 [[package]]
@@ -3337,6 +3340,7 @@ dependencies = [
  "plnwrk-core",
  "plnwrk-engine",
  "plnwrk-platform",
+ "plnwrk-schedule",
  "plnwrk-store",
  "proptest",
  "serde_json",

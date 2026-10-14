@@ -27,12 +27,14 @@ pub fn show(
         ui.selectable_value(&mut state.tab, Tab::List, text::t().list);
         ui.selectable_value(&mut state.tab, Tab::Board, text::t().board);
         ui.selectable_value(&mut state.tab, Tab::Milestones, text::t().milestones);
+        ui.selectable_value(&mut state.tab, Tab::Schedule, text::t().schedule_tab);
     });
     ui.separator();
     match state.tab {
         Tab::List => list(ui, doc, project, state, out),
         Tab::Board => board::show(ui, doc, project, state, out),
         Tab::Milestones => milestones(ui, doc, project, state, out),
+        Tab::Schedule => super::schedule::show(ui, doc, project, state, out),
     }
 }
 

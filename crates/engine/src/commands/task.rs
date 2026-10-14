@@ -439,6 +439,35 @@ pub const ASSIGN: CommandSpec = CommandSpec {
     run: Runner::Edit(assign),
 };
 
+fn reschedule(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
+    for change in params.req("moves", p::moves)? {
+        let mut task = load(tx, change.task)?;
+        task.start = change.start;
+        task.due = change.due;
+        if let Some(time) = change.due_time {
+            task.due_time = time;
+        }
+        if task.due.is_none() {
+            task.due_time = None;
+        }
+        tx.put(Entity::Task(task));
+    }
+    Ok(())
+}
+
+/// `task.reschedule`
+pub const RESCHEDULE: CommandSpec = CommandSpec {
+    id: "task.reschedule",
+    summary: "Gives several tasks new start and due days at once (one undo step), e.g. a task and the successors that move with it. A due time of day stays unless due_time is given.",
+    params: &[P::required(
+        "moves",
+        K::Moves,
+        "New dates: [{task, start, due}], null clears a date",
+    )],
+    enabled: always,
+    run: Runner::Edit(reschedule),
+};
+
 /// `task.set_status`
 pub const SET_STATUS: CommandSpec = CommandSpec {
     id: "task.set_status",
