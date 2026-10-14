@@ -194,9 +194,9 @@ impl TemplateForm {
     pub fn params(&self) -> Result<Value, String> {
         let template = self
             .template
-            .ok_or_else(|| "Bitte eine Vorlage wählen.".to_owned())?;
+            .ok_or_else(|| crate::text::t().choose_template.to_owned())?;
         let start =
-            dates::parse(&self.start)?.ok_or_else(|| "Bitte den Beginn angeben.".to_owned())?;
+            dates::parse(&self.start)?.ok_or_else(|| crate::text::t().start_needed.to_owned())?;
         let mut map = Map::new();
         map.insert("template".to_owned(), json!(template.to_string()));
         map.insert("title".to_owned(), json!(self.title.trim()));
@@ -261,21 +261,25 @@ impl TaskDraft {
     pub fn drop_invalid_dates(&mut self) -> Option<String> {
         let mut dropped = Vec::new();
         if dates::parse(&self.start).is_err() {
-            dropped.push(format!("„{}“ ({})", self.start.trim(), crate::text::START));
+            dropped.push(format!(
+                "{} ({})",
+                crate::text::quoted(self.start.trim()),
+                crate::text::t().start
+            ));
             self.start = dates::format_opt(self.source.start);
         }
         if dates::parse_deadline(&self.due, &self.due_time).is_err() {
             let typed = format!("{} {}", self.due.trim(), self.due_time.trim());
-            dropped.push(format!("„{}“ ({})", typed.trim(), crate::text::DUE));
+            dropped.push(format!(
+                "{} ({})",
+                crate::text::quoted(typed.trim()),
+                crate::text::t().due
+            ));
             self.due = dates::format_opt(self.source.due);
             self.due_time = dates::format_time_opt(self.source.due_time);
         }
-        (!dropped.is_empty()).then(|| {
-            format!(
-                "Kein gültiges Datum oder keine gültige Uhrzeit, nicht übernommen: {}",
-                dropped.join(", ")
-            )
-        })
+        (!dropped.is_empty())
+            .then(|| format!("{} {}", crate::text::t().invalid_dates, dropped.join(", ")))
     }
 
     /// Whether something was typed that is not stored yet.
@@ -393,6 +397,10 @@ pub struct State {
     pub dialog_serial: u64,
     /// How the recovery copy stands, for the status bar.
     pub recovery: Option<crate::autosave::Written>,
+    /// The language of the interface.
+    pub language: crate::text::Language,
+    /// Light, dark or like the system.
+    pub theme: egui::ThemePreference,
 }
 
 impl State {

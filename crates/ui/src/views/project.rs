@@ -24,9 +24,9 @@ pub fn show(
     head(ui, doc, project, state, out);
     ui.add_space(4.0);
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut state.tab, Tab::List, text::LIST);
-        ui.selectable_value(&mut state.tab, Tab::Board, text::BOARD);
-        ui.selectable_value(&mut state.tab, Tab::Milestones, text::MILESTONES);
+        ui.selectable_value(&mut state.tab, Tab::List, text::t().list);
+        ui.selectable_value(&mut state.tab, Tab::Board, text::t().board);
+        ui.selectable_value(&mut state.tab, Tab::Milestones, text::t().milestones);
     });
     ui.separator();
     match state.tab {
@@ -63,25 +63,22 @@ fn head(
         egui::Grid::new("project-form")
             .num_columns(2)
             .show(ui, |ui| {
-                let label = ui.label(text::TITLE);
+                let label = ui.label(text::t().title);
                 ui.text_edit_singleline(&mut form.title)
                     .labelled_by(label.id);
                 ui.end_row();
-                let label = ui.label(text::KIND);
-                ui.add(
-                    egui::TextEdit::singleline(&mut form.kind)
-                        .hint_text("Projekt, SKA, Beschaffung …"),
-                )
-                .labelled_by(label.id);
+                let label = ui.label(text::t().kind);
+                ui.add(egui::TextEdit::singleline(&mut form.kind).hint_text(text::t().kind_hint))
+                    .labelled_by(label.id);
                 ui.end_row();
-                let label = ui.label(text::REFERENCE);
+                let label = ui.label(text::t().reference);
                 ui.text_edit_singleline(&mut form.reference)
                     .labelled_by(label.id);
                 ui.end_row();
-                let label = ui.label(text::START);
+                let label = ui.label(text::t().start);
                 date::date_input(ui, "project-start", &mut form.start, today, Some(label.id));
                 ui.end_row();
-                let label = ui.label(text::DUE);
+                let label = ui.label(text::t().due);
                 let case = !form.reference.trim().is_empty();
                 date::deadline_input(
                     ui,
@@ -93,10 +90,10 @@ fn head(
                     Some(label.id),
                 );
                 ui.end_row();
-                ui.label(text::OWNER);
+                ui.label(text::t().owner);
                 person_choice(ui, "project-owner", &mut form.owner, &people);
                 ui.end_row();
-                ui.label(text::STATUS);
+                ui.label(text::t().status);
                 egui::ComboBox::from_id_salt("project-status")
                     .selected_text(text::project_status(form.status))
                     .show_ui(ui, |ui| {
@@ -109,12 +106,12 @@ fn head(
                         }
                     });
                 ui.end_row();
-                ui.label(text::TEMPLATE);
-                ui.checkbox(&mut form.template, "Als Vorlage verwenden");
+                ui.label(text::t().template);
+                ui.checkbox(&mut form.template, text::t().use_as_template);
                 ui.end_row();
             });
         ui.horizontal(|ui| {
-            if ui.button(text::APPLY).clicked() {
+            if ui.button(text::t().apply).clicked() {
                 match form.update_params(project.id) {
                     Ok(params) => out.push(Intent::Run {
                         command: "project.update",
@@ -125,7 +122,7 @@ fn head(
                     Err(message) => error = Some(message),
                 }
             }
-            cancel = ui.button(text::CANCEL).clicked();
+            cancel = ui.button(text::t().cancel).clicked();
         });
         if let Some(message) = error {
             state.message = Some(crate::state::Message::error(message));
@@ -138,13 +135,13 @@ fn head(
 
     let mut line = Vec::new();
     if project.template {
-        line.push(text::TEMPLATE.to_owned());
+        line.push(text::t().template.to_owned());
     }
     if let Some(kind) = &project.kind {
         line.push(kind.clone());
     }
     if let Some(reference) = &project.reference {
-        line.push(format!("{} {reference}", text::REFERENCE));
+        line.push(format!("{} {reference}", text::t().reference));
     }
     line.push(text::project_status(project.status).to_owned());
     ui.horizontal(|ui| {
@@ -157,13 +154,13 @@ fn head(
             );
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if project.status != ProjectStatus::Archived && ui.button(text::ARCHIVE).clicked() {
+            if project.status != ProjectStatus::Archived && ui.button(text::t().archive).clicked() {
                 out.push(Intent::run(
                     "project.archive",
                     json!({"project": project.id.to_string()}),
                 ));
             }
-            if ui.button(text::EDIT).clicked() {
+            if ui.button(text::t().edit).clicked() {
                 state.forms.project = Some((project.clone(), ProjectForm::of(project)));
             }
         });
@@ -174,7 +171,7 @@ fn head(
             let (state, past) = text::deadline_state(due, project.due_time, now);
             let text = format!(
                 "{} {} · {state}",
-                text::DUE,
+                text::t().due,
                 dates::format_deadline(due, project.due_time),
             );
             if past && query::deadlines_count(project) {
@@ -184,16 +181,17 @@ fn head(
             }
         }
         if let Some(owner) = project.owner.and_then(|id| ws.person(id)) {
-            ui.label(format!("{}: {}", text::OWNER, owner.name));
+            ui.label(format!("{}: {}", text::t().owner, owner.name));
         }
     });
     if let Some(progress) = query::progress(ws, project.id) {
         ui.add(
             egui::ProgressBar::new(f32::from(progress.percent) / 100.0)
                 .desired_width(320.0)
-                .text(format!(
-                    "{} % · {} von {} erledigt",
-                    progress.percent, progress.done, progress.tasks
+                .text(text::progress(
+                    progress.percent,
+                    progress.done,
+                    progress.tasks,
                 )),
         );
     }
@@ -224,12 +222,12 @@ pub fn person_choice(
 ) -> bool {
     let current = value
         .and_then(|id| people.iter().find(|(p, _)| *p == id))
-        .map_or(text::NOBODY, |(_, name)| name.as_str());
+        .map_or(text::t().nobody, |(_, name)| name.as_str());
     let before = *value;
     egui::ComboBox::from_id_salt(id)
         .selected_text(current)
         .show_ui(ui, |ui| {
-            ui.selectable_value(value, None, text::NOBODY);
+            ui.selectable_value(value, None, text::t().nobody);
             for (person, name) in people {
                 ui.selectable_value(value, Some(*person), name);
             }
@@ -254,7 +252,7 @@ fn list(
         .collect();
     egui::ScrollArea::vertical().show(ui, |ui| {
         if roots.is_empty() {
-            ui.weak(text::NO_TASKS);
+            ui.weak(text::t().no_tasks);
         }
         let mut stack: Vec<(&Task, usize)> = roots.iter().rev().map(|t| (*t, 0)).collect();
         while let Some((task, depth)) = stack.pop() {
@@ -313,7 +311,7 @@ fn list(
                     };
                     let label = ui
                         .selectable_label(state.selected == Some(task.id), title)
-                        .on_hover_text(text::RENAME_HINT);
+                        .on_hover_text(text::t().rename_hint);
                     if label.double_clicked() {
                         state.forms.inline = Some((task.id, task.title.clone()));
                     } else if label.clicked() {
@@ -329,7 +327,7 @@ fn list(
                 }
                 due_label(ui, task.due, task.due_time, overdue);
                 status_tag(ui, task.status);
-                if icon_button(ui, "+", text::ADD_SUBTASK).clicked() {
+                if icon_button(ui, "+", text::t().add_subtask).clicked() {
                     state.forms.new_subtask = Some((task.id, String::new()));
                 }
             });
@@ -339,7 +337,7 @@ fn list(
             {
                 ui.horizontal(|ui| {
                     ui.add_space((depth + 1) as f32 * 20.0 + 24.0);
-                    if enter_field(ui, title, text::NEW_SUBTASK_HINT, 320.0) {
+                    if enter_field(ui, title, text::t().new_subtask_hint, 320.0) {
                         out.push(Intent::Run {
                             command: "task.create",
                             params: json!({
@@ -351,7 +349,7 @@ fn list(
                             clear: Some(Clear::NewSubtask),
                         });
                     }
-                    cancel = icon_button(ui, "🗙", text::CANCEL).clicked();
+                    cancel = icon_button(ui, "🗙", text::t().cancel).clicked();
                 });
             }
             if cancel {
@@ -362,7 +360,12 @@ fn list(
             }
         }
         ui.add_space(6.0);
-        if enter_field(ui, &mut state.forms.new_task, text::NEW_TASK_HINT, 360.0) {
+        if enter_field(
+            ui,
+            &mut state.forms.new_task,
+            text::t().new_task_hint,
+            360.0,
+        ) {
             out.push(Intent::Run {
                 command: "task.create",
                 params: json!({
@@ -392,7 +395,7 @@ fn milestones(
             .then(a.title.cmp(&b.title))
     });
     if all.is_empty() {
-        ui.weak(text::NO_MILESTONES);
+        ui.weak(text::t().no_milestones);
     }
     egui::Grid::new("milestones")
         .num_columns(4)
@@ -401,7 +404,7 @@ fn milestones(
             for milestone in all {
                 let state_now = query::milestone_state_in(project, milestone, now);
                 let mut reached = milestone.status == TaskStatus::Done;
-                if ui.checkbox(&mut reached, text::REACHED).changed() {
+                if ui.checkbox(&mut reached, text::t().reached).changed() {
                     let status = if reached {
                         TaskStatus::Done
                     } else {
@@ -434,7 +437,7 @@ fn milestones(
                 {
                     out.push(Intent::Select(Some(milestone.id)));
                 }
-                if icon_button(ui, "🗑", text::DELETE_MILESTONE).clicked() {
+                if icon_button(ui, "🗑", text::t().delete_milestone).clicked() {
                     out.push(Intent::Open(crate::state::Dialog::DeleteTask(milestone.id)));
                 }
                 ui.end_row();
@@ -444,7 +447,7 @@ fn milestones(
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.forms.milestone_title)
-                .hint_text(text::TITLE)
+                .hint_text(text::t().title)
                 .desired_width(240.0),
         );
         date::deadline_input(
@@ -456,7 +459,7 @@ fn milestones(
             project.reference.is_some(),
             None,
         );
-        if ui.button(text::NEW_MILESTONE).clicked() {
+        if ui.button(text::t().new_milestone).clicked() {
             match dates::parse_deadline(&state.forms.milestone_date, &state.forms.milestone_time) {
                 Ok(Some(due)) => out.push(Intent::Run {
                     command: "task.create",
@@ -470,7 +473,7 @@ fn milestones(
                     clear: Some(Clear::Milestone),
                 }),
                 Ok(None) => {
-                    state.message = Some(crate::state::Message::error("Bitte ein Datum angeben."));
+                    state.message = Some(crate::state::Message::error(text::t().date_needed));
                 }
                 Err(message) => state.message = Some(crate::state::Message::error(message)),
             }

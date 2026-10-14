@@ -14,11 +14,11 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
     let now = doc.session.clock().now_local();
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading(text::OVERVIEW);
+        ui.heading(text::t().overview);
         ui.add_space(8.0);
         let cards = query::overview(ws, now);
         if cards.is_empty() {
-            ui.label(text::NOTHING_YET);
+            ui.label(text::t().nothing_yet);
         }
         ui.horizontal_wrapped(|ui| {
             for card in &cards {
@@ -26,10 +26,10 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
             }
         });
         ui.add_space(16.0);
-        ui.heading(text::OVERDUE);
+        ui.heading(text::t().overdue);
         let overdue = query::overdue(ws, now);
         if overdue.is_empty() {
-            ui.weak(text::NOTHING_OVERDUE);
+            ui.weak(text::t().nothing_overdue);
         }
         for item in overdue {
             ui.horizontal(|ui| {
@@ -95,9 +95,9 @@ fn project_card(
                 let shown = dates::format_deadline(due, card.due_time);
                 // Templates, finished projects: the date only, never "overdue".
                 let line = if card.deadlines_count {
-                    format!("{} {shown} · {state}", text::DUE)
+                    format!("{} {shown} · {state}", text::t().due)
                 } else {
-                    format!("{} {shown}", text::DUE)
+                    format!("{} {shown}", text::t().due)
                 };
                 if past && card.deadlines_count {
                     ui.label(RichText::new(line).color(ui.visuals().error_fg_color));
@@ -106,14 +106,17 @@ fn project_card(
                 }
             }
             ui.add(
-                egui::ProgressBar::new(f32::from(card.progress.percent) / 100.0).text(format!(
-                    "{} % · {} von {} erledigt",
-                    card.progress.percent, card.progress.done, card.progress.tasks
-                )),
+                egui::ProgressBar::new(f32::from(card.progress.percent) / 100.0).text(
+                    text::progress(
+                        card.progress.percent,
+                        card.progress.done,
+                        card.progress.tasks,
+                    ),
+                ),
             );
-            let mut facts = vec![format!("{} offen", card.open_tasks)];
+            let mut facts = vec![text::open_tasks(card.open_tasks)];
             if card.overdue_tasks > 0 {
-                facts.push(format!("{} überfällig", card.overdue_tasks));
+                facts.push(text::overdue_tasks(card.overdue_tasks));
             }
             if let Some(owner) = &card.owner {
                 facts.push(owner.name.clone());
@@ -145,12 +148,12 @@ pub fn templates(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     let now = doc.session.clock().now_local();
     let today = now.date();
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading(text::TEMPLATES);
-        ui.weak("Eine Vorlage ist ein Projekt mit festem Ablauf. Daraus entstehen neue Vorgänge.");
+        ui.heading(text::t().templates);
+        ui.weak(text::t().templates_hint);
         ui.add_space(8.0);
         let cards = query::templates(ws, now);
         if cards.is_empty() {
-            ui.label("Noch keine Vorlagen. Lege ein Projekt an und markiere es als Vorlage.");
+            ui.label(text::t().no_templates);
         }
         ui.horizontal_wrapped(|ui| {
             for card in &cards {
@@ -165,7 +168,7 @@ pub fn templates(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
                     now,
                     out,
                     Some((
-                        text::FROM_TEMPLATE,
+                        text::t().from_template,
                         Intent::Open(Dialog::FromTemplate(form)),
                     )),
                 );

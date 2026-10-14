@@ -9,28 +9,28 @@ use crate::{Clear, Intent, Then, text};
 
 pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
-    ui.heading(text::PEOPLE);
+    ui.heading(text::t().people);
     ui.add_space(4.0);
     let mut people: Vec<_> = ws.people().collect();
     people.sort_by(|a, b| a.name.cmp(&b.name));
     let choices: Vec<(PersonId, String)> = people.iter().map(|p| (p.id, p.name.clone())).collect();
     ui.horizontal(|ui| {
-        ui.label(text::I_AM);
+        ui.label(text::t().i_am);
         let mut actor = doc.session.actor();
         if person_choice(ui, "actor", &mut actor, &choices) {
             out.push(Intent::Actor(actor));
         }
     });
-    ui.weak("Änderungen und Kommentare werden mit dieser Person vermerkt.");
+    ui.weak(text::t().i_am_hint);
     ui.add_space(8.0);
     egui::Grid::new("people")
         .num_columns(4)
         .striped(true)
         .show(ui, |ui| {
-            ui.strong(text::NAME);
-            ui.strong(text::INITIALS);
-            ui.strong(text::ROLE);
-            ui.strong(text::EMAIL);
+            ui.strong(text::t().name);
+            ui.strong(text::t().initials);
+            ui.strong(text::t().role);
+            ui.strong(text::t().email);
             ui.end_row();
             for person in &people {
                 ui.label(&person.name);
@@ -45,25 +45,25 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<I
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut form.name)
-                .hint_text(text::NAME)
+                .hint_text(text::t().name)
                 .desired_width(180.0),
         );
         ui.add(
             egui::TextEdit::singleline(&mut form.initials)
-                .hint_text(text::INITIALS)
+                .hint_text(text::t().initials)
                 .desired_width(50.0),
         );
         ui.add(
             egui::TextEdit::singleline(&mut form.role)
-                .hint_text(text::ROLE)
+                .hint_text(text::t().role)
                 .desired_width(140.0),
         );
         ui.add(
             egui::TextEdit::singleline(&mut form.email)
-                .hint_text(text::EMAIL)
+                .hint_text(text::t().email)
                 .desired_width(180.0),
         );
-        if ui.button(text::NEW_PERSON).clicked() {
+        if ui.button(text::t().new_person).clicked() {
             out.push(Intent::Run {
                 command: "person.create",
                 params: form.params(),

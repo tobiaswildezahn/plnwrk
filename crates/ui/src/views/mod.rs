@@ -56,7 +56,7 @@ pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
 
 /// The whole window.
 pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
-    menu_bar(ui, doc, out);
+    menu_bar(ui, doc, state, out);
     status_bar(ui, doc, state);
     match doc {
         None => {
@@ -80,49 +80,50 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
     dialogs::show(ui.ctx(), doc, state, out);
 }
 
-fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, out: &mut Vec<Intent>) {
+fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State, out: &mut Vec<Intent>) {
     egui::Panel::top("menu").show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button(text::FILE_MENU, |ui| {
-                if ui.button(text::NEW_FILE).clicked() {
+            ui.menu_button(text::t().file_menu, |ui| {
+                if ui.button(text::t().new_file).clicked() {
                     out.push(Intent::File(FileAction::New));
                 }
-                if ui.button(text::OPEN_FILE).clicked() {
+                if ui.button(text::t().open_file).clicked() {
                     out.push(Intent::File(FileAction::Open));
                 }
-                if ui.button(text::OPEN_SAMPLE).clicked() {
+                if ui.button(text::t().open_sample).clicked() {
                     out.push(Intent::File(FileAction::Sample));
                 }
                 ui.separator();
                 ui.add_enabled_ui(doc.is_some(), |ui| {
-                    if ui.button(text::SAVE).clicked() {
+                    if ui.button(text::t().save).clicked() {
                         out.push(Intent::File(FileAction::Save));
                     }
-                    if ui.button(text::SAVE_AS).clicked() {
+                    if ui.button(text::t().save_as).clicked() {
                         out.push(Intent::File(FileAction::SaveAs));
                     }
                     ui.separator();
                     let encrypted = doc.is_some_and(OpenDoc::encrypted);
-                    if !encrypted && ui.button(text::PROTECT).clicked() {
+                    if !encrypted && ui.button(text::t().protect).clicked() {
                         out.push(Intent::Open(Dialog::Protect {
                             first: String::new(),
                             second: String::new(),
                         }));
                     }
-                    if encrypted && ui.button(text::UNPROTECT).clicked() {
+                    if encrypted && ui.button(text::t().unprotect).clicked() {
                         out.push(Intent::Open(Dialog::Unprotect));
                     }
                     ui.separator();
-                    if ui.button(text::CLOSE_FILE).clicked() {
+                    if ui.button(text::t().close_file).clicked() {
                         out.push(Intent::File(FileAction::Close));
                     }
                 });
             });
             ui.add_enabled_ui(doc.is_some(), |ui| {
-                ui.menu_button(text::EDIT_MENU, |ui| {
+                ui.menu_button(text::t().edit_menu, |ui| {
                     undo_redo(ui, doc, out);
                 });
             });
+            ui.menu_button(text::t().view_menu, |ui| view_menu(ui, state, out));
             if doc.is_some() {
                 ui.separator();
                 undo_redo(ui, doc, out);
@@ -131,18 +132,51 @@ fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, out: &mut Vec<Intent>) {
     });
 }
 
+/// Language and theme.
+fn view_menu(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
+    ui.menu_button(text::t().language_menu, |ui| {
+        for language in text::Language::ALL {
+            if ui
+                .radio(state.language == language, language.name())
+                .clicked()
+            {
+                out.push(Intent::Language(language));
+                ui.close();
+            }
+        }
+    });
+    ui.menu_button(text::t().appearance, |ui| {
+        for (theme, name) in themes() {
+            if ui.radio(state.theme == theme, name).clicked() {
+                out.push(Intent::Theme(theme));
+                ui.close();
+            }
+        }
+    });
+}
+
+/// The themes with their names.
+pub fn themes() -> [(egui::ThemePreference, &'static str); 3] {
+    let t = text::t();
+    [
+        (egui::ThemePreference::System, t.theme_system),
+        (egui::ThemePreference::Light, t.theme_light),
+        (egui::ThemePreference::Dark, t.theme_dark),
+    ]
+}
+
 fn undo_redo(ui: &mut egui::Ui, doc: Option<&OpenDoc>, out: &mut Vec<Intent>) {
     let session = doc.map(|d| &d.session);
     let can_undo = session.is_some_and(plnwrk_engine::Session::can_undo);
     let can_redo = session.is_some_and(plnwrk_engine::Session::can_redo);
     if ui
-        .add_enabled(can_undo, egui::Button::new(format!("⟲ {}", text::UNDO)))
+        .add_enabled(can_undo, egui::Button::new(format!("⟲ {}", text::t().undo)))
         .clicked()
     {
         out.push(Intent::run("undo", serde_json::json!({})));
     }
     if ui
-        .add_enabled(can_redo, egui::Button::new(format!("⟳ {}", text::REDO)))
+        .add_enabled(can_redo, egui::Button::new(format!("⟳ {}", text::t().redo)))
         .clicked()
     {
         out.push(Intent::run("redo", serde_json::json!({})));
@@ -153,19 +187,20 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
     egui::Panel::bottom("status").show(ui, |ui| {
         ui.horizontal(|ui| {
             if let Some(doc) = doc {
-                let place = doc
-                    .path()
-                    .map_or_else(|| text::UNTITLED.to_owned(), |p| p.display().to_string());
+                let place = doc.path().map_or_else(
+                    || text::t().untitled.to_owned(),
+                    |p| p.display().to_string(),
+                );
                 ui.weak(place);
                 if doc.encrypted() {
                     ui.weak("🔒");
                 }
                 if doc.is_dirty() {
-                    ui.label(text::NOT_SAVED);
+                    ui.label(text::t().not_saved);
                 }
                 if doc.session.workspace().highest_classification() >= Classification::VsNfd {
                     ui.label(
-                        RichText::new(text::VS_NFD)
+                        RichText::new(text::t().vs_nfd)
                             .strong()
                             .color(ui.visuals().error_fg_color),
                     );
@@ -174,12 +209,12 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
             if doc.is_some() {
                 match &state.recovery {
                     Some(crate::autosave::Written::At(time)) => {
-                        ui.weak(format!("{} {time}", text::RECOVERY_SAVED))
-                            .on_hover_text(text::RECOVERY_SAVED_HINT);
+                        ui.weak(format!("{} {time}", text::t().recovery_saved))
+                            .on_hover_text(text::t().recovery_saved_hint);
                     }
                     Some(crate::autosave::Written::Failed(reason)) => {
                         ui.label(
-                            RichText::new(text::RECOVERY_FAILED.trim_end_matches(':'))
+                            RichText::new(text::t().recovery_failed.trim_end_matches(':'))
                                 .color(ui.visuals().error_fg_color),
                         )
                         .on_hover_text(reason);
@@ -204,24 +239,28 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() * 0.2);
         ui.heading(RichText::new(crate::APP_NAME).size(32.0));
-        ui.label(text::WELCOME);
-        ui.weak(format!("Version {}", env!("CARGO_PKG_VERSION")));
+        ui.label(text::t().welcome);
+        ui.weak(format!(
+            "{} {}",
+            text::t().version,
+            env!("CARGO_PKG_VERSION")
+        ));
         ui.add_space(16.0);
         let big = |label: &str| {
             egui::Button::new(RichText::new(label).size(16.0)).min_size(egui::vec2(220.0, 34.0))
         };
-        if ui.add(big(text::NEW_FILE)).clicked() {
+        if ui.add(big(text::t().new_file)).clicked() {
             out.push(Intent::File(FileAction::New));
         }
-        if ui.add(big(text::OPEN_FILE)).clicked() {
+        if ui.add(big(text::t().open_file)).clicked() {
             out.push(Intent::File(FileAction::Open));
         }
-        if ui.add(big(text::OPEN_SAMPLE)).clicked() {
+        if ui.add(big(text::t().open_sample)).clicked() {
             out.push(Intent::File(FileAction::Sample));
         }
         if !state.recovered.is_empty() {
             ui.add_space(16.0);
-            ui.strong(text::RECOVERED);
+            ui.strong(text::t().recovered);
             for path in &state.recovered {
                 let name = path.file_name().map_or_else(
                     || path.display().to_string(),
@@ -235,7 +274,7 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     {
                         out.push(Intent::File(FileAction::OpenPath(path.clone())));
                     }
-                    if icon_button(ui, "🗑", text::DELETE_COPY).clicked() {
+                    if icon_button(ui, "🗑", text::t().delete_copy).clicked() {
                         out.push(Intent::Open(Dialog::DeleteCopy(path.clone())));
                     }
                 });
@@ -243,7 +282,7 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
         }
         if !state.recent.is_empty() {
             ui.add_space(16.0);
-            ui.strong(text::RECENT);
+            ui.strong(text::t().recent);
             for path in &state.recent {
                 let name = path.file_name().map_or_else(
                     || path.display().to_string(),
@@ -271,16 +310,16 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(4.0);
                 if ui
-                    .selectable_label(state.view == View::Overview, text::OVERVIEW)
+                    .selectable_label(state.view == View::Overview, text::t().overview)
                     .clicked()
                 {
                     out.push(Intent::Go(View::Overview));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button(text::NEW_PROJECT).clicked() {
+                    if ui.button(text::t().new_project).clicked() {
                         out.push(Intent::Open(Dialog::NewProject(ProjectForm::default())));
                     }
-                    if ui.button(text::FROM_TEMPLATE).clicked() {
+                    if ui.button(text::t().from_template).clicked() {
                         out.push(Intent::Open(Dialog::FromTemplate(TemplateForm {
                             start: crate::dates::format(today),
                             ..TemplateForm::default()
@@ -288,7 +327,7 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                     }
                 });
                 ui.separator();
-                ui.strong(text::PROJECTS);
+                ui.strong(text::t().projects);
                 for card in query::overview(ws, now) {
                     let label = match &card.reference {
                         Some(reference) => format!("{} · {reference}", card.title),
@@ -297,7 +336,7 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                     let shown = state.view == View::Project(card.id);
                     let mut response = ui.selectable_label(shown, label);
                     if card.overdue_tasks > 0 || card.days_left.is_some_and(|d| d < 0) {
-                        response = response.on_hover_text(text::OVERDUE);
+                        response = response.on_hover_text(text::t().overdue);
                     }
                     if response.clicked() {
                         out.push(Intent::Go(View::Project(card.id)));
@@ -305,13 +344,13 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                 }
                 ui.separator();
                 if ui
-                    .selectable_label(state.view == View::Templates, text::TEMPLATES)
+                    .selectable_label(state.view == View::Templates, text::t().templates)
                     .clicked()
                 {
                     out.push(Intent::Go(View::Templates));
                 }
                 if ui
-                    .selectable_label(state.view == View::People, text::PEOPLE)
+                    .selectable_label(state.view == View::People, text::t().people)
                     .clicked()
                 {
                     out.push(Intent::Go(View::People));

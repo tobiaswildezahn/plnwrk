@@ -74,10 +74,10 @@ fn scratch(name: &str) -> PathBuf {
 /// An empty file with one project, shown in its list.
 fn with_project(title: &str) -> Harness<'static, PlnwrkApp> {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::TITLE, title, false);
-    click(&mut harness, text::CREATE);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, title, false);
+    click(&mut harness, text::t().create);
     harness
 }
 
@@ -86,7 +86,7 @@ fn the_sample_opens_and_shows_its_projects() {
     let mut harness = harness(PlnwrkApp::default());
     assert!(harness.state().doc().is_none());
     assert_eq!(harness.state().title(), crate::APP_NAME);
-    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::t().open_sample);
     let app = harness.state();
     assert!(app.doc().is_some_and(crate::OpenDoc::is_dirty));
     assert!(app.title().starts_with('●'));
@@ -96,18 +96,18 @@ fn the_sample_opens_and_shows_its_projects() {
             .count()
             >= 1
     );
-    assert!(harness.query_by_label(text::OVERDUE).is_some());
+    assert!(harness.query_by_label(text::t().overdue).is_some());
 }
 
 #[test]
 fn a_project_is_created_in_the_dialog_and_shown() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::TITLE, "Umzug Leitstelle", false);
-    type_into(&mut harness, text::REFERENCE, "112-4/26", false);
-    type_into(&mut harness, text::DUE, "31.12.2026", false);
-    click(&mut harness, text::CREATE);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Umzug Leitstelle", false);
+    type_into(&mut harness, text::t().reference, "112-4/26", false);
+    type_into(&mut harness, text::t().due, "31.12.2026", false);
+    click(&mut harness, text::t().create);
     let all = projects(harness.state());
     let [project] = all.as_slice() else {
         panic!("{all:?}")
@@ -125,11 +125,11 @@ fn a_project_is_created_in_the_dialog_and_shown() {
 #[test]
 fn a_wrong_date_keeps_the_dialog_open_and_says_why() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::TITLE, "Umzug", false);
-    type_into(&mut harness, text::DUE, "31.02.2026", false);
-    click(&mut harness, text::CREATE);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Umzug", false);
+    type_into(&mut harness, text::t().due, "31.02.2026", false);
+    click(&mut harness, text::t().create);
     let app = harness.state();
     assert!(projects(app).is_empty());
     assert!(app.state.dialog.is_some(), "input stays");
@@ -139,18 +139,28 @@ fn a_wrong_date_keeps_the_dialog_open_and_says_why() {
 #[test]
 fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     let mut harness = with_project("Übung Hochwasser");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Lage vorbereiten", true);
-    type_into(&mut harness, text::NEW_TASK_HINT, "Einladung", true);
+    type_into(
+        &mut harness,
+        text::t().new_task_hint,
+        "Lage vorbereiten",
+        true,
+    );
+    type_into(&mut harness, text::t().new_task_hint, "Einladung", true);
     let parent = task_named(harness.state(), "Lage vorbereiten").unwrap();
     assert!(task_named(harness.state(), "Einladung").is_some());
 
     harness
-        .get_all_by_label(text::ADD_SUBTASK)
+        .get_all_by_label(text::t().add_subtask)
         .next()
         .unwrap()
         .click();
     harness.run();
-    type_into(&mut harness, text::NEW_SUBTASK_HINT, "Karten drucken", true);
+    type_into(
+        &mut harness,
+        text::t().new_subtask_hint,
+        "Karten drucken",
+        true,
+    );
     let child = task_named(harness.state(), "Karten drucken").unwrap();
     assert_eq!(child.parent, Some(parent.id));
 
@@ -168,11 +178,11 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
         TaskStatus::Done
     );
 
-    click(&mut harness, text::MILESTONES);
+    click(&mut harness, text::t().milestones);
     assert_eq!(harness.state().state.tab, Tab::Milestones);
-    type_into(&mut harness, text::TITLE, "Übungstag", false);
+    type_into(&mut harness, text::t().title, "Übungstag", false);
     type_into(&mut harness, "TT.MM.JJJJ", "30.13.2026", false);
-    click(&mut harness, text::NEW_MILESTONE);
+    click(&mut harness, text::t().new_milestone);
     let milestones = |app: &PlnwrkApp| tasks(app).into_iter().filter(|t| t.milestone).count();
     assert_eq!(milestones(harness.state()), 0);
     assert!(
@@ -190,7 +200,7 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     );
 
     harness.state_mut().state.forms.milestone_date = "30.11.2026".to_owned();
-    click(&mut harness, text::NEW_MILESTONE);
+    click(&mut harness, text::t().new_milestone);
     let milestone = tasks(harness.state())
         .into_iter()
         .find(|t| t.milestone)
@@ -207,7 +217,7 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
 #[test]
 fn undo_and_redo_buttons_change_the_data_but_typing_keeps_its_own_undo() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
     assert!(task_named(harness.state(), "Kisten").is_some());
 
     // The new-task field still has the focus: Cmd+Z belongs to the text field.
@@ -215,14 +225,14 @@ fn undo_and_redo_buttons_change_the_data_but_typing_keeps_its_own_undo() {
     harness.run();
     assert!(task_named(harness.state(), "Kisten").is_some());
 
-    click(&mut harness, &format!("⟲ {}", text::UNDO));
+    click(&mut harness, &format!("⟲ {}", text::t().undo));
     assert!(task_named(harness.state(), "Kisten").is_none());
-    click(&mut harness, &format!("⟳ {}", text::REDO));
+    click(&mut harness, &format!("⟳ {}", text::t().redo));
     assert!(task_named(harness.state(), "Kisten").is_some());
 
     // Undo everything: the project disappears and the view falls back to the overview.
     while harness.state().doc().is_some_and(|d| d.session.can_undo()) {
-        click(&mut harness, &format!("⟲ {}", text::UNDO));
+        click(&mut harness, &format!("⟲ {}", text::t().undo));
     }
     assert!(projects(harness.state()).is_empty());
     assert_eq!(harness.state().state.view, View::Overview);
@@ -243,15 +253,15 @@ fn the_shortcut_undoes_when_no_field_is_edited() {
 #[test]
 fn a_case_is_created_from_the_template() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::OPEN_SAMPLE);
-    click(&mut harness, text::FROM_TEMPLATE);
+    click(&mut harness, text::t().open_sample);
+    click(&mut harness, text::t().from_template);
     harness.get_by_value("Bitte wählen").click();
     harness.run();
     click(&mut harness, "SKA beantworten");
-    type_into(&mut harness, text::TITLE, "SKA 23/2000 Warn-App", false);
-    type_into(&mut harness, text::REFERENCE, "23/2000", false);
-    type_into(&mut harness, text::DUE, "20.11.2026", false);
-    click(&mut harness, text::CREATE);
+    type_into(&mut harness, text::t().title, "SKA 23/2000 Warn-App", false);
+    type_into(&mut harness, text::t().reference, "23/2000", false);
+    type_into(&mut harness, text::t().due, "20.11.2026", false);
+    click(&mut harness, text::t().create);
     let case = projects(harness.state())
         .into_iter()
         .find(|p| p.title == "SKA 23/2000 Warn-App")
@@ -266,36 +276,36 @@ fn a_case_is_created_from_the_template() {
 #[test]
 fn the_detail_panel_edits_comments_and_shows_history() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten packen", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten packen", true);
     click(&mut harness, "Kisten packen");
     let id = task_named(harness.state(), "Kisten packen").unwrap().id;
     assert_eq!(harness.state().state.selected, Some(id));
 
     type_into(
         &mut harness,
-        text::NEW_COMMENT_HINT,
+        text::t().new_comment_hint,
         "Bitte bis Freitag",
         false,
     );
-    click(&mut harness, text::ADD_COMMENT);
+    click(&mut harness, text::t().add_comment);
     let ws = harness.state().doc().unwrap().session.workspace();
     assert_eq!(ws.comments().filter(|c| c.task == id).count(), 1);
     assert!(harness.query_by_label("Bitte bis Freitag").is_some());
 
     // A due date typed in the panel is stored when the field loses focus.
-    type_into(&mut harness, text::DUE, "01.12.2026", true);
+    type_into(&mut harness, text::t().due, "01.12.2026", true);
     let task = task_named(harness.state(), "Kisten packen").unwrap();
     assert_eq!(
         task.due.map(|d| d.to_string()),
         Some("2026-12-01".to_owned())
     );
 
-    click(&mut harness, text::HISTORY);
+    click(&mut harness, text::t().history);
     assert!(harness.query_by_label("angelegt").is_some());
-    assert!(harness.query_by_label("geändert: due").is_some());
+    assert!(harness.query_by_label("geändert: Frist").is_some());
 
-    click(&mut harness, text::DELETE_TASK);
-    click(&mut harness, text::DELETE);
+    click(&mut harness, text::t().delete_task);
+    click(&mut harness, text::t().delete);
     assert!(task_named(harness.state(), "Kisten packen").is_none());
     assert_eq!(harness.state().state.selected, None);
 }
@@ -309,7 +319,7 @@ fn files_are_saved_reopened_and_remembered() {
         open: vec![path.clone()],
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
-    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::t().open_sample);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     let app = harness.state();
@@ -318,9 +328,9 @@ fn files_are_saved_reopened_and_remembered() {
     assert_eq!(app.state.recent, vec![path.canonicalize().unwrap()]);
     assert_eq!(app.title(), format!("abteilung – {}", crate::APP_NAME));
 
-    harness.get_by_label(text::FILE_MENU).click();
+    harness.get_by_label(text::t().file_menu).click();
     harness.run();
-    click(&mut harness, text::CLOSE_FILE);
+    click(&mut harness, text::t().close_file);
     assert!(harness.state().doc().is_none());
     // Recently opened files appear on the start page.
     assert!(harness.query_by_label("abteilung.plnwrk").is_some());
@@ -334,23 +344,23 @@ fn files_are_saved_reopened_and_remembered() {
 #[test]
 fn unsaved_changes_are_never_dropped_without_asking() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::OPEN_SAMPLE);
-    harness.get_by_label(text::FILE_MENU).click();
+    click(&mut harness, text::t().open_sample);
+    harness.get_by_label(text::t().file_menu).click();
     harness.run();
-    click(&mut harness, text::NEW_FILE);
-    assert!(harness.query_by_label(text::UNSAVED_TITLE).is_some());
-    click(&mut harness, text::CANCEL);
+    click(&mut harness, text::t().new_file);
+    assert!(harness.query_by_label(text::t().unsaved_title).is_some());
+    click(&mut harness, text::t().cancel);
     assert!(projects(harness.state()).len() >= 3, "kept");
 
     assert!(!harness.state_mut().close_requested(), "asks first");
     harness.run();
-    click(&mut harness, text::CANCEL);
+    click(&mut harness, text::t().cancel);
     assert!(!harness.state().wants_to_quit());
 
-    harness.get_by_label(text::FILE_MENU).click();
+    harness.get_by_label(text::t().file_menu).click();
     harness.run();
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::DISCARD);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().discard);
     assert!(projects(harness.state()).is_empty());
     assert!(harness.state_mut().close_requested(), "nothing to lose");
 }
@@ -358,7 +368,7 @@ fn unsaved_changes_are_never_dropped_without_asking() {
 #[test]
 fn saving_without_a_place_asks_and_a_cancelled_dialog_changes_nothing() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::t().open_sample);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     assert!(
@@ -369,16 +379,16 @@ fn saving_without_a_place_asks_and_a_cancelled_dialog_changes_nothing() {
     // Quit → save → the save dialog is cancelled → the app stays open.
     assert!(!harness.state_mut().close_requested());
     harness.run();
-    click(&mut harness, text::SAVE);
+    click(&mut harness, text::t().save);
     assert!(!harness.state().wants_to_quit());
 }
 
 #[test]
 fn cards_move_on_the_board_by_drag_and_drop() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
-    type_into(&mut harness, text::NEW_TASK_HINT, "Transporter", true);
-    click(&mut harness, text::BOARD);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    type_into(&mut harness, text::t().new_task_hint, "Transporter", true);
+    click(&mut harness, text::t().board);
     let card = harness.get_by_label("Kisten").rect().center();
     let target = harness.get_by_label("Erledigt (0)").rect().center() + egui::vec2(0.0, 60.0);
     harness.drag_at(card);
@@ -400,8 +410,8 @@ fn cards_move_on_the_board_by_drag_and_drop() {
 #[test]
 fn a_click_on_a_board_card_opens_its_details() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
-    click(&mut harness, text::BOARD);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    click(&mut harness, text::t().board);
     let id = task_named(harness.state(), "Kisten").unwrap().id;
     // Click on the card body below the title, like a person would.
     let card = harness.get_by_label("Kisten").rect();
@@ -413,7 +423,7 @@ fn a_click_on_a_board_card_opens_its_details() {
     harness.drop_at(below);
     harness.run();
     assert_eq!(harness.state().state.selected, Some(id));
-    assert!(harness.query_by_label(text::DELETE_TASK).is_some());
+    assert!(harness.query_by_label(text::t().delete_task).is_some());
 }
 
 /// Saves the sample to a file and selects a task in its list.
@@ -425,7 +435,7 @@ fn saved_sample_with_task(name: &str, task: &str) -> (Harness<'static, PlnwrkApp
         open: vec![path.clone()],
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
-    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::t().open_sample);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     assert!(!harness.state().has_unsaved_changes());
@@ -449,7 +459,7 @@ fn typed_text_is_saved_by_the_shortcut_even_while_the_field_has_focus() {
     let (mut harness, path) = saved_sample_with_task("typed-save", "Einbau Wache 11");
     type_into(
         &mut harness,
-        text::DESCRIPTION,
+        text::t().description,
         "Schlüssel bei Wache holen",
         false,
     );
@@ -473,10 +483,10 @@ fn typed_text_is_saved_by_the_shortcut_even_while_the_field_has_focus() {
 #[test]
 fn closing_with_typed_text_asks_first() {
     let (mut harness, _) = saved_sample_with_task("typed-close", "Einbau Wache 11");
-    type_into(&mut harness, text::DUE, "24.12.2026", false);
+    type_into(&mut harness, text::t().due, "24.12.2026", false);
     assert!(!harness.state_mut().close_requested(), "asks");
     harness.run();
-    assert!(harness.query_by_label(text::UNSAVED_TITLE).is_some());
+    assert!(harness.query_by_label(text::t().unsaved_title).is_some());
     let task = task_named(harness.state(), "Einbau Wache 11").unwrap();
     assert_eq!(
         task.due.map(|d| d.to_string()),
@@ -488,7 +498,7 @@ fn closing_with_typed_text_asks_first() {
 fn a_wrong_typed_date_never_blocks_saving_or_closing() {
     let (mut harness, _) = saved_sample_with_task("typed-wrong", "Einbau Wache 11");
     let before = task_named(harness.state(), "Einbau Wache 11").unwrap().due;
-    type_into(&mut harness, text::DESCRIPTION, "Wichtig", false);
+    type_into(&mut harness, text::t().description, "Wichtig", false);
     let draft = harness.state_mut().state.forms.task.as_mut().unwrap();
     draft.due = "31.02.2026".to_owned();
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
@@ -509,7 +519,7 @@ fn a_wrong_typed_date_never_blocks_saving_or_closing() {
 #[test]
 fn closing_stores_typed_text_before_it_asks() {
     let (mut harness, _) = saved_sample_with_task("close-flush", "Einbau Wache 11");
-    type_into(&mut harness, text::DUE, "24.12.2026", false);
+    type_into(&mut harness, text::t().due, "24.12.2026", false);
     assert!(!harness.state_mut().close_requested());
     // Stored by the close request itself, before any further frame.
     let task = task_named(harness.state(), "Einbau Wache 11").unwrap();
@@ -522,7 +532,12 @@ fn closing_stores_typed_text_before_it_asks() {
 #[test]
 fn choosing_another_task_stores_what_was_typed() {
     let (mut harness, _) = saved_sample_with_task("select-flush", "Einbau Wache 11");
-    type_into(&mut harness, text::DESCRIPTION, "Notiz für Wache 11", false);
+    type_into(
+        &mut harness,
+        text::t().description,
+        "Notiz für Wache 11",
+        false,
+    );
     let other = task_named(harness.state(), "Schulung Einsatzkräfte")
         .unwrap()
         .id;
@@ -558,12 +573,12 @@ fn a_recovery_copy_is_written_only_when_something_would_be_lost() {
     // The person chose to discard: nothing is written, and the copy goes.
     app.key_press_modifiers(Modifiers::COMMAND, Key::Q);
     app.run();
-    click(&mut app, text::DISCARD);
+    click(&mut app, text::t().discard);
     assert!(app.state_mut().emergency_save().is_none());
     assert!(crate::doc::recovery_copies(&dir).is_empty());
     // Nothing changed: nothing is written.
     let mut clean = harness(PlnwrkApp::default());
-    click(&mut clean, text::NEW_FILE);
+    click(&mut clean, text::t().new_file);
     clean
         .state_mut()
         .set_autosave(Some(dir.clone()), false, crate::autosave::INTERVAL);
@@ -582,14 +597,14 @@ fn autosave_writes_a_copy_and_saving_removes_it() {
     let mut app = PlnwrkApp::with_host(Box::new(host));
     app.set_autosave(Some(recovery.clone()), false, 0.0);
     let mut harness = harness(app);
-    click(&mut harness, text::NEW_FILE);
+    click(&mut harness, text::t().new_file);
     assert!(
         crate::doc::recovery_copies(&recovery).is_empty(),
         "nothing to keep yet"
     );
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::TITLE, "Lage", false);
-    click(&mut harness, text::CREATE);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Lage", false);
+    click(&mut harness, text::t().create);
     harness.run();
     let copies = crate::doc::recovery_copies(&recovery);
     assert_eq!(copies.len(), 1, "a copy right after the change");
@@ -622,7 +637,7 @@ fn a_recovery_copy_opens_as_unsaved_work_and_goes_once_saved() {
     let mut crashed = PlnwrkApp::default();
     crashed.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
     let mut crashed = harness(crashed);
-    click(&mut crashed, text::OPEN_SAMPLE);
+    click(&mut crashed, text::t().open_sample);
     let copy = crashed.state_mut().emergency_save().unwrap();
     drop(crashed);
 
@@ -634,20 +649,20 @@ fn a_recovery_copy_opens_as_unsaved_work_and_goes_once_saved() {
     app.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
     app.state.recovered = crate::doc::recovery_copies(&recovery);
     let mut harness = harness(app);
-    assert!(harness.query_by_label(text::RECOVERED).is_some());
+    assert!(harness.query_by_label(text::t().recovered).is_some());
     let name = copy.file_name().unwrap().to_string_lossy().into_owned();
     click(&mut harness, &name);
     let app = harness.state();
     assert_eq!(
         app.state.message.clone().unwrap().text,
-        text::RECOVERED_OPENED
+        text::t().recovered_opened
     );
     assert!(app.has_unsaved_changes());
     assert!(
         app.doc().unwrap().path().is_none(),
         "saving asks for a place"
     );
-    assert_eq!(app.doc().unwrap().name(), text::UNTITLED);
+    assert_eq!(app.doc().unwrap().name(), text::t().untitled);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     assert!(dir.join("gerettet.plnwrk").exists());
@@ -657,19 +672,19 @@ fn a_recovery_copy_opens_as_unsaved_work_and_goes_once_saved() {
 #[test]
 fn every_dialog_focuses_its_first_field_each_time() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::NEW_FILE);
+    click(&mut harness, text::t().new_file);
     for _ in 0..2 {
-        click(&mut harness, text::NEW_PROJECT);
+        click(&mut harness, text::t().new_project);
         harness.run();
-        assert!(harness.get_by_label(text::TITLE).is_focused());
-        click(&mut harness, text::CANCEL);
+        assert!(harness.get_by_label(text::t().title).is_focused());
+        click(&mut harness, text::t().cancel);
     }
 }
 
 #[test]
 fn typing_survives_a_change_of_the_task_from_elsewhere() {
     let (mut harness, _) = saved_sample_with_task("rebase", "Einbau Wache 11");
-    type_into(&mut harness, text::TAGS, "eilig, intern", false);
+    type_into(&mut harness, text::t().tags, "eilig, intern", false);
     let id = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
     // The progress changes meanwhile (as by the slider or a drag on the board).
     harness
@@ -698,17 +713,20 @@ fn typing_survives_a_change_of_the_task_from_elsewhere() {
 #[test]
 fn undo_with_the_detail_panel_open_shows_the_old_value() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
     click(&mut harness, "Kisten");
-    type_into(&mut harness, text::DUE, "01.12.2026", true);
+    type_into(&mut harness, text::t().due, "01.12.2026", true);
     assert_eq!(
-        harness.get_by_label(text::DUE).value().as_deref(),
+        harness.get_by_label(text::t().due).value().as_deref(),
         Some("01.12.2026")
     );
-    click(&mut harness, &format!("⟲ {}", text::UNDO));
+    click(&mut harness, &format!("⟲ {}", text::t().undo));
     let task = task_named(harness.state(), "Kisten").unwrap();
     assert_eq!(task.due, None);
-    assert_eq!(harness.get_by_label(text::DUE).value().as_deref(), Some(""));
+    assert_eq!(
+        harness.get_by_label(text::t().due).value().as_deref(),
+        Some("")
+    );
 }
 
 #[test]
@@ -728,14 +746,14 @@ fn every_action_that_drops_the_file_asks_first() {
             save: Vec::new(),
         };
         let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
-        click(&mut harness, text::OPEN_SAMPLE);
+        click(&mut harness, text::t().open_sample);
         harness.state_mut().file(action.clone());
         harness.run();
         assert!(
-            harness.query_by_label(text::UNSAVED_TITLE).is_some(),
+            harness.query_by_label(text::t().unsaved_title).is_some(),
             "{action:?} asks"
         );
-        click(&mut harness, text::CANCEL);
+        click(&mut harness, text::t().cancel);
         assert!(
             projects(harness.state()).len() >= 3,
             "{action:?} kept the data"
@@ -755,30 +773,30 @@ fn the_quit_shortcut_asks_about_unsaved_changes() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
     harness.run();
     assert!(!harness.state().wants_to_quit());
-    assert!(harness.query_by_label(text::UNSAVED_TITLE).is_some());
-    click(&mut harness, text::DISCARD);
+    assert!(harness.query_by_label(text::t().unsaved_title).is_some());
+    click(&mut harness, text::t().discard);
     assert!(harness.state().wants_to_quit());
 }
 
 fn harness_with_sample() -> Harness<'static, PlnwrkApp> {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::t().open_sample);
     harness
 }
 
 #[test]
 fn shortcuts_wait_while_a_dialog_is_open() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
     click(&mut harness, "Kisten");
-    click(&mut harness, text::DELETE_TASK);
+    click(&mut harness, text::t().delete_task);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     harness.run();
     assert!(
         task_named(harness.state(), "Kisten").is_some(),
         "no undo behind the dialog"
     );
-    click(&mut harness, text::DELETE);
+    click(&mut harness, text::t().delete);
     assert!(task_named(harness.state(), "Kisten").is_none());
     assert!(harness.state().state.message.is_none());
 }
@@ -786,12 +804,12 @@ fn shortcuts_wait_while_a_dialog_is_open() {
 #[test]
 fn a_half_written_comment_never_lands_on_another_task() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
-    type_into(&mut harness, text::NEW_TASK_HINT, "Transporter", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    type_into(&mut harness, text::t().new_task_hint, "Transporter", true);
     click(&mut harness, "Kisten");
     type_into(
         &mut harness,
-        text::NEW_COMMENT_HINT,
+        text::t().new_comment_hint,
         "nur für Kisten",
         false,
     );
@@ -805,9 +823,9 @@ fn a_half_written_comment_never_lands_on_another_task() {
 fn cards_are_reordered_within_a_column() {
     let mut harness = with_project("Umzug");
     for title in ["Erste", "Zweite", "Dritte"] {
-        type_into(&mut harness, text::NEW_TASK_HINT, title, true);
+        type_into(&mut harness, text::t().new_task_hint, title, true);
     }
-    click(&mut harness, text::BOARD);
+    click(&mut harness, text::t().board);
     let third = harness.get_by_label("Dritte").rect().center();
     let first = harness.get_by_label("Erste").rect();
     let above_first = egui::pos2(first.center().x, first.top() + 2.0);
@@ -848,7 +866,11 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
     harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
     harness.run();
-    assert!(harness.query_by_label(text::PASSPHRASE_QUESTION).is_some());
+    assert!(
+        harness
+            .query_by_label(text::t().passphrase_question)
+            .is_some()
+    );
 
     let field = harness.get_by_role(egui::accesskit::Role::PasswordInput);
     field.focus();
@@ -865,7 +887,9 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
             .is_some_and(|m| m.error)
     );
     assert!(
-        harness.query_by_label(text::PASSPHRASE_QUESTION).is_some(),
+        harness
+            .query_by_label(text::t().passphrase_question)
+            .is_some(),
         "asked again"
     );
 
@@ -884,9 +908,9 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
 fn save_as_onto_the_open_file_and_opening_it_again_are_harmless() {
     let (mut harness, path) = saved_sample_with_task("same-file", "Einbau Wache 11");
     // The second scripted save answer is the same path.
-    harness.get_by_label(text::FILE_MENU).click();
+    harness.get_by_label(text::t().file_menu).click();
     harness.run();
-    click(&mut harness, text::SAVE_AS);
+    click(&mut harness, text::t().save_as);
     let app = harness.state();
     assert!(
         app.state.message.as_ref().is_some_and(|m| !m.error),
@@ -897,7 +921,7 @@ fn save_as_onto_the_open_file_and_opening_it_again_are_harmless() {
     harness.state_mut().open_path(path);
     harness.run();
     let message = harness.state().state.message.clone().unwrap();
-    assert_eq!(message.text, text::ALREADY_OPEN);
+    assert_eq!(message.text, text::t().already_open);
 }
 
 #[test]
@@ -905,7 +929,11 @@ fn the_project_form_never_writes_back_outdated_values() {
     let mut harness = with_project("Umzug");
     let id = projects(harness.state()).first().unwrap().id;
     // "Bearbeiten" is also the menu; the button of the project head comes last.
-    harness.get_all_by_label(text::EDIT).last().unwrap().click();
+    harness
+        .get_all_by_label(text::t().edit)
+        .last()
+        .unwrap()
+        .click();
     harness.run();
     assert!(harness.state().state.forms.project.is_some());
     // Changed meanwhile (e.g. undo, or another field): the open form must follow.
@@ -922,7 +950,7 @@ fn the_project_form_never_writes_back_outdated_values() {
         )
         .unwrap();
     harness.run();
-    click(&mut harness, text::APPLY);
+    click(&mut harness, text::t().apply);
     let project = projects(harness.state()).into_iter().next().unwrap();
     assert_eq!(project.reference.as_deref(), Some("AZ 7"));
 }
@@ -930,14 +958,14 @@ fn the_project_form_never_writes_back_outdated_values() {
 #[test]
 fn opening_the_open_file_again_does_not_ask_or_drop_anything() {
     let (mut harness, path) = saved_sample_with_task("reopen-dirty", "Einbau Wache 11");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Neu", true);
+    type_into(&mut harness, text::t().new_task_hint, "Neu", true);
     assert!(harness.state().has_unsaved_changes());
     harness.state_mut().open_path(path);
     harness.run();
     assert!(harness.state().state.dialog.is_none(), "no question");
     assert_eq!(
         harness.state().state.message.clone().unwrap().text,
-        text::ALREADY_OPEN
+        text::t().already_open
     );
     assert!(task_named(harness.state(), "Neu").is_some());
 }
@@ -945,7 +973,7 @@ fn opening_the_open_file_again_does_not_ask_or_drop_anything() {
 #[test]
 fn a_refused_typed_title_is_put_back_and_does_not_block_closing() {
     let (mut harness, _) = saved_sample_with_task("empty-title", "Einbau Wache 11");
-    type_into(&mut harness, text::DESCRIPTION, "x", false);
+    type_into(&mut harness, text::t().description, "x", false);
     harness.state_mut().state.forms.task.as_mut().unwrap().title = "   ".to_owned();
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
@@ -969,12 +997,12 @@ fn a_refused_typed_title_is_put_back_and_does_not_block_closing() {
 #[test]
 fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::TITLE, "Übung", false);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Übung", false);
     // Start and deadline each have a calendar button; the deadline's is the second.
     harness
-        .get_all_by_label(text::PICK_DATE)
+        .get_all_by_label(text::t().pick_date)
         .nth(1)
         .unwrap()
         .click();
@@ -990,13 +1018,13 @@ fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
     // No reference: the time field opens on request.
     assert!(
         harness
-            .query_by(|n| n.placeholder() == Some(text::TIME_HINT))
+            .query_by(|n| n.placeholder() == Some(text::t().time_hint))
             .is_none()
     );
-    harness.get_by_label(text::ADD_TIME).click();
+    harness.get_by_label(text::t().add_time).click();
     harness.run();
-    type_into(&mut harness, text::TIME_HINT, "14:30", false);
-    click(&mut harness, text::CREATE);
+    type_into(&mut harness, text::t().time_hint, "14:30", false);
+    click(&mut harness, text::t().create);
     let project = projects(harness.state()).into_iter().next().unwrap();
     assert_eq!(project.due.map(|d| d.day()), Some(15));
     assert_eq!(
@@ -1021,11 +1049,11 @@ fn cases_show_the_time_field_and_store_it_from_the_detail_panel() {
             plnwrk_engine::Origin::User,
         )
         .unwrap();
-    type_into(&mut harness, text::NEW_TASK_HINT, "Antwort", true);
+    type_into(&mut harness, text::t().new_task_hint, "Antwort", true);
     click(&mut harness, "Antwort");
     // A case: the time field is there right away.
-    type_into(&mut harness, text::DUE, "20.11.2026", false);
-    type_into(&mut harness, text::TIME_HINT, "12:00", true);
+    type_into(&mut harness, text::t().due, "20.11.2026", false);
+    type_into(&mut harness, text::t().time_hint, "12:00", true);
     let task = task_named(harness.state(), "Antwort").unwrap();
     assert_eq!(
         task.due.map(|d| d.to_string()),
@@ -1040,18 +1068,18 @@ fn cases_show_the_time_field_and_store_it_from_the_detail_panel() {
 #[test]
 fn a_task_becomes_a_milestone_but_not_a_subtask() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Übergabe", true);
-    type_into(&mut harness, text::NEW_TASK_HINT, "Packen", true);
+    type_into(&mut harness, text::t().new_task_hint, "Übergabe", true);
+    type_into(&mut harness, text::t().new_task_hint, "Packen", true);
     harness
-        .get_all_by_label(text::ADD_SUBTASK)
+        .get_all_by_label(text::t().add_subtask)
         .last()
         .unwrap()
         .click();
     harness.run();
-    type_into(&mut harness, text::NEW_SUBTASK_HINT, "Kartons", true);
+    type_into(&mut harness, text::t().new_subtask_hint, "Kartons", true);
     click(&mut harness, "Übergabe");
     harness
-        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::t().milestone)
         .click();
     harness.run();
     assert!(task_named(harness.state(), "Übergabe").unwrap().milestone);
@@ -1062,20 +1090,20 @@ fn a_task_becomes_a_milestone_but_not_a_subtask() {
     assert!(
         harness
             .query_by(|n| n.role() == egui::accesskit::Role::CheckBox
-                && n.label().as_deref() == Some(text::MILESTONE)
+                && n.label().as_deref() == Some(text::t().milestone)
                 && n.is_disabled())
             .is_some(),
         "disabled for subtasks"
     );
     harness
-        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::t().milestone)
         .click();
     harness.run();
     assert!(!task_named(harness.state(), "Kartons").unwrap().milestone);
     // Nor a task with subtasks.
     click(&mut harness, "Packen");
     harness
-        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::t().milestone)
         .click();
     harness.run();
     assert!(!task_named(harness.state(), "Packen").unwrap().milestone);
@@ -1099,7 +1127,7 @@ fn a_version_1_file_opens_upgraded_and_counts_as_changed() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
     harness.run();
     let app = harness.state();
-    assert_eq!(app.state.message.clone().unwrap().text, text::UPGRADED);
+    assert_eq!(app.state.message.clone().unwrap().text, text::t().upgraded);
     assert!(app.has_unsaved_changes(), "save to keep the new format");
     let ws = app.doc().unwrap().session.workspace();
     assert_eq!(ws.milestones().count(), 0);
@@ -1122,10 +1150,10 @@ fn clearing_a_deadline_in_the_calendar_clears_its_time_too() {
             plnwrk_engine::Origin::User,
         )
         .unwrap();
-    type_into(&mut harness, text::NEW_TASK_HINT, "Antwort", true);
+    type_into(&mut harness, text::t().new_task_hint, "Antwort", true);
     click(&mut harness, "Antwort");
-    type_into(&mut harness, text::DUE, "20.11.2026", false);
-    type_into(&mut harness, text::TIME_HINT, "12:00", true);
+    type_into(&mut harness, text::t().due, "20.11.2026", false);
+    type_into(&mut harness, text::t().time_hint, "12:00", true);
     assert!(
         task_named(harness.state(), "Antwort")
             .unwrap()
@@ -1134,12 +1162,12 @@ fn clearing_a_deadline_in_the_calendar_clears_its_time_too() {
     );
     // Start and deadline each have a calendar button; the deadline's is the second.
     harness
-        .get_all_by_label(text::PICK_DATE)
+        .get_all_by_label(text::t().pick_date)
         .nth(1)
         .unwrap()
         .click();
     harness.run();
-    click(&mut harness, text::CLEAR);
+    click(&mut harness, text::t().clear);
     let task = task_named(harness.state(), "Antwort").unwrap();
     assert_eq!((task.due, task.due_time), (None, None));
     assert!(
@@ -1151,12 +1179,12 @@ fn clearing_a_deadline_in_the_calendar_clears_its_time_too() {
 #[test]
 fn the_calendar_opens_at_the_month_of_its_value_again() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::DUE, "15.03.2027", false);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().due, "15.03.2027", false);
     let open_due_calendar = |harness: &mut Harness<'static, PlnwrkApp>| {
         harness
-            .get_all_by_label(text::PICK_DATE)
+            .get_all_by_label(text::t().pick_date)
             .nth(1)
             .unwrap()
             .click();
@@ -1164,7 +1192,7 @@ fn the_calendar_opens_at_the_month_of_its_value_again() {
     };
     open_due_calendar(&mut harness);
     assert!(harness.query_by_label("März 2027").is_some());
-    click(&mut harness, text::NEXT_MONTH);
+    click(&mut harness, text::t().next_month);
     assert!(harness.query_by_label("April 2027").is_some());
     harness.key_press(Key::Escape);
     harness.run();
@@ -1179,8 +1207,8 @@ fn the_calendar_opens_at_the_month_of_its_value_again() {
 #[test]
 fn templates_and_finished_projects_are_never_shown_as_overdue() {
     let mut harness = harness(PlnwrkApp::default());
-    click(&mut harness, text::OPEN_SAMPLE);
-    click(&mut harness, text::TEMPLATES);
+    click(&mut harness, text::t().open_sample);
+    click(&mut harness, text::t().templates);
     // The template's deadline (08.01.2026, 12:00) lies in the past.
     assert!(harness.query_all_by_label_contains("08.01.2026").count() >= 1);
     assert!(
@@ -1210,7 +1238,7 @@ fn templates_and_finished_projects_are_never_shown_as_overdue() {
         &mut harness,
         serde_json::json!({"project": id.to_string(), "due": "2026-10-02"}),
     );
-    click(&mut harness, text::OVERVIEW);
+    click(&mut harness, text::t().overview);
     let card_line = |h: &Harness<'static, PlnwrkApp>, overdue: bool| {
         // A text line and its text run both carry the value.
         h.query_all_by(|n| {
@@ -1252,7 +1280,7 @@ fn double_click(harness: &mut Harness<'_, PlnwrkApp>, label: &str) {
 #[test]
 fn a_title_is_renamed_right_in_the_list() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kistn packen", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kistn packen", true);
     // Double click: an input in place of the title.
     click(&mut harness, "Kistn packen");
     double_click(&mut harness, "Kistn packen");
@@ -1281,7 +1309,7 @@ fn a_title_is_renamed_right_in_the_list() {
 }
 
 fn open_file_menu(harness: &mut Harness<'_, PlnwrkApp>) {
-    harness.get_by_label(text::FILE_MENU).click();
+    harness.get_by_label(text::t().file_menu).click();
     harness.run();
 }
 
@@ -1299,14 +1327,14 @@ fn type_password(harness: &mut Harness<'_, PlnwrkApp>, nth: usize, text: &str) {
 fn a_file_is_protected_and_unprotected_from_the_menu() {
     let (mut harness, path) = saved_sample_with_task("protect", "Einbau Wache 11");
     open_file_menu(&mut harness);
-    click(&mut harness, text::PROTECT);
+    click(&mut harness, text::t().protect);
     // Too short, then different: refused, nothing written.
     type_password(&mut harness, 0, "kurz");
     type_password(&mut harness, 1, "kurz");
-    click(&mut harness, text::PROTECT_BUTTON);
+    click(&mut harness, text::t().protect_button);
     assert_eq!(
         harness.state().state.message.clone().unwrap().text,
-        text::PASSPHRASE_TOO_SHORT
+        text::t().passphrase_too_short
     );
     assert!(
         !plnwrk_store::peek(&std::fs::read(&path).unwrap())
@@ -1315,23 +1343,23 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     );
     harness.state_mut().state.close_dialog();
     open_file_menu(&mut harness);
-    click(&mut harness, text::PROTECT);
+    click(&mut harness, text::t().protect);
     type_password(&mut harness, 0, "richtig-lange-passphrase");
     type_password(&mut harness, 1, "richtig-lange-passphrasE");
-    click(&mut harness, text::PROTECT_BUTTON);
+    click(&mut harness, text::t().protect_button);
     assert_eq!(
         harness.state().state.message.clone().unwrap().text,
-        text::PASSPHRASES_DIFFER
+        text::t().passphrases_differ
     );
     harness.state_mut().state.close_dialog();
     // Right: saved encrypted at once.
     open_file_menu(&mut harness);
-    click(&mut harness, text::PROTECT);
+    click(&mut harness, text::t().protect);
     type_password(&mut harness, 0, "richtig-lange-passphrase");
     type_password(&mut harness, 1, "richtig-lange-passphrase");
-    click(&mut harness, text::PROTECT_BUTTON);
+    click(&mut harness, text::t().protect_button);
     let app = harness.state();
-    assert_eq!(app.state.message.clone().unwrap().text, text::PROTECTED);
+    assert_eq!(app.state.message.clone().unwrap().text, text::t().protected);
     assert!(app.doc().unwrap().encrypted() && !app.has_unsaved_changes());
     assert!(
         plnwrk_store::peek(&std::fs::read(&path).unwrap())
@@ -1340,11 +1368,11 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     );
     // And off again.
     open_file_menu(&mut harness);
-    click(&mut harness, text::UNPROTECT);
-    click(&mut harness, text::UNPROTECT_BUTTON);
+    click(&mut harness, text::t().unprotect);
+    click(&mut harness, text::t().unprotect_button);
     assert_eq!(
         harness.state().state.message.clone().unwrap().text,
-        text::UNPROTECTED
+        text::t().unprotected
     );
     assert!(
         !plnwrk_store::peek(&std::fs::read(&path).unwrap())
@@ -1357,10 +1385,10 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
 fn classified_files_keep_their_protection() {
     let (mut harness, path) = saved_sample_with_task("classified", "Einbau Wache 11");
     open_file_menu(&mut harness);
-    click(&mut harness, text::PROTECT);
+    click(&mut harness, text::t().protect);
     type_password(&mut harness, 0, "richtig-lange-passphrase");
     type_password(&mut harness, 1, "richtig-lange-passphrase");
-    click(&mut harness, text::PROTECT_BUTTON);
+    click(&mut harness, text::t().protect_button);
     let id = projects(harness.state()).first().unwrap().id;
     harness
         .state_mut()
@@ -1377,8 +1405,8 @@ fn classified_files_keep_their_protection() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     open_file_menu(&mut harness);
-    click(&mut harness, text::UNPROTECT);
-    click(&mut harness, text::UNPROTECT_BUTTON);
+    click(&mut harness, text::t().unprotect);
+    click(&mut harness, text::t().unprotect_button);
     let message = harness.state().state.message.clone().unwrap();
     assert!(message.error, "{message:?}");
     assert!(harness.state().doc().unwrap().encrypted());
@@ -1393,15 +1421,15 @@ fn classified_files_keep_their_protection() {
 fn protecting_an_unsaved_workspace_needs_a_place_or_changes_nothing() {
     let mut harness = harness_with_sample();
     open_file_menu(&mut harness);
-    click(&mut harness, text::PROTECT);
+    click(&mut harness, text::t().protect);
     type_password(&mut harness, 0, "richtig-lange-passphrase");
     type_password(&mut harness, 1, "richtig-lange-passphrase");
-    click(&mut harness, text::PROTECT_BUTTON);
+    click(&mut harness, text::t().protect_button);
     // No dialogs in this test: the save dialog is cancelled.
     let app = harness.state();
     assert_eq!(
         app.state.message.clone().unwrap().text,
-        text::PROTECTION_UNCHANGED
+        text::t().protection_unchanged
     );
     assert!(!app.doc().unwrap().encrypted());
 }
@@ -1409,9 +1437,13 @@ fn protecting_an_unsaved_workspace_needs_a_place_or_changes_nothing() {
 #[test]
 fn symbol_buttons_have_spoken_names() {
     let mut harness = with_project("Umzug");
-    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
     click(&mut harness, "Kisten");
-    for name in [text::PICK_DATE, text::ADD_SUBTASK, text::CLOSE_DETAILS] {
+    for name in [
+        text::t().pick_date,
+        text::t().add_subtask,
+        text::t().close_details,
+    ] {
         assert!(
             harness
                 .query_all_by_role_and_label(egui::accesskit::Role::Button, name)
@@ -1433,7 +1465,7 @@ fn a_recovered_copy_that_is_only_looked_at_is_kept() {
     let mut crashed = PlnwrkApp::default();
     crashed.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
     let mut crashed = harness(crashed);
-    click(&mut crashed, text::OPEN_SAMPLE);
+    click(&mut crashed, text::t().open_sample);
     let copy = crashed.state_mut().emergency_save().unwrap();
     drop(crashed);
 
@@ -1444,16 +1476,16 @@ fn a_recovered_copy_that_is_only_looked_at_is_kept() {
     click(&mut harness, &copy.file_name().unwrap().to_string_lossy());
     // Close and discard: the only remaining version must not be deleted.
     open_file_menu(&mut harness);
-    click(&mut harness, text::CLOSE_FILE);
-    click(&mut harness, text::DISCARD);
+    click(&mut harness, text::t().close_file);
+    click(&mut harness, text::t().discard);
     assert!(harness.state().doc().is_none());
     assert!(copy.exists(), "kept for later");
     // … and offered again right away, where it can also be deleted (after a question).
     let name = copy.file_name().unwrap().to_string_lossy().into_owned();
     assert!(harness.query_by_label(&name).is_some());
-    click(&mut harness, text::DELETE_COPY);
+    click(&mut harness, text::t().delete_copy);
     assert!(copy.exists(), "asks first");
-    click(&mut harness, text::DELETE);
+    click(&mut harness, text::t().delete);
     assert!(!copy.exists());
     assert!(harness.query_by_label(&name).is_none());
 }
@@ -1489,21 +1521,341 @@ fn closing_or_replacing_a_workspace_removes_its_copy() {
     let mut app = PlnwrkApp::default();
     app.set_autosave(Some(dir.clone()), false, 0.0);
     let mut harness = harness(app);
-    click(&mut harness, text::OPEN_SAMPLE);
+    click(&mut harness, text::t().open_sample);
     harness.run();
     assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
     // Another file instead (changes discarded): the first copy goes.
     open_file_menu(&mut harness);
-    click(&mut harness, text::NEW_FILE);
-    click(&mut harness, text::DISCARD);
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().discard);
     assert!(crate::doc::recovery_copies(&dir).is_empty());
-    click(&mut harness, text::NEW_PROJECT);
-    type_into(&mut harness, text::TITLE, "Neu", false);
-    click(&mut harness, text::CREATE);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Neu", false);
+    click(&mut harness, text::t().create);
     harness.run();
     assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
     open_file_menu(&mut harness);
-    click(&mut harness, text::CLOSE_FILE);
-    click(&mut harness, text::DISCARD);
+    click(&mut harness, text::t().close_file);
+    click(&mut harness, text::t().discard);
     assert!(crate::doc::recovery_copies(&dir).is_empty());
+}
+
+/// Every text the screen shows: names and values in the accessibility tree.
+fn shown_texts(harness: &Harness<'_, PlnwrkApp>) -> Vec<String> {
+    harness
+        .query_all_by(|_| true)
+        .flat_map(|n| {
+            let node = egui_kittest::kittest::NodeT::accesskit_node(&n);
+            [node.label(), node.value()]
+        })
+        .flatten()
+        .collect()
+}
+
+/// Whether a text looks German: German letters or quotes, or a word only German uses here.
+fn looks_german(text: &str) -> bool {
+    const WORDS: &[&str] = &[
+        "und",
+        "Bitte",
+        "nicht",
+        "Neu",
+        "Neue",
+        "Neues",
+        "Aufgabe",
+        "Aufgaben",
+        "Frist",
+        "Datei",
+        "Speichern",
+        "Vorlage",
+        "Vorlagen",
+        "Projekt",
+        "Projekte",
+        "Vorgang",
+        "Vorgänge",
+        "Uhr",
+        "Beginn",
+        "Personen",
+        "Bearbeiten",
+        "Wiederholen",
+        "Abbrechen",
+        "Anlegen",
+        "Offen",
+        "Erledigt",
+        "Kommentar",
+        "Kommentare",
+        "Verlauf",
+        "Meilenstein",
+        "Meilensteine",
+        "Liste",
+        "Heute",
+        "Leeren",
+        "Titel",
+        "Art",
+        "Zuständig",
+        "Verantwortlich",
+        "Schlagworte",
+        "Beschreibung",
+        "Ansicht",
+        "Sprache",
+        "Darstellung",
+        "seit",
+        "Tagen",
+        "Tag",
+        "heute",
+        "morgen",
+        "angelegt",
+        "Version",
+        "Unbenannt",
+        "ungespeichert",
+        "Kürzel",
+        "Funktion",
+        "Hoch",
+        "Niedrig",
+        "Aktiv",
+        "Entwurf",
+        "Fortschritt",
+        "Priorität",
+        "Wiederherstellen",
+        "offen",
+        "von",
+        "erledigt",
+        "JJJJ",
+    ];
+    // "Version" is English too; it is only listed to catch "Version" glued to German text.
+    text.chars().any(|c| "äöüÄÖÜß„".contains(c))
+        || text
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|w| w != "Version" && WORDS.contains(&w))
+}
+
+fn assert_english(harness: &Harness<'_, PlnwrkApp>, place: &str) {
+    let german: Vec<String> = shown_texts(harness)
+        .into_iter()
+        .filter(|t| looks_german(t))
+        .collect();
+    assert!(german.is_empty(), "German on {place}: {german:?}");
+}
+
+/// Opens a submenu (its button carries an arrow after the name).
+fn submenu(harness: &mut Harness<'_, PlnwrkApp>, name: &str) {
+    harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with(name)))
+        .click();
+    harness.run();
+}
+
+/// Switches the interface to English through the menu, like a person.
+fn to_english(harness: &mut Harness<'_, PlnwrkApp>) {
+    click(harness, text::DE.view_menu);
+    submenu(harness, text::DE.language_menu);
+    click(harness, text::Language::English.name());
+    assert_eq!(harness.state().state.language, text::Language::English);
+}
+
+#[test]
+fn the_german_detector_finds_german() {
+    assert!(looks_german("Neue Aufgabe … (Enter)"));
+    assert!(looks_german("seit 3 Tagen überfällig"));
+    assert!(!looks_german("New task … (Enter)"));
+    assert!(!looks_german("3 days overdue"));
+}
+
+#[test]
+fn the_whole_interface_speaks_english() {
+    let mut harness = harness(PlnwrkApp::default());
+    to_english(&mut harness);
+    let t = &text::EN;
+    assert!(harness.query_by_label(t.open_sample).is_some());
+    assert_english(&harness, "start page");
+
+    click(&mut harness, t.new_file);
+    assert_english(&harness, "overview");
+    click(&mut harness, t.new_project);
+    assert_english(&harness, "new project dialog");
+    type_into(&mut harness, t.title, "Move", false);
+    type_into(&mut harness, t.reference, "A-1", false);
+    type_into(&mut harness, t.due, "2020-01-01", false);
+    click(&mut harness, t.create);
+    assert_english(&harness, "project list");
+
+    type_into(&mut harness, t.new_task_hint, "Draft", true);
+    click(&mut harness, "Draft");
+    assert_english(&harness, "detail panel");
+    click(&mut harness, t.history);
+    assert!(harness.query_by_label(t.created).is_some());
+    assert_english(&harness, "history");
+
+    click(&mut harness, t.board);
+    assert_english(&harness, "board");
+    click(&mut harness, t.milestones);
+    assert_english(&harness, "milestones");
+    click(&mut harness, t.people);
+    assert_english(&harness, "people");
+    click(&mut harness, t.templates);
+    assert_english(&harness, "templates");
+    click(&mut harness, t.overview);
+    assert!(
+        harness.query_all_by_label_contains("days overdue").count() >= 1,
+        "the deadline reads in English"
+    );
+    assert_english(&harness, "overview with an overdue case");
+
+    click(&mut harness, t.file_menu);
+    assert_english(&harness, "file menu");
+    click(&mut harness, t.protect);
+    assert_english(&harness, "protect dialog");
+    click(&mut harness, t.cancel);
+    click(&mut harness, t.view_menu);
+    assert_english(&harness, "view menu");
+    harness.key_press(Key::Escape);
+    harness.run();
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    assert!(harness.query_by_label(t.unsaved_title).is_some());
+    assert_english(&harness, "unsaved changes dialog");
+}
+
+#[test]
+fn english_shows_iso_dates_and_still_reads_german_ones() {
+    let mut harness = harness(PlnwrkApp::default());
+    to_english(&mut harness);
+    let t = &text::EN;
+    click(&mut harness, t.new_file);
+    click(&mut harness, t.new_project);
+    type_into(&mut harness, t.title, "Move", false);
+    type_into(&mut harness, t.due, "31.12.2026", false);
+    click(&mut harness, t.create);
+    let project = projects(harness.state()).pop().unwrap();
+    assert_eq!(
+        project.due.map(|d| d.to_string()).as_deref(),
+        Some("2026-12-31")
+    );
+    click(&mut harness, t.overview);
+    assert!(harness.query_all_by_label_contains("2026-12-31").count() >= 1);
+    assert_eq!(harness.query_all_by_label_contains("31.12.2026").count(), 0);
+}
+
+#[test]
+fn switching_the_language_keeps_typed_text() {
+    let mut harness = with_project("Lage");
+    type_into(&mut harness, text::t().new_task_hint, "Bericht", true);
+    click(&mut harness, "Bericht");
+    // A date typed in German, not taken yet, when the language changes.
+    type_into(&mut harness, text::t().due, "24.12.2026", false);
+    to_english(&mut harness);
+    assert!(harness.state().has_unsaved_changes());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    click(&mut harness, text::EN.cancel);
+    let task = task_named(harness.state(), "Bericht").unwrap();
+    assert_eq!(
+        task.due.map(|d| d.to_string()).as_deref(),
+        Some("2026-12-24")
+    );
+}
+
+/// Settings kept in memory, like eframe keeps them in a file.
+#[derive(Default)]
+struct MemoryStorage(std::collections::HashMap<String, String>);
+
+impl eframe::Storage for MemoryStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_owned(), value);
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.0.remove(key);
+    }
+
+    fn flush(&mut self) {}
+}
+
+#[test]
+fn language_and_theme_are_remembered() {
+    let mut first = harness(PlnwrkApp::default());
+    to_english(&mut first);
+    for (name, theme, dark) in [
+        (text::EN.theme_light, egui::ThemePreference::Light, false),
+        (text::EN.theme_dark, egui::ThemePreference::Dark, true),
+        (text::EN.theme_light, egui::ThemePreference::Light, false),
+    ] {
+        click(&mut first, text::EN.view_menu);
+        submenu(&mut first, text::EN.appearance);
+        click(&mut first, name);
+        assert_eq!(first.ctx.options(|o| o.theme_preference), theme);
+        assert_eq!(first.ctx.global_style().visuals.dark_mode, dark, "{name}");
+    }
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(first.state_mut(), &mut storage);
+    drop(first);
+
+    // Next start, on a thread that still speaks German.
+    text::set_language(text::Language::German);
+    let mut app = PlnwrkApp::default();
+    app.load_settings(&storage);
+    assert_eq!(
+        text::t().new_file,
+        text::EN.new_file,
+        "texts made before the first frame"
+    );
+    let restarted = harness(app);
+    assert!(restarted.query_by_label(text::EN.new_file).is_some());
+    assert_eq!(
+        restarted.ctx.options(|o| o.theme_preference),
+        egui::ThemePreference::Light
+    );
+    assert!(!restarted.ctx.global_style().visuals.dark_mode);
+}
+
+#[test]
+fn each_window_speaks_its_own_language() {
+    let mut english = harness(PlnwrkApp::default());
+    to_english(&mut english);
+    // Another app on the same thread, still German.
+    let german = harness(PlnwrkApp::default());
+    assert!(german.query_by_label(text::DE.new_file).is_some());
+    assert!(german.query_by_label(text::EN.new_file).is_none());
+    english.run();
+    assert!(english.query_by_label(text::EN.new_file).is_some());
+}
+
+#[test]
+fn a_failing_autosave_is_reported_in_the_language_of_the_window() {
+    let dir = scratch("autosave-english");
+    // The recovery folder cannot be made: a file is in its place.
+    let blocked = dir.join("Notkopien");
+    std::fs::write(&blocked, b"").unwrap();
+    let mut app = PlnwrkApp::default();
+    app.set_autosave(Some(blocked), true, 0.0);
+    let mut harness = harness(app);
+    to_english(&mut harness);
+    click(&mut harness, text::EN.open_sample);
+    let mut message = None;
+    for _ in 0..200 {
+        harness.run();
+        message = harness.state().state.message.clone();
+        if message.as_ref().is_some_and(|m| m.error) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let message = message.unwrap().text;
+    assert!(message.starts_with(text::EN.recovery_failed), "{message}");
+    assert!(message.contains("File access failed"), "{message}");
+}
+
+#[test]
+fn unknown_stored_settings_are_ignored() {
+    let mut storage = MemoryStorage::default();
+    eframe::Storage::set_string(&mut storage, super::LANGUAGE_KEY, "tlh".to_owned());
+    eframe::Storage::set_string(&mut storage, super::THEME_KEY, "neon".to_owned());
+    let mut app = PlnwrkApp::default();
+    app.load_settings(&storage);
+    assert_eq!(app.state.language, text::Language::German);
+    assert_eq!(app.state.theme, egui::ThemePreference::System);
 }

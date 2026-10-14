@@ -33,50 +33,54 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
         ui.set_min_width(380.0);
         match dialog {
             Dialog::NewProject(form) => {
-                ui.heading("Neues Projekt oder neuer Vorgang");
-                ui.weak("Ein Vorgang ist ein Projekt mit Aktenzeichen und Frist.");
+                ui.heading(text::t().new_project_title);
+                ui.weak(text::t().new_project_hint);
                 ui.add_space(6.0);
-                egui::Grid::new("new-project").num_columns(2).show(ui, |ui| {
-                    let label = ui.label(text::TITLE);
-                    let field = ui.text_edit_singleline(&mut form.title).labelled_by(label.id);
-                    focus_once(&field, serial);
-                    ui.end_row();
-                    ui.label(text::KIND);
-                    ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut form.kind).desired_width(140.0));
-                        for kind in ["Projekt", "Vorgang"] {
-                            if ui.small_button(kind).clicked() {
-                                form.kind = kind.to_owned();
+                egui::Grid::new("new-project")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        let label = ui.label(text::t().title);
+                        let field = ui
+                            .text_edit_singleline(&mut form.title)
+                            .labelled_by(label.id);
+                        focus_once(&field, serial);
+                        ui.end_row();
+                        ui.label(text::t().kind);
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut form.kind).desired_width(140.0));
+                            for kind in text::t().kinds {
+                                if ui.small_button(kind).clicked() {
+                                    form.kind = kind.to_owned();
+                                }
                             }
-                        }
+                        });
+                        ui.end_row();
+                        let label = ui.label(text::t().reference);
+                        ui.text_edit_singleline(&mut form.reference)
+                            .labelled_by(label.id);
+                        ui.end_row();
+                        let label = ui.label(text::t().start);
+                        date::date_input(ui, "new-start", &mut form.start, today, Some(label.id));
+                        ui.end_row();
+                        let label = ui.label(text::t().due);
+                        let case = !form.reference.trim().is_empty();
+                        date::deadline_input(
+                            ui,
+                            "new-due",
+                            &mut form.due,
+                            &mut form.due_time,
+                            today,
+                            case,
+                            Some(label.id),
+                        );
+                        ui.end_row();
+                        ui.label(text::t().owner);
+                        person_choice(ui, "new-owner", &mut form.owner, &people);
+                        ui.end_row();
                     });
-                    ui.end_row();
-                    let label = ui.label(text::REFERENCE);
-                    ui.text_edit_singleline(&mut form.reference)
-                        .labelled_by(label.id);
-                    ui.end_row();
-                    let label = ui.label(text::START);
-                    date::date_input(ui, "new-start", &mut form.start, today, Some(label.id));
-                    ui.end_row();
-                    let label = ui.label(text::DUE);
-                    let case = !form.reference.trim().is_empty();
-                    date::deadline_input(
-                        ui,
-                        "new-due",
-                        &mut form.due,
-                        &mut form.due_time,
-                        today,
-                        case,
-                        Some(label.id),
-                    );
-                    ui.end_row();
-                    ui.label(text::OWNER);
-                    person_choice(ui, "new-owner", &mut form.owner, &people);
-                    ui.end_row();
-                });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::CREATE).clicked() {
+                    if ui.button(text::t().create).clicked() {
                         match form.create_params() {
                             Ok(params) => out.push(Intent::Run {
                                 command: "project.create",
@@ -87,69 +91,77 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             Err(error) => message = Some(error),
                         }
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::FromTemplate(form) => {
-                ui.heading("Aus Vorlage anlegen");
-                ui.weak("Aufgaben und Meilensteine der Vorlage werden übernommen und auf den Beginn verschoben.");
+                ui.heading(text::t().from_template_title);
+                ui.weak(text::t().from_template_hint);
                 ui.add_space(6.0);
                 let templates: Vec<_> = doc
                     .map(|d| query::templates(d.session.workspace(), d.session.clock().now_local()))
                     .unwrap_or_default();
-                egui::Grid::new("from-template").num_columns(2).show(ui, |ui| {
-                    ui.label(text::TEMPLATE);
-                    let current = form
-                        .template
-                        .and_then(|id| templates.iter().find(|t| t.id == id))
-                        .map_or("Bitte wählen", |t| t.title.as_str());
-                    egui::ComboBox::from_id_salt("template")
-                        .selected_text(current)
-                        .show_ui(ui, |ui| {
-                            for template in &templates {
-                                ui.selectable_value(
-                                    &mut form.template,
-                                    Some(template.id),
-                                    &template.title,
-                                );
-                            }
-                        });
-                    ui.end_row();
-                    let label = ui.label(text::TITLE);
-                    ui.text_edit_singleline(&mut form.title)
-                        .labelled_by(label.id);
-                    ui.end_row();
-                    let label = ui.label(text::REFERENCE);
-                    ui.text_edit_singleline(&mut form.reference)
-                        .labelled_by(label.id);
-                    ui.end_row();
-                    let label = ui.label(text::START);
-                    date::date_input(ui, "template-start", &mut form.start, today, Some(label.id));
-                    ui.end_row();
-                    let label = ui.label(text::DUE);
-                    let case = !form.reference.trim().is_empty();
-                    date::deadline_input(
-                        ui,
-                        "template-due",
-                        &mut form.due,
-                        &mut form.due_time,
-                        today,
-                        case,
-                        Some(label.id),
-                    );
-                    ui.end_row();
-                    ui.label(text::OWNER);
-                    person_choice(ui, "template-owner", &mut form.owner, &people);
-                    ui.end_row();
-                });
+                egui::Grid::new("from-template")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label(text::t().template);
+                        let current = form
+                            .template
+                            .and_then(|id| templates.iter().find(|t| t.id == id))
+                            .map_or(text::t().please_choose, |t| t.title.as_str());
+                        egui::ComboBox::from_id_salt("template")
+                            .selected_text(current)
+                            .show_ui(ui, |ui| {
+                                for template in &templates {
+                                    ui.selectable_value(
+                                        &mut form.template,
+                                        Some(template.id),
+                                        &template.title,
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                        let label = ui.label(text::t().title);
+                        ui.text_edit_singleline(&mut form.title)
+                            .labelled_by(label.id);
+                        ui.end_row();
+                        let label = ui.label(text::t().reference);
+                        ui.text_edit_singleline(&mut form.reference)
+                            .labelled_by(label.id);
+                        ui.end_row();
+                        let label = ui.label(text::t().start);
+                        date::date_input(
+                            ui,
+                            "template-start",
+                            &mut form.start,
+                            today,
+                            Some(label.id),
+                        );
+                        ui.end_row();
+                        let label = ui.label(text::t().due);
+                        let case = !form.reference.trim().is_empty();
+                        date::deadline_input(
+                            ui,
+                            "template-due",
+                            &mut form.due,
+                            &mut form.due_time,
+                            today,
+                            case,
+                            Some(label.id),
+                        );
+                        ui.end_row();
+                        ui.label(text::t().owner);
+                        person_choice(ui, "template-owner", &mut form.owner, &people);
+                        ui.end_row();
+                    });
                 if templates.is_empty() {
-                    ui.weak("Es gibt noch keine Vorlage.");
+                    ui.weak(text::t().no_template);
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::CREATE).clicked() {
+                    if ui.button(text::t().create).clicked() {
                         match form.params() {
                             Ok(params) => out.push(Intent::Run {
                                 command: "project.instantiate",
@@ -160,120 +172,120 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             Err(error) => message = Some(error),
                         }
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::Passphrase { path, text: secret } => {
-                ui.heading(text::PASSPHRASE);
+                ui.heading(text::t().passphrase);
                 ui.label(path.display().to_string());
-                ui.label(text::PASSPHRASE_QUESTION);
+                ui.label(text::t().passphrase_question);
                 let field = ui.add(egui::TextEdit::singleline(secret).password(true));
                 focus_once(&field, serial);
                 let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
                 ui.horizontal(|ui| {
-                    if (ui.button("Öffnen").clicked() || entered) && !secret.is_empty() {
+                    if (ui.button(text::t().open).clicked() || entered) && !secret.is_empty() {
                         let secret = SecretString::from(std::mem::take(secret));
                         out.push(Intent::Unlock(path.clone(), secret));
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::Unsaved(action) => {
-                ui.heading(text::UNSAVED_TITLE);
-                ui.label(text::UNSAVED_QUESTION);
+                ui.heading(text::t().unsaved_title);
+                ui.label(text::t().unsaved_question);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::SAVE).clicked() {
+                    if ui.button(text::t().save).clicked() {
                         out.push(Intent::SaveThen(action.clone()));
                     }
-                    if ui.button(text::DISCARD).clicked() {
+                    if ui.button(text::t().discard).clicked() {
                         out.push(Intent::Discard(action.clone()));
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::Protect { first, second } => {
-                ui.heading(text::PROTECT.trim_end_matches('…'));
-                ui.label(text::PROTECT_HINT);
+                ui.heading(text::t().protect.trim_end_matches('…'));
+                ui.label(text::t().protect_hint);
                 ui.add_space(6.0);
                 egui::Grid::new("protect").num_columns(2).show(ui, |ui| {
-                    let label = ui.label(text::PASSPHRASE);
+                    let label = ui.label(text::t().passphrase);
                     let field = ui
                         .add(egui::TextEdit::singleline(first).password(true))
                         .labelled_by(label.id);
                     focus_once(&field, serial);
                     ui.end_row();
-                    let label = ui.label(text::PASSPHRASE_AGAIN);
+                    let label = ui.label(text::t().passphrase_again);
                     ui.add(egui::TextEdit::singleline(second).password(true))
                         .labelled_by(label.id);
                     ui.end_row();
                 });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::PROTECT_BUTTON).clicked() {
+                    if ui.button(text::t().protect_button).clicked() {
                         if first != second {
-                            message = Some(text::PASSPHRASES_DIFFER.to_owned());
+                            message = Some(text::t().passphrases_differ.to_owned());
                         } else if !plnwrk_store::passphrase_long_enough(first) {
-                            message = Some(text::PASSPHRASE_TOO_SHORT.to_owned());
+                            message = Some(text::t().passphrase_too_short.to_owned());
                         } else {
                             second.zeroize();
                             let secret = SecretString::from(std::mem::take(first));
                             out.push(Intent::Protect(secret));
                         }
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::Unprotect => {
-                ui.heading(format!("{}?", text::UNPROTECT_BUTTON));
-                ui.label(text::UNPROTECT_QUESTION);
+                ui.heading(format!("{}?", text::t().unprotect_button));
+                ui.label(text::t().unprotect_question);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::UNPROTECT_BUTTON).clicked() {
+                    if ui.button(text::t().unprotect_button).clicked() {
                         out.push(Intent::Unprotect);
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::DeleteCopy(path) => {
-                ui.heading(format!("{}?", text::DELETE_COPY));
+                ui.heading(format!("{}?", text::t().delete_copy));
                 ui.label(
                     path.file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default(),
                 );
-                ui.label(text::DELETE_COPY_QUESTION);
+                ui.label(text::t().delete_copy_question);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::DELETE).clicked() {
+                    if ui.button(text::t().delete).clicked() {
                         out.push(Intent::DeleteCopy(path.clone()));
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });
             }
             Dialog::DeleteTask(task) => {
-                ui.heading(text::DELETE_TASK);
+                ui.heading(text::t().delete_task);
                 let title = doc
                     .and_then(|d| d.session.workspace().task(*task))
                     .map(|t| t.title.clone())
                     .unwrap_or_default();
-                ui.label(format!("„{title}“"));
-                ui.label(text::DELETE_TASK_QUESTION);
+                ui.label(text::quoted(&title));
+                ui.label(text::t().delete_task_question);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(text::DELETE).clicked() {
+                    if ui.button(text::t().delete).clicked() {
                         out.push(Intent::Run {
                             command: "task.delete",
                             params: json!({"task": task.to_string()}),
@@ -281,7 +293,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             clear: Some(Clear::Dialog),
                         });
                     }
-                    if ui.button(text::CANCEL).clicked() {
+                    if ui.button(text::t().cancel).clicked() {
                         out.push(Intent::CloseDialog);
                     }
                 });

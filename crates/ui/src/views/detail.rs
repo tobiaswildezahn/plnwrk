@@ -46,12 +46,14 @@ pub fn panel(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if let Some(parent) = task.parent.and_then(|p| ws.task(p))
-                        && ui.link(format!("Teil von: {}", parent.title)).clicked()
+                        && ui
+                            .link(format!("{} {}", text::t().part_of, parent.title))
+                            .clicked()
                     {
                         out.push(Intent::Select(Some(parent.id)));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if super::icon_button(ui, "🗙", text::CLOSE_DETAILS).clicked() {
+                        if super::icon_button(ui, "🗙", text::t().close_details).clicked() {
                             out.push(Intent::Select(None));
                         }
                     });
@@ -71,7 +73,7 @@ pub fn panel(
                 egui::Grid::new("task-fields")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label(text::STATUS);
+                        ui.label(text::t().status);
                         let mut status = task.status;
                         egui::ComboBox::from_id_salt("task-status")
                             .selected_text(text::task_status(status))
@@ -88,7 +90,7 @@ pub fn panel(
                         }
                         ui.end_row();
 
-                        ui.label(text::PRIORITY);
+                        ui.label(text::t().priority);
                         let mut priority = task.priority;
                         egui::ComboBox::from_id_salt("task-priority")
                             .selected_text(text::priority(priority))
@@ -102,7 +104,7 @@ pub fn panel(
                         }
                         ui.end_row();
 
-                        ui.label(text::ASSIGNEE);
+                        ui.label(text::t().assignee);
                         let mut assignee = task.assignee;
                         if person_choice(ui, "task-assignee", &mut assignee, &people) {
                             let mut params = json!({"task": id.to_string()});
@@ -113,7 +115,7 @@ pub fn panel(
                         }
                         ui.end_row();
 
-                        let caption = ui.label(text::START);
+                        let caption = ui.label(text::t().start);
                         let start = date::date_input(
                             ui,
                             ("task-start", id),
@@ -132,7 +134,7 @@ pub fn panel(
                         }
                         ui.end_row();
 
-                        let caption = ui.label(text::DUE);
+                        let caption = ui.label(text::t().due);
                         let case = project.is_some_and(|p| p.reference.is_some());
                         let due = date::deadline_input(
                             ui,
@@ -162,16 +164,16 @@ pub fn panel(
                         let checkbox = ui
                             .add_enabled(
                                 allowed || milestone,
-                                egui::Checkbox::new(&mut milestone, text::MILESTONE),
+                                egui::Checkbox::new(&mut milestone, text::t().milestone),
                             )
-                            .on_hover_text(text::MILESTONE_HINT)
-                            .on_disabled_hover_text(text::MILESTONE_HINT);
+                            .on_hover_text(text::t().milestone_hint)
+                            .on_disabled_hover_text(text::t().milestone_hint);
                         if checkbox.changed() && milestone != task.milestone {
                             out.push(update(id, "milestone", json!(milestone)));
                         }
                         ui.end_row();
 
-                        let caption = ui.label(text::PROGRESS);
+                        let caption = ui.label(text::t().progress);
                         let slider = ui
                             .add(egui::Slider::new(&mut draft.progress, 0..=100).suffix(" %"))
                             .labelled_by(caption.id);
@@ -185,7 +187,7 @@ pub fn panel(
                         }
                         ui.end_row();
 
-                        let caption = ui.label(text::TAGS);
+                        let caption = ui.label(text::t().tags);
                         let response = ui
                             .add(
                                 egui::TextEdit::singleline(&mut draft.tags)
@@ -201,11 +203,11 @@ pub fn panel(
                 if let Some(project) = project
                     && query::task_overdue(Some(project), task, now)
                 {
-                    ui.label(RichText::new(text::OVERDUE).color(ui.visuals().error_fg_color));
+                    ui.label(RichText::new(text::t().overdue).color(ui.visuals().error_fg_color));
                 }
 
                 ui.add_space(6.0);
-                let caption = ui.strong(text::DESCRIPTION);
+                let caption = ui.strong(text::t().description);
                 let response = ui
                     .add(
                         egui::TextEdit::multiline(&mut draft.description)
@@ -223,7 +225,7 @@ pub fn panel(
                 history(ui, doc, id);
 
                 ui.add_space(12.0);
-                if ui.button(text::DELETE_TASK).clicked() {
+                if ui.button(text::t().delete_task).clicked() {
                     out.push(Intent::Open(Dialog::DeleteTask(id)));
                 }
             });
@@ -245,7 +247,7 @@ fn subtasks(
     let mut children = index.children(id).to_vec();
     children.sort_by(|a, b| a.rank.cmp(&b.rank));
     ui.add_space(6.0);
-    ui.strong(text::SUBTASKS);
+    ui.strong(text::t().subtasks);
     for child in children {
         ui.horizontal(|ui| {
             let mut done = child.status == TaskStatus::Done;
@@ -272,7 +274,7 @@ fn subtasks(
         });
     }
     let title = &mut state.forms.detail_subtask;
-    if enter_field(ui, title, text::NEW_SUBTASK_HINT, 260.0) {
+    if enter_field(ui, title, text::t().new_subtask_hint, 260.0) {
         out.push(Intent::Run {
             command: "task.create",
             params: json!({
@@ -297,27 +299,23 @@ fn comments(
     let mut all: Vec<_> = ws.comments().filter(|c| c.task == id).collect();
     all.sort_by(|a, b| a.created.cmp(&b.created).then(a.id.cmp(&b.id)));
     ui.add_space(6.0);
-    ui.strong(text::COMMENTS);
+    ui.strong(text::t().comments);
     for comment in all {
         let author = comment
             .author
             .and_then(|a| ws.person(a))
             .map_or("–", |p| p.name.as_str());
-        let when = comment
-            .created
-            .to_zoned(jiff::tz::TimeZone::system())
-            .strftime("%d.%m.%Y %H:%M")
-            .to_string();
+        let when = crate::dates::format_moment(comment.created);
         ui.label(RichText::new(format!("{author} · {when}")).small().weak());
         ui.label(&comment.body);
     }
     ui.add(
         egui::TextEdit::multiline(&mut state.forms.comment)
-            .hint_text(text::NEW_COMMENT_HINT)
+            .hint_text(text::t().new_comment_hint)
             .desired_rows(2)
             .desired_width(f32::INFINITY),
     );
-    if ui.button(text::ADD_COMMENT).clicked() && !state.forms.comment.trim().is_empty() {
+    if ui.button(text::t().add_comment).clicked() && !state.forms.comment.trim().is_empty() {
         out.push(Intent::Run {
             command: "comment.add",
             params: json!({"task": id.to_string(), "body": state.forms.comment.trim()}),
@@ -330,7 +328,7 @@ fn comments(
 fn history(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId) {
     let ws = doc.session.workspace();
     ui.add_space(6.0);
-    egui::CollapsingHeader::new(text::HISTORY)
+    egui::CollapsingHeader::new(text::t().history)
         .id_salt(("history", id))
         .show(ui, |ui| {
             for entry in query::history(doc.session.log(), EntityKey::Task(id))
@@ -341,18 +339,17 @@ fn history(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId) {
                     .actor
                     .and_then(|a| ws.person(a))
                     .map_or_else(String::new, |p| format!(" · {}", p.name));
-                let when = entry
-                    .at
-                    .to_zoned(jiff::tz::TimeZone::system())
-                    .strftime("%d.%m.%Y %H:%M")
-                    .to_string();
+                let when = crate::dates::format_moment(entry.at);
                 let what = match entry.action {
-                    Action::Created => "angelegt".to_owned(),
-                    Action::Removed => "gelöscht".to_owned(),
+                    Action::Created => text::t().created.to_owned(),
+                    Action::Removed => text::t().removed.to_owned(),
                     Action::Changed => {
-                        let fields: Vec<&str> =
-                            entry.changes.iter().map(|c| c.field.as_str()).collect();
-                        format!("geändert: {}", fields.join(", "))
+                        let fields: Vec<String> = entry
+                            .changes
+                            .iter()
+                            .filter_map(|c| text::field(&c.field))
+                            .collect();
+                        format!("{} {}", text::t().changed, fields.join(", "))
                     }
                 };
                 ui.label(RichText::new(format!("{when}{who}")).small().weak());

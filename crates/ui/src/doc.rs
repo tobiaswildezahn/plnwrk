@@ -127,7 +127,7 @@ impl OpenDoc {
             None => self
                 .title
                 .clone()
-                .unwrap_or_else(|| text::UNTITLED.to_owned()),
+                .unwrap_or_else(|| text::t().untitled.to_owned()),
         }
     }
 
@@ -271,7 +271,7 @@ impl OpenDoc {
         path.file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .and_then(|stem| stem.split(" – Wiederherstellung").next().map(str::to_owned))
-            .unwrap_or_else(|| text::UNTITLED.to_owned())
+            .unwrap_or_else(|| text::t().untitled.to_owned())
     }
 }
 
@@ -325,7 +325,7 @@ mod tests {
     fn a_new_workspace_is_clean_until_changed() {
         let mut doc = OpenDoc::new();
         assert!(!doc.is_dirty());
-        assert_eq!(doc.name(), text::UNTITLED);
+        assert_eq!(doc.name(), text::t().untitled);
         add_person(&mut doc, "Anna");
         assert!(doc.is_dirty());
     }

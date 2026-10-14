@@ -22,22 +22,6 @@ impl DateInput {
     }
 }
 
-const MONTHS: [&str; 12] = [
-    "Januar",
-    "Februar",
-    "März",
-    "April",
-    "Mai",
-    "Juni",
-    "Juli",
-    "August",
-    "September",
-    "Oktober",
-    "November",
-    "Dezember",
-];
-const WEEKDAYS: [&str; 7] = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-
 /// The first day of the month `months` after (or before) the month of `day`.
 fn month_start(day: Date, months: i32) -> Date {
     let first = day.first_of_month();
@@ -73,15 +57,16 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
     let mut choice = None;
     let mut next = shown;
     ui.horizontal(|ui| {
-        if super::icon_button(ui, "⏴", text::PREVIOUS_MONTH).clicked() {
+        if super::icon_button(ui, "⏴", text::t().previous_month).clicked() {
             next = month_start(shown, -1);
         }
-        let name = MONTHS
+        let name = text::t()
+            .months
             .get(usize::try_from(shown.month() - 1).unwrap_or(0))
             .copied()
             .unwrap_or_default();
         ui.strong(format!("{name} {}", shown.year()));
-        if super::icon_button(ui, "⏵", text::NEXT_MONTH).clicked() {
+        if super::icon_button(ui, "⏵", text::t().next_month).clicked() {
             next = month_start(shown, 1);
         }
     });
@@ -89,7 +74,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
         .num_columns(7)
         .spacing([2.0, 2.0])
         .show(ui, |ui| {
-            for weekday in WEEKDAYS {
+            for weekday in text::t().weekdays {
                 ui.label(RichText::new(weekday).small().weak());
             }
             ui.end_row();
@@ -118,10 +103,10 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
             }
         });
     ui.horizontal(|ui| {
-        if ui.button(text::TODAY).clicked() {
+        if ui.button(text::t().today).clicked() {
             choice = Some(Some(today));
         }
-        if ui.button(text::CLEAR).clicked() {
+        if ui.button(text::t().clear).clicked() {
             choice = Some(None);
         }
     });
@@ -146,13 +131,13 @@ pub fn date_input(
             let mut field = ui.add(
                 egui::TextEdit::singleline(value)
                     .id_salt(id.with("text"))
-                    .hint_text("TT.MM.JJJJ")
+                    .hint_text(text::t().date_hint)
                     .desired_width(90.0),
             );
             if let Some(label) = label {
                 field = field.labelled_by(label);
             }
-            let button = super::icon_button(ui, "📅", text::PICK_DATE);
+            let button = super::icon_button(ui, "📅", text::t().pick_date);
             let current = dates::parse(value).ok().flatten();
             let popup = Popup::from_toggle_button_response(&button)
                 .id(id.with("calendar"))
@@ -207,11 +192,11 @@ pub fn deadline_input(
             let field = ui.add(
                 egui::TextEdit::singleline(time)
                     .id_salt(Id::new("time-input").with(salt))
-                    .hint_text(text::TIME_HINT)
+                    .hint_text(text::t().time_hint)
                     .desired_width(48.0),
             );
             input.time_done = field.lost_focus();
-        } else if super::icon_button(ui, "🕑", text::ADD_TIME).clicked() {
+        } else if super::icon_button(ui, "🕑", text::t().add_time).clicked() {
             ui.ctx().data_mut(|d| d.insert_temp(open_id, true));
         }
         input

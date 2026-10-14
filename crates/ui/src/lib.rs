@@ -44,6 +44,10 @@ fn same_place(a: &std::path::Path, b: &std::path::Path) -> bool {
 
 /// Key of the list of recently opened files in the app's storage.
 const RECENT_KEY: &str = "plnwrk.recent";
+/// Key of the language of the interface in the app's storage.
+const LANGUAGE_KEY: &str = "plnwrk.language";
+/// Key of the theme (light, dark, system) in the app's storage.
+const THEME_KEY: &str = "plnwrk.theme";
 /// How many recent files are kept.
 const RECENT_MAX: usize = 8;
 
@@ -104,6 +108,10 @@ pub(crate) enum Intent {
     Unprotect,
     /// Delete a recovery copy for good.
     DeleteCopy(PathBuf),
+    /// Use this language for the interface.
+    Language(text::Language),
+    /// Use this theme.
+    Theme(egui::ThemePreference),
 }
 
 impl Intent {
@@ -148,10 +156,8 @@ impl PlnwrkApp {
     /// Creates the app when the desktop or web shell starts it.
     pub fn new(cc: &eframe::CreationContext<'_>, host: Box<dyn Host>) -> Self {
         let mut app = Self::with_host(host);
-        if let Some(storage) = cc.storage
-            && let Some(text) = storage.get_string(RECENT_KEY)
-        {
-            app.state.recent = serde_json::from_str(&text).unwrap_or_default();
+        if let Some(storage) = cc.storage {
+            app.load_settings(storage);
         }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(folder) = doc::recovery_folder() {
@@ -170,6 +176,28 @@ impl PlnwrkApp {
             shown_title: String::new(),
             autosave: autosave::Autosave::default(),
         }
+    }
+
+    /// Takes the settings kept from last time: recent files, language, theme.
+    fn load_settings(&mut self, storage: &dyn eframe::Storage) {
+        if let Some(text) = storage.get_string(RECENT_KEY) {
+            self.state.recent = serde_json::from_str(&text).unwrap_or_default();
+        }
+        if let Some(language) = storage
+            .get_string(LANGUAGE_KEY)
+            .and_then(|code| text::Language::from_code(&code))
+        {
+            self.set_language(language);
+        }
+        if let Some(theme) = storage.get_string(THEME_KEY).and_then(|s| theme_from(&s)) {
+            self.state.theme = theme;
+        }
+    }
+
+    /// Uses this language for the interface (also for texts made before the next frame).
+    pub fn set_language(&mut self, language: text::Language) {
+        self.state.language = language;
+        text::set_language(language);
     }
 
     /// The open workspace.
@@ -226,7 +254,7 @@ impl PlnwrkApp {
             self.run("task.update", &Value::Object(params), Then::Nothing, None);
             if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
                 // Refused (e.g. empty title): back to what is stored, and say so.
-                warnings.push(format!("Nicht übernommen: {}", message.text));
+                warnings.push(format!("{} {}", text::t().not_taken, message.text));
                 self.state.forms.task = Some(state::TaskDraft::of(&task));
             }
         }
@@ -294,6 +322,10 @@ impl PlnwrkApp {
     /// Draws one frame and carries out what the person did. Kept apart from [`eframe::App`] so
     /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        text::set_language(self.state.language);
+        if ui.ctx().options(|o| o.theme_preference) != self.state.theme {
+            ui.ctx().set_theme(self.state.theme);
+        }
         self.forget_vanished();
         let mut intents = Vec::new();
         if self.state.dialog.is_none() {
@@ -326,7 +358,7 @@ impl PlnwrkApp {
         {
             self.state.message = Some(Message::error(format!(
                 "{} {reason}",
-                text::RECOVERY_FAILED
+                text::t().recovery_failed
             )));
         }
         self.state.recovery = after;
@@ -399,7 +431,7 @@ impl PlnwrkApp {
                 self.state.close_dialog();
                 self.change_protection(
                     plnwrk_store::Protection::Passphrase(secret),
-                    text::PROTECTED,
+                    text::t().protected,
                 );
             }
             Intent::DeleteCopy(path) => {
@@ -409,11 +441,13 @@ impl PlnwrkApp {
                 #[cfg(target_arch = "wasm32")]
                 let _ = path;
             }
+            Intent::Language(language) => self.set_language(language),
+            Intent::Theme(theme) => self.state.theme = theme,
             Intent::Unprotect => {
                 // VS-NfD stays encrypted: saving without protection is refused by the store,
                 // and the old protection is put back.
                 self.state.close_dialog();
-                self.change_protection(plnwrk_store::Protection::None, text::UNPROTECTED);
+                self.change_protection(plnwrk_store::Protection::None, text::t().unprotected);
             }
         }
     }
@@ -453,7 +487,7 @@ impl PlnwrkApp {
         if let FileAction::OpenPath(path) = &action
             && self.is_open(path)
         {
-            self.state.message = Some(Message::info(text::ALREADY_OPEN));
+            self.state.message = Some(Message::info(text::t().already_open));
             return;
         }
         // Typed text counts like any change: stored first, so saving includes it and leaving
@@ -539,14 +573,14 @@ impl PlnwrkApp {
                 doc.restore_protection(old);
             }
             if self.state.message.as_ref().is_none_or(|m| !m.error) {
-                self.state.message = Some(Message::info(text::PROTECTION_UNCHANGED));
+                self.state.message = Some(Message::info(text::t().protection_unchanged));
             }
         }
     }
 
     fn replace(&mut self, doc: OpenDoc) {
         self.drop_copy();
-        self.state.message = doc.upgraded.then(|| Message::info(text::UPGRADED));
+        self.state.message = doc.upgraded.then(|| Message::info(text::t().upgraded));
         self.doc = Some(doc);
         self.state.reset_views();
     }
@@ -583,7 +617,7 @@ impl PlnwrkApp {
                 if let Some(copy) = copy {
                     self.state.recovered.retain(|p| !same_place(p, &copy));
                     self.autosave.adopt(copy);
-                    self.state.message = Some(Message::info(text::RECOVERED_OPENED));
+                    self.state.message = Some(Message::info(text::t().recovered_opened));
                 }
             }
             Err(StoreError::PassphraseRequired) => {
@@ -608,7 +642,7 @@ impl PlnwrkApp {
     #[cfg(target_arch = "wasm32")]
     fn open(&mut self, _path: PathBuf, _passphrase: Option<SecretString>) {
         self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
-            reason: "Dateien öffnen folgt im Browser in Phase 4".to_owned(),
+            reason: text::t().browser_files_later.to_owned(),
         })));
     }
 
@@ -633,7 +667,7 @@ impl PlnwrkApp {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
                 self.autosave.saved();
-                self.state.message = Some(Message::info(text::SAVED));
+                self.state.message = Some(Message::info(text::t().saved));
                 true
             }
             Err(error) => {
@@ -646,7 +680,7 @@ impl PlnwrkApp {
     #[cfg(target_arch = "wasm32")]
     fn save(&mut self, _choose_place: bool) -> bool {
         self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
-            reason: "Speichern folgt im Browser in Phase 4".to_owned(),
+            reason: text::t().browser_files_later.to_owned(),
         })));
         false
     }
@@ -658,6 +692,26 @@ impl PlnwrkApp {
             _ => None,
         }
     }
+}
+
+/// The stored name of a theme.
+const fn theme_code(theme: egui::ThemePreference) -> &'static str {
+    match theme {
+        egui::ThemePreference::System => "system",
+        egui::ThemePreference::Light => "light",
+        egui::ThemePreference::Dark => "dark",
+    }
+}
+
+/// The theme with this stored name.
+fn theme_from(code: &str) -> Option<egui::ThemePreference> {
+    [
+        egui::ThemePreference::System,
+        egui::ThemePreference::Light,
+        egui::ThemePreference::Dark,
+    ]
+    .into_iter()
+    .find(|t| theme_code(*t) == code)
 }
 
 impl eframe::App for PlnwrkApp {
@@ -692,6 +746,8 @@ impl eframe::App for PlnwrkApp {
         if let Ok(text) = serde_json::to_string(&self.state.recent) {
             storage.set_string(RECENT_KEY, text);
         }
+        storage.set_string(LANGUAGE_KEY, self.state.language.code().to_owned());
+        storage.set_string(THEME_KEY, theme_code(self.state.theme).to_owned());
     }
 }
 

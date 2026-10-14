@@ -1,11 +1,23 @@
-//! Dates as people in Germany type and read them: `31.12.2026`. ISO (`2026-12-31`) is accepted
-//! too; commands always receive ISO.
+//! Dates as people type and read them: `31.12.2026` in German, `2026-12-31` (ISO, the same in
+//! the UK and the US) in English. Both forms are read in every language; commands always
+//! receive ISO.
 
 use jiff::civil::{Date, Time};
 
-/// Shows a date as `31.12.2026`.
+use crate::text::Language;
+
+/// Shows a date as `31.12.2026` (German) or `2026-12-31` (English).
 pub fn format(date: Date) -> String {
-    format!("{:02}.{:02}.{:04}", date.day(), date.month(), date.year())
+    match crate::text::language() {
+        Language::German => format!("{:02}.{:02}.{:04}", date.day(), date.month(), date.year()),
+        Language::English => format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day()),
+    }
+}
+
+/// Shows a moment in local time: `31.12.2026 14:00` or `2026-12-31 14:00`.
+pub fn format_moment(moment: jiff::Timestamp) -> String {
+    let local = moment.to_zoned(jiff::tz::TimeZone::system());
+    format!("{} {}", format(local.date()), format_time(local.time()))
 }
 
 /// Shows an optional date; empty without one.
@@ -20,7 +32,7 @@ pub fn parse(text: &str) -> Result<Option<Date>, String> {
     if text.is_empty() {
         return Ok(None);
     }
-    let invalid = || format!("„{text}“ ist kein Datum (TT.MM.JJJJ)");
+    let invalid = || crate::text::not_a_date(text);
     let numbers = |parts: Vec<&str>| -> Option<Vec<i32>> {
         parts.iter().map(|p| p.trim().parse::<i32>().ok()).collect()
     };
@@ -65,7 +77,7 @@ pub fn parse_time(text: &str) -> Result<Option<Time>, String> {
     if text.is_empty() {
         return Ok(None);
     }
-    let invalid = || format!("„{text}“ ist keine Uhrzeit (HH:MM)");
+    let invalid = || crate::text::not_a_time(text);
     let (hour, minute) = match text.split_once([':', '.']) {
         Some((h, m)) if m.len() == 2 => (h, m),
         Some(_) => return Err(invalid()),
@@ -84,7 +96,7 @@ pub fn parse_deadline(day: &str, time: &str) -> Result<Option<(Date, Option<Time
     match (parse(day)?, parse_time(time)?) {
         (Some(day), time) => Ok(Some((day, time))),
         (None, None) => Ok(None),
-        (None, Some(_)) => Err("Eine Uhrzeit braucht ein Datum.".to_owned()),
+        (None, Some(_)) => Err(crate::text::t().time_needs_date.to_owned()),
     }
 }
 
@@ -100,10 +112,15 @@ pub fn deadline_param(deadline: Option<(Date, Option<Time>)>) -> serde_json::Val
     }
 }
 
-/// A deadline for people: `24.12.2026` or `24.12.2026, 14:00 Uhr`.
+/// A deadline for people: `24.12.2026` or `24.12.2026, 14:00 Uhr` (`2026-12-24, 14:00`).
 pub fn format_deadline(day: Date, time: Option<Time>) -> String {
     match time {
-        Some(time) => format!("{}, {} Uhr", format(day), format_time(time)),
+        Some(time) => format!(
+            "{}, {}{}",
+            format(day),
+            format_time(time),
+            crate::text::t().o_clock
+        ),
         None => format(day),
     }
 }
