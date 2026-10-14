@@ -52,22 +52,28 @@ impl Calendar {
         }
     }
 
-    /// Whether `date` is a public holiday.
-    pub fn is_holiday(&self, date: Date) -> bool {
+    /// The public holidays of `year`, each once, in order.
+    pub fn holidays(&self, year: i16) -> Vec<Date> {
         match self.region {
             Region::Hamburg => {
-                let fixed = matches!(
-                    (date.month(), date.day()),
-                    (1, 1) | (5, 1) | (10, 3) | (12, 25) | (12, 26)
-                ) || (date.month() == 10 && date.day() == 31 && date.year() >= 2017);
-                let moving = easter(date.year()).is_some_and(|easter| {
-                    [-2, 1, 39, 50]
-                        .into_iter()
-                        .any(|offset| plus(easter, offset) == date)
-                });
-                fixed || moving
+                let mut days: Vec<Date> = [(1, 1), (5, 1), (10, 3), (12, 25), (12, 26)]
+                    .into_iter()
+                    .chain((year >= 2017).then_some((10, 31)))
+                    .filter_map(|(month, day)| Date::new(year, month, day).ok())
+                    .collect();
+                if let Some(easter) = easter(year) {
+                    days.extend([-2, 1, 39, 50].into_iter().map(|offset| plus(easter, offset)));
+                }
+                days.sort();
+                days.dedup();
+                days
             }
         }
+    }
+
+    /// Whether `date` is a public holiday.
+    pub fn is_holiday(&self, date: Date) -> bool {
+        self.holidays(date.year()).contains(&date)
     }
 
     /// Whether people work on `date`.
@@ -109,13 +115,32 @@ impl Calendar {
     }
 
     /// `days` working days after `date` (before, if negative), starting from the working day
-    /// at or after `date`. `add(d, 0)` is the working day at or after `d`.
+    /// at or after `date` (before it, if negative). `add(d, 0)` is the working day at or
+    /// after `d`.
     pub fn add(&self, date: Date, days: i32) -> Date {
-        let mut day = if days >= 0 {
+        let anchor = if days >= 0 {
             self.next_working(date)
         } else {
             self.previous_working(date)
         };
+        self.step(anchor, days)
+    }
+
+    /// Counted from an end: `days` working days after the last working day at or before
+    /// `end` (a task ending on a Sunday ended on Friday). `after_end(sunday, 1)` is Monday.
+    pub fn after_end(&self, end: Date, days: i32) -> Date {
+        self.step(self.previous_working(end), days)
+    }
+
+    /// Counted from a start: `days` working days after the first working day at or after
+    /// `start` (a task starting on a Saturday starts on Monday).
+    pub fn from_start(&self, start: Date, days: i32) -> Date {
+        self.step(self.next_working(start), days)
+    }
+
+    /// `days` working days on from `from` (back, if negative), skipping days off.
+    fn step(&self, from: Date, days: i32) -> Date {
+        let mut day = from;
         let step = if days >= 0 { 1 } else { -1 };
         for _ in 0..days.unsigned_abs() {
             let next = plus(day, step);
@@ -131,23 +156,35 @@ impl Calendar {
         day
     }
 
-    /// How many working days lie in `start..=end` (0 if `end` is before `start`).
+    /// How many working days lie in `start..=end` (0 if `end` is before `start`). Counted
+    /// by whole weeks and the holidays of each year, so far dates cost nothing more.
     pub fn count(&self, start: Date, end: Date) -> i32 {
-        let mut n: i32 = 0;
-        let mut day = start;
-        // Plans span months, not centuries; the bound keeps hostile dates cheap.
-        for _ in 0..20_000 {
+        if end < start {
+            return 0;
+        }
+        let total = start
+            .until(end)
+            .map_or(0, |span| span.get_days())
+            .saturating_add(1);
+        let weekday = |d: Date| !matches!(d.weekday(), Weekday::Saturday | Weekday::Sunday);
+        let weeks = total / 7;
+        let mut n = weeks.saturating_mul(5);
+        let mut day = plus(start, weeks.saturating_mul(7));
+        for _ in 0..7 {
             if day > end {
                 break;
             }
-            if self.is_working(day) {
+            if weekday(day) {
                 n = n.saturating_add(1);
             }
-            let next = plus(day, 1);
-            if next == day {
-                break;
+            day = plus(day, 1);
+        }
+        for year in start.year()..=end.year() {
+            for holiday in self.holidays(year) {
+                if holiday >= start && holiday <= end && weekday(holiday) {
+                    n = n.saturating_sub(1);
+                }
             }
-            day = next;
         }
         n
     }
