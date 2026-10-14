@@ -354,6 +354,8 @@ impl PersonForm {
 pub struct Forms {
     pub new_task: String,
     pub new_subtask: Option<(TaskId, String)>,
+    /// A title being edited right in the list.
+    pub inline: Option<(TaskId, String)>,
     pub detail_subtask: String,
     pub milestone_title: String,
     pub milestone_date: String,
@@ -426,6 +428,7 @@ impl State {
         match clear {
             Clear::NewTask => self.forms.new_task.clear(),
             Clear::NewSubtask => self.forms.new_subtask = None,
+            Clear::Inline => self.forms.inline = None,
             Clear::DetailSubtask => self.forms.detail_subtask.clear(),
             Clear::Milestone => {
                 self.forms.milestone_title.clear();

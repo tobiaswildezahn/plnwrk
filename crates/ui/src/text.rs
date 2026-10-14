@@ -60,6 +60,7 @@ pub const NOBODY: &str = "–";
 pub const NEW_TASK_HINT: &str = "Neue Aufgabe … (Enter)";
 pub const NEW_SUBTASK_HINT: &str = "Neue Unteraufgabe … (Enter)";
 pub const ADD_SUBTASK: &str = "+ Unteraufgabe";
+pub const RENAME_HINT: &str = "Doppelklick: umbenennen";
 pub const NO_TASKS: &str = "Noch keine Aufgaben.";
 pub const NEW_MILESTONE: &str = "+ Meilenstein";
 pub const NO_MILESTONES: &str = "Noch keine Meilensteine.";

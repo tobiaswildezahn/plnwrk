@@ -13,8 +13,10 @@ use crate::state::{Tab, View};
 use crate::{PlnwrkApp, text};
 
 fn harness(app: PlnwrkApp) -> Harness<'static, PlnwrkApp> {
+    // Short steps, like real frames: two clicks a few steps apart count as a double click.
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), app);
     harness.run();
     harness
@@ -1204,4 +1206,56 @@ fn templates_and_finished_projects_are_never_shown_as_overdue() {
         serde_json::json!({"project": id.to_string(), "status": "done"}),
     );
     assert!(!card_line(&harness, true), "no longer overdue once done");
+}
+
+/// Two clicks in quick succession at the same place, a second after anything before (so
+/// earlier clicks do not make it a triple click).
+fn double_click(harness: &mut Harness<'_, PlnwrkApp>, label: &str) {
+    harness.run_steps(60);
+    let pos = harness.get_by_label(label).rect().center();
+    harness.event(egui::Event::PointerMoved(pos));
+    harness.step();
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+            harness.step();
+        }
+    }
+    harness.run();
+}
+
+#[test]
+fn a_title_is_renamed_right_in_the_list() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Kistn packen", true);
+    // Double click: an input in place of the title.
+    click(&mut harness, "Kistn packen");
+    double_click(&mut harness, "Kistn packen");
+    assert!(harness.state().state.forms.inline.is_some());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run();
+    harness
+        .get_by(|n| n.role() == egui::accesskit::Role::TextInput && n.is_focused())
+        .type_text("Kisten packen");
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert!(task_named(harness.state(), "Kisten packen").is_some());
+    assert!(harness.state().state.forms.inline.is_none());
+    // Escape drops what was typed.
+    double_click(&mut harness, "Kisten packen");
+    harness
+        .get_by(|n| n.role() == egui::accesskit::Role::TextInput && n.is_focused())
+        .type_text(" sofort");
+    harness.run();
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(task_named(harness.state(), "Kisten packen").is_some());
+    assert!(task_named(harness.state(), "Kisten packen sofort").is_none());
+    assert!(harness.state().state.forms.inline.is_none());
 }

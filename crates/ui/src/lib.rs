@@ -61,6 +61,7 @@ pub(crate) enum Then {
 pub(crate) enum Clear {
     NewTask,
     NewSubtask,
+    Inline,
     DetailSubtask,
     Milestone,
     Comment,
