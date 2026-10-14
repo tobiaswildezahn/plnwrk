@@ -60,9 +60,15 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 - Jede neue Eingabestelle (Feld, das erst bei Fokusverlust übernimmt) muss in
   `PlnwrkApp::has_unsaved_changes` gezählt und in `flush_draft` übernommen werden – sonst gehen
   getippte Werte bei Speichern/Schließen verloren (drei Review-Funde hatten genau diese Ursache).
-- UI-Texte gehören nach `crates/ui/src/text.rs` (einige Dialog-Hinweise stehen noch direkt in
-  den Ansichten; sie ziehen mit der Übersetzung in 3b um). Nur Zeichen verwenden, die die eingebauten Schriften
+- UI-Texte gehören nach `crates/ui/src/text.rs`: feste Texte als Feld in `struct Texts` mit Wert
+  in `DE` **und** `EN` (Zugriff `text::t().feld`), Texte mit Werten als Funktion mit
+  `pick(deutsch, englisch)`. Ein Wächtertest verbietet deutsche Textliterale anderswo, ein
+  englischer Rundgangtest sucht deutsche Wörter. Nur Zeichen verwenden, die die eingebauten Schriften
   haben (Ubuntu-Light, NotoEmoji, emoji-icon-font) – z. B. ♦ • 🗙 statt ◆ ● ✕.
+- Neuer Befehl im Register → Eintrag in der Befehlspalette (`crates/ui/src/palette.rs`) oder
+  mit Begründung in `palette::ELSEWHERE`; ein Test prüft das.
+- kittest: Untermenü-Knöpfe heißen „Name⏵“ (Hilfsfunktion `submenu` in `tests.rs`); Tippen in
+  Textfelder über `Event::Text`, nicht `key_press`; die Testumgebung startet im Dunkelmodus.
 - egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),
   Panels mit `.show(ui, …)`; Tests ohne Fenster müssen `output.textures_delta.clear()` aufrufen.
 - Browser-Vorschau im Claude-Desktop: Eintrag `plnwrk-web` in `~/.claude/launch.json` (Port 8087).

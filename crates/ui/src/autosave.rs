@@ -9,6 +9,9 @@
 
 use std::path::PathBuf;
 
+#[cfg(not(target_arch = "wasm32"))]
+use plnwrk_store::StoreError;
+
 use crate::doc::OpenDoc;
 
 /// Seconds between a change and its recovery copy.
@@ -47,7 +50,7 @@ pub struct Autosave {
     last: Option<Written>,
     /// A copy being written: its result and the state it holds.
     #[cfg(not(target_arch = "wasm32"))]
-    worker: Option<(std::thread::JoinHandle<Result<String, String>>, usize)>,
+    worker: Option<(std::thread::JoinHandle<Result<String, StoreError>>, usize)>,
 }
 
 impl Autosave {
@@ -79,6 +82,12 @@ impl Autosave {
     #[cfg(test)]
     pub fn copy(&self) -> Option<&std::path::Path> {
         self.copy.as_deref()
+    }
+
+    /// Waits for a copy being written in the background (tests).
+    #[cfg(test)]
+    pub fn settle(&mut self) {
+        self.finish();
     }
 
     /// What the last write did, for the status bar.
@@ -212,9 +221,11 @@ impl Autosave {
     fn finish(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some((worker, state)) = self.worker.take() {
-            let result = worker
-                .join()
-                .unwrap_or_else(|_| Err(crate::text::RECOVERY_WRITER_STOPPED.to_owned()));
+            // Put into words here, on the thread of the window and in its language.
+            let result = match worker.join() {
+                Ok(result) => result.map_err(|e| crate::text::store_error(&e)),
+                Err(_) => Err(crate::text::t().recovery_writer_stopped.to_owned()),
+            };
             self.record(result, state);
         }
     }
@@ -242,16 +253,13 @@ impl Autosave {
         let (data, protection) = doc.snapshot();
         let folder = folder.to_path_buf();
         let target = path.clone();
-        let job = move || -> Result<String, String> {
+        let job = move || -> Result<String, StoreError> {
             // Saving encrypts (about a second) – that is why it runs apart from the window.
-            let failed = |e: plnwrk_store::StoreError| crate::text::store_error(&e);
-            std::fs::create_dir_all(&folder).map_err(|e| {
-                failed(plnwrk_store::StoreError::Io {
-                    reason: e.to_string(),
-                })
+            std::fs::create_dir_all(&folder).map_err(|e| StoreError::Io {
+                reason: e.to_string(),
             })?;
-            let bytes = plnwrk_store::save(&data, &protection).map_err(failed)?;
-            plnwrk_store::file::write_atomic(&target, &bytes).map_err(failed)?;
+            let bytes = plnwrk_store::save(&data, &protection)?;
+            plnwrk_store::file::write_atomic(&target, &bytes)?;
             Ok(jiff::Zoned::now().strftime("%H:%M").to_string())
         };
         self.copy = Some(path);
@@ -262,7 +270,7 @@ impl Autosave {
             self.written = Some(state);
             self.worker = Some((std::thread::spawn(job), state));
         } else {
-            let result = job();
+            let result = job().map_err(|e| crate::text::store_error(&e));
             self.record(result, state);
         }
     }

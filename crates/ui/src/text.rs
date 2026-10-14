@@ -1,183 +1,642 @@
-//! Every text of the user interface, in one place (German; English follows in Phase 3b).
+//! Every text of the user interface, in one place, in German and English.
+//!
+//! Views read fixed texts through [`t()`] and texts with values through the functions below.
+//! The language is kept per thread and set by the app at the start of every frame, so tests
+//! running side by side do not disturb each other.
 
-use plnwrk_core::{Priority, ProjectStatus, TaskStatus};
+use std::cell::Cell;
+
+use plnwrk_core::{Priority, ProjectStatus, Rule, TaskStatus};
 use plnwrk_engine::CommandError;
 use plnwrk_engine::query::MilestoneState;
 use plnwrk_store::StoreError;
 
-pub const UNTITLED: &str = "Unbenannt";
-pub const WELCOME: &str = "Projekte und Vorgänge – in einer Datei, die dir gehört.";
+/// A language of the interface.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Language {
+    #[default]
+    German,
+    English,
+}
 
-pub const NEW_FILE: &str = "Neue Datei";
-pub const OPEN_FILE: &str = "Datei öffnen…";
-pub const OPEN_SAMPLE: &str = "Beispiel öffnen";
-pub const SAVE: &str = "Speichern";
-pub const SAVE_AS: &str = "Speichern unter…";
-pub const CLOSE_FILE: &str = "Datei schließen";
-pub const RECENT: &str = "Zuletzt geöffnet";
-pub const RECOVERED: &str = "Wiederherstellen (automatisch gesichert, nicht gespeichert)";
-pub const FILE_MENU: &str = "Datei";
-pub const EDIT_MENU: &str = "Bearbeiten";
-pub const UNDO: &str = "Rückgängig";
-pub const REDO: &str = "Wiederholen";
+impl Language {
+    /// Every language, in the order offered.
+    pub const ALL: [Self; 2] = [Self::German, Self::English];
 
-pub const OVERVIEW: &str = "Übersicht";
-pub const PROJECTS: &str = "Projekte und Vorgänge";
-pub const TEMPLATES: &str = "Vorlagen";
-pub const PEOPLE: &str = "Personen";
-pub const NEW_PROJECT: &str = "+ Neu";
-pub const FROM_TEMPLATE: &str = "+ Aus Vorlage";
-pub const NOTHING_YET: &str = "Noch keine Projekte oder Vorgänge. Lege mit „+ Neu“ eines an.";
-pub const OVERDUE: &str = "Überfällig";
-pub const NOTHING_OVERDUE: &str = "Nichts ist überfällig.";
+    /// The stored code: `de`, `en`.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::German => "de",
+            Self::English => "en",
+        }
+    }
 
-pub const LIST: &str = "Liste";
-pub const BOARD: &str = "Board";
-pub const MILESTONES: &str = "Meilensteine";
-pub const EDIT: &str = "Bearbeiten";
-pub const ARCHIVE: &str = "Archivieren";
-pub const APPLY: &str = "Übernehmen";
-pub const CANCEL: &str = "Abbrechen";
-pub const CREATE: &str = "Anlegen";
-pub const DELETE: &str = "Löschen";
+    /// The language with this stored code.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|l| l.code() == code)
+    }
 
-pub const TITLE: &str = "Titel";
-pub const KIND: &str = "Art";
-pub const REFERENCE: &str = "Aktenzeichen";
-pub const START: &str = "Beginn";
-pub const DUE: &str = "Frist";
-pub const OWNER: &str = "Verantwortlich";
-pub const STATUS: &str = "Status";
-pub const PRIORITY: &str = "Priorität";
-pub const ASSIGNEE: &str = "Zuständig";
-pub const PROGRESS: &str = "Fortschritt";
-pub const TAGS: &str = "Schlagworte";
-pub const DESCRIPTION: &str = "Beschreibung";
-pub const TEMPLATE: &str = "Vorlage";
-pub const NOBODY: &str = "–";
+    /// Its own name, the same in every language (so it can always be found).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::German => "Deutsch",
+            Self::English => "English",
+        }
+    }
+}
 
-pub const NEW_TASK_HINT: &str = "Neue Aufgabe … (Enter)";
-pub const NEW_SUBTASK_HINT: &str = "Neue Unteraufgabe … (Enter)";
-pub const ADD_SUBTASK: &str = "Unteraufgabe hinzufügen";
-pub const DELETE_MILESTONE: &str = "Meilenstein löschen";
-pub const CLOSE_DETAILS: &str = "Details schließen";
-pub const RENAME_HINT: &str = "Doppelklick: umbenennen";
-pub const NO_TASKS: &str = "Noch keine Aufgaben.";
-pub const NEW_MILESTONE: &str = "+ Meilenstein";
-pub const NO_MILESTONES: &str = "Noch keine Meilensteine.";
-pub const REACHED: &str = "erreicht";
+thread_local! {
+    static LANGUAGE: Cell<Language> = const { Cell::new(Language::German) };
+}
 
-pub const SUBTASKS: &str = "Unteraufgaben";
-pub const COMMENTS: &str = "Kommentare";
-pub const NEW_COMMENT_HINT: &str = "Kommentar schreiben …";
-pub const ADD_COMMENT: &str = "Kommentieren";
-pub const HISTORY: &str = "Verlauf";
-pub const DELETE_TASK: &str = "Aufgabe löschen";
-pub const DELETE_TASK_QUESTION: &str =
-    "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).";
+/// Uses this language for the texts from now on (on this thread).
+pub fn set_language(language: Language) {
+    LANGUAGE.with(|l| l.set(language));
+}
 
-pub const NAME: &str = "Name";
-pub const ROLE: &str = "Funktion";
-pub const INITIALS: &str = "Kürzel";
-pub const EMAIL: &str = "E-Mail";
-pub const NEW_PERSON: &str = "+ Person";
-pub const I_AM: &str = "Ich arbeite als";
+/// The language in use.
+pub fn language() -> Language {
+    LANGUAGE.with(Cell::get)
+}
 
-pub const PASSPHRASE: &str = "Passphrase";
-pub const PASSPHRASE_AGAIN: &str = "Passphrase wiederholen";
-pub const PROTECT: &str = "Mit Passphrase schützen…";
-pub const PROTECT_BUTTON: &str = "Schützen";
-pub const PROTECT_HINT: &str = "Mindestens 12 Zeichen. Ohne Passphrase ist die Datei nicht mehr zu öffnen – sie lässt sich nicht zurücksetzen.";
-pub const UNPROTECT: &str = "Schutz entfernen…";
-pub const UNPROTECT_BUTTON: &str = "Schutz entfernen";
-pub const UNPROTECT_QUESTION: &str = "Die Datei wird danach unverschlüsselt gespeichert.";
-pub const PROTECTED: &str = "Die Datei ist jetzt mit Passphrase geschützt.";
-pub const UNPROTECTED: &str = "Die Datei ist jetzt unverschlüsselt.";
-pub const PROTECTION_UNCHANGED: &str = "Schutz nicht geändert.";
-pub const PASSPHRASES_DIFFER: &str = "Die beiden Eingaben stimmen nicht überein.";
-pub const PASSPHRASE_TOO_SHORT: &str = "Die Passphrase braucht mindestens 12 Zeichen.";
-pub const PASSPHRASE_QUESTION: &str = "Die Datei ist verschlüsselt. Passphrase:";
-pub const UNSAVED_TITLE: &str = "Ungespeicherte Änderungen";
-pub const UNSAVED_QUESTION: &str = "Die Änderungen sind noch nicht gespeichert.";
-pub const DISCARD: &str = "Verwerfen";
-pub const SAVED: &str = "Gespeichert.";
-pub const ALREADY_OPEN: &str = "Diese Datei ist bereits geöffnet.";
-pub const RECOVERY_FAILED: &str = "Wiederherstellungskopie nicht möglich:";
-pub const RECOVERY_SAVED: &str = "Wiederherstellungskopie";
-pub const RECOVERY_SAVED_HINT: &str =
-    "Automatisch gesichert. Nach einem Absturz steht sie beim nächsten Start auf der Startseite.";
-pub const RECOVERY_WRITER_STOPPED: &str = "Das Schreiben wurde unterbrochen.";
-pub const DELETE_COPY: &str = "Kopie löschen";
-pub const DELETE_COPY_QUESTION: &str =
-    "Die Wiederherstellungskopie wird endgültig gelöscht. Ihr Inhalt ist dann verloren.";
-pub const PREVIOUS_MONTH: &str = "Vormonat";
-pub const NEXT_MONTH: &str = "Folgemonat";
-pub const RECOVERED_OPENED: &str =
-    "Wiederhergestellt. Bitte mit „Speichern unter…“ an ihren Platz speichern.";
-pub const NOT_SAVED: &str = "• ungespeichert";
+/// The fixed texts in the language in use.
+pub fn t() -> &'static Texts {
+    match language() {
+        Language::German => &DE,
+        Language::English => &EN,
+    }
+}
 
-pub const VS_NFD: &str = "VS – NUR FÜR DEN DIENSTGEBRAUCH";
+/// German or English, by the language in use.
+fn pick<T>(german: T, english: T) -> T {
+    match language() {
+        Language::German => german,
+        Language::English => english,
+    }
+}
 
-pub const PICK_DATE: &str = "Im Kalender wählen";
-pub const TODAY: &str = "Heute";
-pub const CLEAR: &str = "Leeren";
-pub const TIME_HINT: &str = "HH:MM";
-pub const ADD_TIME: &str = "Uhrzeit hinzufügen";
-pub const MILESTONE: &str = "Meilenstein";
-pub const MILESTONE_HINT: &str =
-    "Ein Datum, das zählt: erreicht, wenn erledigt. Nur oberste Ebene, ohne Unteraufgaben.";
-pub const UPGRADED: &str =
-    "Datei auf das neue Format umgestellt: Meilensteine sind jetzt Aufgaben. Bitte speichern.";
+/// Every fixed text of the interface, once per language. A missing translation does not build.
+#[derive(Debug)]
+pub struct Texts {
+    pub untitled: &'static str,
+    pub welcome: &'static str,
+    pub new_file: &'static str,
+    pub open_file: &'static str,
+    pub open_sample: &'static str,
+    pub save: &'static str,
+    pub save_as: &'static str,
+    pub close_file: &'static str,
+    pub recent: &'static str,
+    pub recovered: &'static str,
+    pub file_menu: &'static str,
+    pub edit_menu: &'static str,
+    pub undo: &'static str,
+    pub redo: &'static str,
+    pub overview: &'static str,
+    pub projects: &'static str,
+    pub templates: &'static str,
+    pub people: &'static str,
+    pub new_project: &'static str,
+    pub from_template: &'static str,
+    pub nothing_yet: &'static str,
+    pub overdue: &'static str,
+    pub nothing_overdue: &'static str,
+    pub list: &'static str,
+    pub board: &'static str,
+    pub milestones: &'static str,
+    pub edit: &'static str,
+    pub archive: &'static str,
+    pub apply: &'static str,
+    pub cancel: &'static str,
+    pub create: &'static str,
+    pub delete: &'static str,
+    pub title: &'static str,
+    pub kind: &'static str,
+    pub reference: &'static str,
+    pub start: &'static str,
+    pub due: &'static str,
+    pub owner: &'static str,
+    pub status: &'static str,
+    pub priority: &'static str,
+    pub assignee: &'static str,
+    pub progress: &'static str,
+    pub tags: &'static str,
+    pub description: &'static str,
+    pub template: &'static str,
+    pub nobody: &'static str,
+    pub new_task_hint: &'static str,
+    pub new_subtask_hint: &'static str,
+    pub add_subtask: &'static str,
+    pub delete_milestone: &'static str,
+    pub close_details: &'static str,
+    pub rename_hint: &'static str,
+    pub no_tasks: &'static str,
+    pub new_milestone: &'static str,
+    pub no_milestones: &'static str,
+    pub reached: &'static str,
+    pub subtasks: &'static str,
+    pub comments: &'static str,
+    pub new_comment_hint: &'static str,
+    pub add_comment: &'static str,
+    pub history: &'static str,
+    pub delete_task: &'static str,
+    pub delete_task_question: &'static str,
+    pub name: &'static str,
+    pub role: &'static str,
+    pub initials: &'static str,
+    pub email: &'static str,
+    pub new_person: &'static str,
+    pub i_am: &'static str,
+    pub passphrase: &'static str,
+    pub passphrase_again: &'static str,
+    pub protect: &'static str,
+    pub protect_button: &'static str,
+    pub protect_hint: &'static str,
+    pub unprotect: &'static str,
+    pub unprotect_button: &'static str,
+    pub unprotect_question: &'static str,
+    pub protected: &'static str,
+    pub unprotected: &'static str,
+    pub protection_unchanged: &'static str,
+    pub passphrases_differ: &'static str,
+    pub passphrase_too_short: &'static str,
+    pub passphrase_question: &'static str,
+    pub unsaved_title: &'static str,
+    pub unsaved_question: &'static str,
+    pub discard: &'static str,
+    pub saved: &'static str,
+    pub already_open: &'static str,
+    pub recovery_failed: &'static str,
+    pub recovery_saved: &'static str,
+    pub recovery_saved_hint: &'static str,
+    pub recovery_writer_stopped: &'static str,
+    pub delete_copy: &'static str,
+    pub delete_copy_question: &'static str,
+    pub previous_month: &'static str,
+    pub next_month: &'static str,
+    pub recovered_opened: &'static str,
+    pub not_saved: &'static str,
+    pub vs_nfd: &'static str,
+    pub pick_date: &'static str,
+    pub today: &'static str,
+    pub clear: &'static str,
+    pub time_hint: &'static str,
+    pub add_time: &'static str,
+    pub milestone: &'static str,
+    pub milestone_hint: &'static str,
+    pub upgraded: &'static str,
+    pub part_of: &'static str,
+    pub new_project_title: &'static str,
+    pub new_project_hint: &'static str,
+    pub from_template_title: &'static str,
+    pub from_template_hint: &'static str,
+    pub please_choose: &'static str,
+    pub no_template: &'static str,
+    pub open: &'static str,
+    pub version: &'static str,
+    pub i_am_hint: &'static str,
+    pub templates_hint: &'static str,
+    pub no_templates: &'static str,
+    pub not_taken: &'static str,
+    pub kind_hint: &'static str,
+    pub use_as_template: &'static str,
+    pub date_needed: &'static str,
+    pub choose_template: &'static str,
+    pub start_needed: &'static str,
+    pub invalid_dates: &'static str,
+    pub time_needs_date: &'static str,
+    pub created: &'static str,
+    pub removed: &'static str,
+    pub changed: &'static str,
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        expect(dead_code, reason = "only the browser has no files yet")
+    )]
+    pub browser_files_later: &'static str,
+    pub o_clock: &'static str,
+    pub view_menu: &'static str,
+    pub language_menu: &'static str,
+    pub appearance: &'static str,
+    pub theme_system: &'static str,
+    pub theme_light: &'static str,
+    pub theme_dark: &'static str,
+    pub date_hint: &'static str,
+    pub palette: &'static str,
+    pub palette_hint: &'static str,
+    pub palette_empty: &'static str,
+    pub go_to: &'static str,
+    pub quit: &'static str,
+    pub new_task: &'static str,
+    pub edit_project: &'static str,
+    pub archive_project: &'static str,
+    pub upgrade_failed: &'static str,
+    pub no_file_chosen: &'static str,
+    pub not_a_file_name: &'static str,
+    pub more_results: &'static str,
+    /// Suggestions for the kind of a project.
+    pub kinds: [&'static str; 2],
+    /// Names of the months, January first.
+    pub months: [&'static str; 12],
+    /// Short names of the weekdays, Monday first.
+    pub weekdays: [&'static str; 7],
+}
+
+/// German.
+pub static DE: Texts = Texts {
+    untitled: "Unbenannt",
+    welcome: "Projekte und Vorgänge – in einer Datei, die dir gehört.",
+    new_file: "Neue Datei",
+    open_file: "Datei öffnen…",
+    open_sample: "Beispiel öffnen",
+    save: "Speichern",
+    save_as: "Speichern unter…",
+    close_file: "Datei schließen",
+    recent: "Zuletzt geöffnet",
+    recovered: "Wiederherstellen (automatisch gesichert, nicht gespeichert)",
+    file_menu: "Datei",
+    edit_menu: "Bearbeiten",
+    undo: "Rückgängig",
+    redo: "Wiederholen",
+    overview: "Übersicht",
+    projects: "Projekte und Vorgänge",
+    templates: "Vorlagen",
+    people: "Personen",
+    new_project: "+ Neu",
+    from_template: "+ Aus Vorlage",
+    nothing_yet: "Noch keine Projekte oder Vorgänge. Lege mit „+ Neu“ eines an.",
+    overdue: "Überfällig",
+    nothing_overdue: "Nichts ist überfällig.",
+    list: "Liste",
+    board: "Board",
+    milestones: "Meilensteine",
+    edit: "Bearbeiten",
+    archive: "Archivieren",
+    apply: "Übernehmen",
+    cancel: "Abbrechen",
+    create: "Anlegen",
+    delete: "Löschen",
+    title: "Titel",
+    kind: "Art",
+    reference: "Aktenzeichen",
+    start: "Beginn",
+    due: "Frist",
+    owner: "Verantwortlich",
+    status: "Status",
+    priority: "Priorität",
+    assignee: "Zuständig",
+    progress: "Fortschritt",
+    tags: "Schlagworte",
+    description: "Beschreibung",
+    template: "Vorlage",
+    nobody: "–",
+    new_task_hint: "Neue Aufgabe … (Enter)",
+    new_subtask_hint: "Neue Unteraufgabe … (Enter)",
+    add_subtask: "Unteraufgabe hinzufügen",
+    delete_milestone: "Meilenstein löschen",
+    close_details: "Details schließen",
+    rename_hint: "Doppelklick: umbenennen",
+    no_tasks: "Noch keine Aufgaben.",
+    new_milestone: "+ Meilenstein",
+    no_milestones: "Noch keine Meilensteine.",
+    reached: "erreicht",
+    subtasks: "Unteraufgaben",
+    comments: "Kommentare",
+    new_comment_hint: "Kommentar schreiben …",
+    add_comment: "Kommentieren",
+    history: "Verlauf",
+    delete_task: "Aufgabe löschen",
+    delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
+    name: "Name",
+    role: "Funktion",
+    initials: "Kürzel",
+    email: "E-Mail",
+    new_person: "+ Person",
+    i_am: "Ich arbeite als",
+    passphrase: "Passphrase",
+    passphrase_again: "Passphrase wiederholen",
+    protect: "Mit Passphrase schützen…",
+    protect_button: "Schützen",
+    protect_hint: "Mindestens 12 Zeichen. Ohne Passphrase ist die Datei nicht mehr zu öffnen – sie lässt sich nicht zurücksetzen.",
+    unprotect: "Schutz entfernen…",
+    unprotect_button: "Schutz entfernen",
+    unprotect_question: "Die Datei wird danach unverschlüsselt gespeichert.",
+    protected: "Die Datei ist jetzt mit Passphrase geschützt.",
+    unprotected: "Die Datei ist jetzt unverschlüsselt.",
+    protection_unchanged: "Schutz nicht geändert.",
+    passphrases_differ: "Die beiden Eingaben stimmen nicht überein.",
+    passphrase_too_short: "Die Passphrase braucht mindestens 12 Zeichen.",
+    passphrase_question: "Die Datei ist verschlüsselt. Passphrase:",
+    unsaved_title: "Ungespeicherte Änderungen",
+    unsaved_question: "Die Änderungen sind noch nicht gespeichert.",
+    discard: "Verwerfen",
+    saved: "Gespeichert.",
+    already_open: "Diese Datei ist bereits geöffnet.",
+    recovery_failed: "Wiederherstellungskopie nicht möglich:",
+    recovery_saved: "Wiederherstellungskopie",
+    recovery_saved_hint: "Automatisch gesichert. Nach einem Absturz steht sie beim nächsten Start auf der Startseite.",
+    recovery_writer_stopped: "Das Schreiben wurde unterbrochen.",
+    delete_copy: "Kopie löschen",
+    delete_copy_question: "Die Wiederherstellungskopie wird endgültig gelöscht. Ihr Inhalt ist dann verloren.",
+    previous_month: "Vormonat",
+    next_month: "Folgemonat",
+    recovered_opened: "Wiederhergestellt. Bitte mit „Speichern unter…“ an ihren Platz speichern.",
+    not_saved: "• ungespeichert",
+    vs_nfd: "VS – NUR FÜR DEN DIENSTGEBRAUCH",
+    pick_date: "Im Kalender wählen",
+    today: "Heute",
+    clear: "Leeren",
+    time_hint: "HH:MM",
+    add_time: "Uhrzeit hinzufügen",
+    milestone: "Meilenstein",
+    milestone_hint: "Ein Datum, das zählt: erreicht, wenn erledigt. Nur oberste Ebene, ohne Unteraufgaben.",
+    upgraded: "Datei auf das neue Format umgestellt: Meilensteine sind jetzt Aufgaben. Bitte speichern.",
+    part_of: "Teil von:",
+    new_project_title: "Neues Projekt oder neuer Vorgang",
+    new_project_hint: "Ein Vorgang ist ein Projekt mit Aktenzeichen und Frist.",
+    from_template_title: "Aus Vorlage anlegen",
+    from_template_hint: "Aufgaben und Meilensteine der Vorlage werden übernommen und auf den Beginn verschoben.",
+    please_choose: "Bitte wählen",
+    no_template: "Es gibt noch keine Vorlage.",
+    open: "Öffnen",
+    version: "Version",
+    i_am_hint: "Änderungen und Kommentare werden mit dieser Person vermerkt.",
+    templates_hint: "Eine Vorlage ist ein Projekt mit festem Ablauf. Daraus entstehen neue Vorgänge.",
+    no_templates: "Noch keine Vorlagen. Lege ein Projekt an und markiere es als Vorlage.",
+    not_taken: "Nicht übernommen:",
+    kind_hint: "Projekt, SKA, Beschaffung …",
+    use_as_template: "Als Vorlage verwenden",
+    date_needed: "Bitte ein Datum angeben.",
+    choose_template: "Bitte eine Vorlage wählen.",
+    start_needed: "Bitte den Beginn angeben.",
+    invalid_dates: "Kein gültiges Datum oder keine gültige Uhrzeit, nicht übernommen:",
+    time_needs_date: "Eine Uhrzeit braucht ein Datum.",
+    created: "angelegt",
+    removed: "gelöscht",
+    changed: "geändert:",
+    browser_files_later: "Dateien öffnen und speichern folgt im Browser in Phase 4",
+    o_clock: " Uhr",
+    view_menu: "Ansicht",
+    language_menu: "Sprache",
+    appearance: "Darstellung",
+    theme_system: "Wie das System",
+    theme_light: "Hell",
+    theme_dark: "Dunkel",
+    date_hint: "TT.MM.JJJJ",
+    palette: "Befehlspalette…",
+    palette_hint: "Befehl oder Name suchen …",
+    palette_empty: "Nichts gefunden.",
+    go_to: "Gehe zu",
+    quit: "Beenden",
+    new_task: "Neue Aufgabe",
+    edit_project: "Projekt bearbeiten",
+    archive_project: "Projekt archivieren",
+    upgrade_failed: "Umstellung auf das neue Format fehlgeschlagen:",
+    no_file_chosen: "Noch keine Datei gewählt.",
+    not_a_file_name: "Das ist kein Dateiname:",
+    more_results: "… weitere Treffer: Suche genauer eingeben.",
+    kinds: ["Projekt", "Vorgang"],
+    months: [
+        "Januar",
+        "Februar",
+        "März",
+        "April",
+        "Mai",
+        "Juni",
+        "Juli",
+        "August",
+        "September",
+        "Oktober",
+        "November",
+        "Dezember",
+    ],
+    weekdays: ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
+};
+
+/// English.
+pub static EN: Texts = Texts {
+    untitled: "Untitled",
+    welcome: "Projects and cases – in one file that belongs to you.",
+    new_file: "New file",
+    open_file: "Open file…",
+    open_sample: "Open sample",
+    save: "Save",
+    save_as: "Save as…",
+    close_file: "Close file",
+    recent: "Recently opened",
+    recovered: "Recover (saved automatically, not saved by you)",
+    file_menu: "File",
+    edit_menu: "Edit",
+    undo: "Undo",
+    redo: "Redo",
+    overview: "Overview",
+    projects: "Projects and cases",
+    templates: "Templates",
+    people: "People",
+    new_project: "+ New",
+    from_template: "+ From template",
+    nothing_yet: "No projects or cases yet. Create one with “+ New”.",
+    overdue: "Overdue",
+    nothing_overdue: "Nothing is overdue.",
+    list: "List",
+    board: "Board",
+    milestones: "Milestones",
+    edit: "Edit",
+    archive: "Archive",
+    apply: "Apply",
+    cancel: "Cancel",
+    create: "Create",
+    delete: "Delete",
+    title: "Title",
+    kind: "Type",
+    reference: "Reference",
+    start: "Start",
+    due: "Deadline",
+    owner: "Responsible",
+    status: "Status",
+    priority: "Priority",
+    assignee: "Assignee",
+    progress: "Progress",
+    tags: "Tags",
+    description: "Description",
+    template: "Template",
+    nobody: "–",
+    new_task_hint: "New task … (Enter)",
+    new_subtask_hint: "New subtask … (Enter)",
+    add_subtask: "Add subtask",
+    delete_milestone: "Delete milestone",
+    close_details: "Close details",
+    rename_hint: "Double-click: rename",
+    no_tasks: "No tasks yet.",
+    new_milestone: "+ Milestone",
+    no_milestones: "No milestones yet.",
+    reached: "reached",
+    subtasks: "Subtasks",
+    comments: "Comments",
+    new_comment_hint: "Write a comment …",
+    add_comment: "Comment",
+    history: "History",
+    delete_task: "Delete task",
+    delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
+    name: "Name",
+    role: "Role",
+    initials: "Initials",
+    email: "Email",
+    new_person: "+ Person",
+    i_am: "Working as",
+    passphrase: "Passphrase",
+    passphrase_again: "Repeat passphrase",
+    protect: "Protect with passphrase…",
+    protect_button: "Protect",
+    protect_hint: "At least 12 characters. Without the passphrase the file can no longer be opened – it cannot be reset.",
+    unprotect: "Remove protection…",
+    unprotect_button: "Remove protection",
+    unprotect_question: "The file will then be saved unencrypted.",
+    protected: "The file is now protected with a passphrase.",
+    unprotected: "The file is now unencrypted.",
+    protection_unchanged: "Protection not changed.",
+    passphrases_differ: "The two entries do not match.",
+    passphrase_too_short: "The passphrase needs at least 12 characters.",
+    passphrase_question: "The file is encrypted. Passphrase:",
+    unsaved_title: "Unsaved changes",
+    unsaved_question: "The changes have not been saved yet.",
+    discard: "Discard",
+    saved: "Saved.",
+    already_open: "This file is already open.",
+    recovery_failed: "Recovery copy not possible:",
+    recovery_saved: "Recovery copy",
+    recovery_saved_hint: "Saved automatically. After a crash it is offered on the start page next time.",
+    recovery_writer_stopped: "Writing was interrupted.",
+    delete_copy: "Delete copy",
+    delete_copy_question: "The recovery copy is deleted for good. Its content is then lost.",
+    previous_month: "Previous month",
+    next_month: "Next month",
+    recovered_opened: "Recovered. Please save it in its place with “Save as…”.",
+    not_saved: "• unsaved",
+    vs_nfd: "VS – NUR FÜR DEN DIENSTGEBRAUCH",
+    pick_date: "Pick in calendar",
+    today: "Today",
+    clear: "Clear",
+    time_hint: "HH:MM",
+    add_time: "Add time",
+    milestone: "Milestone",
+    milestone_hint: "A date that matters: reached when done. Top level only, without subtasks.",
+    upgraded: "File converted to the new format: milestones are now tasks. Please save.",
+    part_of: "Part of:",
+    new_project_title: "New project or case",
+    new_project_hint: "A case is a project with a reference and a deadline.",
+    from_template_title: "Create from template",
+    from_template_hint: "The tasks and milestones of the template are copied and moved to the start.",
+    please_choose: "Please choose",
+    no_template: "There is no template yet.",
+    open: "Open",
+    version: "Version",
+    i_am_hint: "Changes and comments are recorded with this person.",
+    templates_hint: "A template is a project with a fixed sequence. New cases are created from it.",
+    no_templates: "No templates yet. Create a project and mark it as a template.",
+    not_taken: "Not taken:",
+    kind_hint: "Project, inquiry, procurement …",
+    use_as_template: "Use as template",
+    date_needed: "Please enter a date.",
+    choose_template: "Please choose a template.",
+    start_needed: "Please enter the start.",
+    invalid_dates: "Not a valid date or time, not taken:",
+    time_needs_date: "A time needs a date.",
+    created: "created",
+    removed: "deleted",
+    changed: "changed:",
+    browser_files_later: "Opening and saving files in the browser follows in Phase 4",
+    o_clock: "",
+    view_menu: "View",
+    language_menu: "Language",
+    appearance: "Appearance",
+    theme_system: "Like the system",
+    theme_light: "Light",
+    theme_dark: "Dark",
+    date_hint: "YYYY-MM-DD",
+    palette: "Command palette…",
+    palette_hint: "Search a command or name …",
+    palette_empty: "Nothing found.",
+    go_to: "Go to",
+    quit: "Quit",
+    new_task: "New task",
+    edit_project: "Edit project",
+    archive_project: "Archive project",
+    upgrade_failed: "Converting to the new format failed:",
+    no_file_chosen: "No file chosen yet.",
+    not_a_file_name: "This is not a file name:",
+    more_results: "… more results: narrow the search.",
+    kinds: ["Project", "Case"],
+    months: [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ],
+    weekdays: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+};
 
 /// Name of a task status (board column).
-pub const fn task_status(status: TaskStatus) -> &'static str {
+pub fn task_status(status: TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Todo => "Offen",
-        TaskStatus::InProgress => "In Arbeit",
-        TaskStatus::Blocked => "Blockiert",
-        TaskStatus::Review => "Prüfung",
-        TaskStatus::Done => "Erledigt",
+        TaskStatus::Todo => pick("Offen", "To do"),
+        TaskStatus::InProgress => pick("In Arbeit", "In progress"),
+        TaskStatus::Blocked => pick("Blockiert", "Blocked"),
+        TaskStatus::Review => pick("Prüfung", "Review"),
+        TaskStatus::Done => pick("Erledigt", "Done"),
     }
 }
 
 /// Name of a priority.
-pub const fn priority(priority: Priority) -> &'static str {
+pub fn priority(priority: Priority) -> &'static str {
     match priority {
-        Priority::Low => "Niedrig",
-        Priority::Normal => "Normal",
-        Priority::High => "Hoch",
-        Priority::Critical => "Kritisch",
+        Priority::Low => pick("Niedrig", "Low"),
+        Priority::Normal => pick("Normal", "Normal"),
+        Priority::High => pick("Hoch", "High"),
+        Priority::Critical => pick("Kritisch", "Critical"),
     }
 }
 
 /// Name of a project status.
-pub const fn project_status(status: ProjectStatus) -> &'static str {
+pub fn project_status(status: ProjectStatus) -> &'static str {
     match status {
-        ProjectStatus::Draft => "Entwurf",
-        ProjectStatus::Active => "Aktiv",
-        ProjectStatus::OnHold => "Pausiert",
-        ProjectStatus::Done => "Abgeschlossen",
-        ProjectStatus::Archived => "Archiviert",
+        ProjectStatus::Draft => pick("Entwurf", "Draft"),
+        ProjectStatus::Active => pick("Aktiv", "Active"),
+        ProjectStatus::OnHold => pick("Pausiert", "On hold"),
+        ProjectStatus::Done => pick("Abgeschlossen", "Done"),
+        ProjectStatus::Archived => pick("Archiviert", "Archived"),
     }
 }
 
 /// Name of the state of a milestone.
-pub const fn milestone_state(state: MilestoneState) -> &'static str {
+pub fn milestone_state(state: MilestoneState) -> &'static str {
     match state {
-        MilestoneState::Open => "offen",
-        MilestoneState::Reached => "erreicht",
-        MilestoneState::Missed => "verpasst",
+        MilestoneState::Open => pick("offen", "open"),
+        MilestoneState::Reached => pick("erreicht", "reached"),
+        MilestoneState::Missed => pick("verpasst", "missed"),
     }
 }
 
 /// "in 3 Tagen", "heute", "seit 2 Tagen überfällig".
 pub fn days_left(days: i64) -> String {
-    match days {
-        0 => "heute fällig".to_owned(),
-        1 => "morgen fällig".to_owned(),
-        -1 => "seit 1 Tag überfällig".to_owned(),
-        d if d > 1 => format!("in {d} Tagen"),
-        d => format!("seit {} Tagen überfällig", d.unsigned_abs()),
+    match (language(), days) {
+        (Language::German, 0) => "heute fällig".to_owned(),
+        (Language::German, 1) => "morgen fällig".to_owned(),
+        (Language::German, -1) => "seit 1 Tag überfällig".to_owned(),
+        (Language::German, d) if d > 1 => format!("in {d} Tagen"),
+        (Language::German, d) => format!("seit {} Tagen überfällig", d.unsigned_abs()),
+        (Language::English, 0) => "due today".to_owned(),
+        (Language::English, 1) => "due tomorrow".to_owned(),
+        (Language::English, -1) => "1 day overdue".to_owned(),
+        (Language::English, d) if d > 1 => format!("in {d} days"),
+        (Language::English, d) => format!("{} days overdue", d.unsigned_abs()),
     }
 }
 
@@ -194,65 +653,479 @@ pub fn deadline_state(
         .until(due)
         .map_or(0, |span| i64::from(span.get_days()));
     let text = match (time, days, past) {
-        (Some(time), 0, true) => format!("seit {} Uhr überfällig", crate::dates::format_time(time)),
-        (Some(time), 0, false) => format!("heute bis {} Uhr", crate::dates::format_time(time)),
+        (Some(time), 0, true) => {
+            let time = crate::dates::format_time(time);
+            pick(
+                format!("seit {time} Uhr überfällig"),
+                format!("overdue since {time}"),
+            )
+        }
+        (Some(time), 0, false) => {
+            let time = crate::dates::format_time(time);
+            pick(
+                format!("heute bis {time} Uhr"),
+                format!("due today at {time}"),
+            )
+        }
         _ => days_left(days),
     };
     (text, past)
 }
 
+/// "„32.1.2026“ ist kein Datum (TT.MM.JJJJ)".
+pub fn not_a_date(typed: &str) -> String {
+    pick(
+        format!("„{typed}“ ist kein Datum (TT.MM.JJJJ)"),
+        format!("“{typed}” is not a date (YYYY-MM-DD)"),
+    )
+}
+
+/// "„25:00“ ist keine Uhrzeit (HH:MM)".
+pub fn not_a_time(typed: &str) -> String {
+    pick(
+        format!("„{typed}“ ist keine Uhrzeit (HH:MM)"),
+        format!("“{typed}” is not a time (HH:MM)"),
+    )
+}
+
+/// "40 % · 2 von 5 erledigt".
+pub fn progress(percent: u8, done: usize, tasks: usize) -> String {
+    pick(
+        format!("{percent} % · {done} von {tasks} erledigt"),
+        format!("{percent} % · {done} of {tasks} done"),
+    )
+}
+
+/// "3 offen".
+pub fn open_tasks(count: usize) -> String {
+    pick(format!("{count} offen"), format!("{count} open"))
+}
+
+/// "2 überfällig".
+pub fn overdue_tasks(count: usize) -> String {
+    pick(format!("{count} überfällig"), format!("{count} overdue"))
+}
+
+/// Something typed, in quotation marks of the language.
+pub fn quoted(text: &str) -> String {
+    pick(format!("„{text}“"), format!("“{text}”"))
+}
+
+/// A broken rule of the data, for people.
+pub fn rule(rule: Rule) -> &'static str {
+    match rule {
+        Rule::Text => pick(
+            "Ein Text ist leer, zu lang oder enthält Steuerzeichen.",
+            "A text is empty, too long or contains control characters.",
+        ),
+        Rule::MissingReference => pick(
+            "Etwas verweist auf einen Eintrag, den es nicht gibt.",
+            "Something refers to an entry that does not exist.",
+        ),
+        Rule::CrossProject => pick(
+            "Unteraufgaben und Abhängigkeiten bleiben im selben Projekt.",
+            "Subtasks and dependencies stay within one project.",
+        ),
+        Rule::Cycle => pick(
+            "Das ergäbe einen Kreis (eine Aufgabe unter sich selbst).",
+            "That would make a circle (a task below itself).",
+        ),
+        Rule::DateOrder => pick(
+            "Die Frist liegt vor dem Beginn.",
+            "The deadline is before the start.",
+        ),
+        Rule::Range => pick(
+            "Ein Wert liegt außerhalb des erlaubten Bereichs.",
+            "A value is out of range.",
+        ),
+        Rule::Classification => pick(
+            "Eine Aufgabe darf nicht niedriger eingestuft sein als ihr Projekt.",
+            "A task may not be classified lower than its project.",
+        ),
+        Rule::Duplicate => pick(
+            "Diese Abhängigkeit gibt es schon.",
+            "This dependency exists already.",
+        ),
+        Rule::SelfReference => pick(
+            "Eine Aufgabe kann nicht von sich selbst abhängen.",
+            "A task cannot depend on itself.",
+        ),
+        Rule::Corrupt => pick(
+            "Die Daten passen nicht zusammen.",
+            "The data does not fit together.",
+        ),
+        Rule::Milestone => pick(
+            "Ein Meilenstein steht auf oberster Ebene und hat keine Unteraufgaben.",
+            "A milestone is on the top level and has no subtasks.",
+        ),
+    }
+}
+
+/// Name of a changed field in the history; `None` for bookkeeping fields not worth showing.
+pub fn field(name: &str) -> Option<String> {
+    let t = t();
+    let known = match name {
+        "updated" | "created" | "id" => return None,
+        "title" => t.title,
+        "description" => t.description,
+        "status" => t.status,
+        "priority" => t.priority,
+        "assignee" => t.assignee,
+        "start" => t.start,
+        "due" => t.due,
+        "due_time" => pick("Uhrzeit", "time"),
+        "milestone" => t.milestone,
+        "progress" => t.progress,
+        "tags" => t.tags,
+        "parent" => pick("übergeordnete Aufgabe", "parent task"),
+        "project" => pick("Projekt", "project"),
+        "rank" => pick("Reihenfolge", "order"),
+        "classification" => pick("Einstufung", "classification"),
+        "estimate_minutes" => pick("Schätzung", "estimate"),
+        other => return Some(other.to_owned()),
+    };
+    Some(known.to_owned())
+}
+
 /// A refused command, for people.
 pub fn command_error(error: &CommandError) -> String {
     match error {
-        CommandError::BadParam { param, reason } => {
-            format!("Eingabe nicht gültig ({param}): {reason}")
+        CommandError::BadParam { param, reason } => pick(
+            format!("Eingabe nicht gültig ({param}): {reason}"),
+            format!("Input not valid ({param}): {reason}"),
+        ),
+        CommandError::Disabled { .. } => pick(
+            "Das ist gerade nicht möglich.",
+            "That is not possible right now.",
+        )
+        .to_owned(),
+        CommandError::NotFound { .. } => {
+            pick("Das gibt es nicht mehr.", "That does not exist any more.").to_owned()
         }
-        CommandError::Disabled { .. } => "Das ist gerade nicht möglich.".to_owned(),
-        CommandError::NotFound { .. } => "Das gibt es nicht mehr.".to_owned(),
         CommandError::Invalid { violations } => match violations.first() {
-            Some(v) => format!("Nicht erlaubt: {}", v.message),
-            None => "Nicht erlaubt.".to_owned(),
+            Some(v) => format!(
+                "{} {}",
+                pick("Nicht erlaubt:", "Not allowed:"),
+                rule(v.rule)
+            ),
+            None => pick("Nicht erlaubt.", "Not allowed.").to_owned(),
         },
-        CommandError::Conflict { reason } => format!("Konflikt: {reason}"),
-        CommandError::UnknownCommand { command } => format!("Unbekannter Befehl {command}"),
+        CommandError::Conflict { reason } => format!("{} {reason}", pick("Konflikt:", "Conflict:")),
+        CommandError::UnknownCommand { command } => {
+            format!(
+                "{} {command}",
+                pick("Unbekannter Befehl", "Unknown command")
+            )
+        }
     }
 }
 
 /// A file that could not be read or written, for people.
 pub fn store_error(error: &StoreError) -> String {
     match error {
-        StoreError::NotPlnwrk => "Das ist keine plnwrk-Datei.".to_owned(),
-        StoreError::NewerFormat { .. } => {
-            "Die Datei stammt aus einer neueren plnwrk-Version. Bitte plnwrk aktualisieren."
-                .to_owned()
+        StoreError::NotPlnwrk => {
+            pick("Das ist keine plnwrk-Datei.", "This is not a plnwrk file.").to_owned()
         }
-        StoreError::UnsupportedFormat { found } => {
-            format!("Dateiformat {found} wird nicht unterstützt.")
+        StoreError::NewerFormat { .. } => pick(
+            "Die Datei stammt aus einer neueren plnwrk-Version. Bitte plnwrk aktualisieren.",
+            "The file comes from a newer version of plnwrk. Please update plnwrk.",
+        )
+        .to_owned(),
+        StoreError::UnsupportedFormat { found } => pick(
+            format!("Dateiformat {found} wird nicht unterstützt."),
+            format!("File format {found} is not supported."),
+        ),
+        StoreError::Corrupt { reason } => pick(
+            format!("Die Datei ist beschädigt: {reason}"),
+            format!("The file is damaged: {reason}"),
+        ),
+        StoreError::TooLarge { .. } => {
+            pick("Die Datei ist zu groß.", "The file is too large.").to_owned()
         }
-        StoreError::Corrupt { reason } => format!("Die Datei ist beschädigt: {reason}"),
-        StoreError::TooLarge { .. } => "Die Datei ist zu groß.".to_owned(),
-        StoreError::PassphraseRequired => "Die Datei ist verschlüsselt.".to_owned(),
-        StoreError::WrongPassphrase => "Die Passphrase ist falsch.".to_owned(),
-        StoreError::ClassifiedUnencrypted => {
-            "VS-NfD-Inhalte dürfen nur verschlüsselt gespeichert werden.".to_owned()
+        StoreError::PassphraseRequired => {
+            pick("Die Datei ist verschlüsselt.", "The file is encrypted.").to_owned()
         }
-        StoreError::ChainBroken { seq } => {
-            format!("Das Änderungsprotokoll wurde bei Änderung {seq} verändert.")
+        StoreError::WrongPassphrase => {
+            pick("Die Passphrase ist falsch.", "The passphrase is wrong.").to_owned()
         }
-        StoreError::SnapshotMismatch => {
-            "Datenstand und Änderungsprotokoll passen nicht zusammen.".to_owned()
-        }
-        StoreError::Invalid { violations } => {
-            format!("Die Daten verletzen {} Regel(n).", violations.len())
-        }
-        StoreError::Encryption { reason } => format!("Verschlüsselung fehlgeschlagen: {reason}"),
-        StoreError::Io { reason } => format!("Dateizugriff fehlgeschlagen: {reason}"),
+        StoreError::ClassifiedUnencrypted => pick(
+            "VS-NfD-Inhalte dürfen nur verschlüsselt gespeichert werden.",
+            "VS-NfD content may only be saved encrypted.",
+        )
+        .to_owned(),
+        StoreError::ChainBroken { seq } => pick(
+            format!("Das Änderungsprotokoll wurde bei Änderung {seq} verändert."),
+            format!("The change log was altered at change {seq}."),
+        ),
+        StoreError::SnapshotMismatch => pick(
+            "Datenstand und Änderungsprotokoll passen nicht zusammen.",
+            "The data and the change log do not match.",
+        )
+        .to_owned(),
+        StoreError::Invalid { violations } => pick(
+            format!("Die Daten verletzen {} Regel(n).", violations.len()),
+            format!("The data breaks {} rule(s).", violations.len()),
+        ),
+        StoreError::Encryption { reason } => pick(
+            format!("Verschlüsselung fehlgeschlagen: {reason}"),
+            format!("Encryption failed: {reason}"),
+        ),
+        StoreError::Io { reason } => pick(
+            format!("Dateizugriff fehlgeschlagen: {reason}"),
+            format!("File access failed: {reason}"),
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// String literals of a Rust source, outside comments and before its test module: plain,
+    /// raw (`r#"…"#`) and continued over lines (`\` at the end of a line).
+    fn literals(source: &str) -> Vec<String> {
+        // Windows checkouts may have CRLF line ends.
+        let source = source.replace("\r\n", "\n");
+        let code = source
+            .split("#[cfg(test)]\nmod tests")
+            .next()
+            .unwrap_or_default();
+        let chars: Vec<char> = code.chars().collect();
+        let at = |i: usize| chars.get(i).copied();
+        let mut found = Vec::new();
+        let mut i = 0;
+        while let Some(c) = at(i) {
+            match c {
+                '/' if at(i + 1) == Some('/') => {
+                    while at(i).is_some_and(|c| c != '\n') {
+                        i += 1;
+                    }
+                }
+                '/' if at(i + 1) == Some('*') => {
+                    let mut depth = 0usize;
+                    loop {
+                        match (at(i), at(i + 1)) {
+                            (Some('/'), Some('*')) => {
+                                depth += 1;
+                                i += 2;
+                            }
+                            (Some('*'), Some('/')) => {
+                                depth -= 1;
+                                i += 2;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            (Some(_), _) => i += 1,
+                            (None, _) => break,
+                        }
+                    }
+                    continue;
+                }
+                'r' if !at(i.wrapping_sub(1)).is_some_and(|p| p.is_alphanumeric() || p == '_')
+                    && matches!(at(i + 1), Some('"' | '#')) =>
+                {
+                    let mut hashes = 0;
+                    let mut j = i + 1;
+                    while at(j) == Some('#') {
+                        hashes += 1;
+                        j += 1;
+                    }
+                    if at(j) != Some('"') {
+                        i += 1;
+                        continue;
+                    }
+                    j += 1;
+                    let mut text = String::new();
+                    while let Some(c) = at(j) {
+                        if c == '"' && (1..=hashes).all(|k| at(j + k) == Some('#')) {
+                            break;
+                        }
+                        text.push(c);
+                        j += 1;
+                    }
+                    found.push(text);
+                    i = j + 1 + hashes;
+                    continue;
+                }
+                '"' => {
+                    let mut text = String::new();
+                    i += 1;
+                    while let Some(c) = at(i) {
+                        match c {
+                            '\\' if at(i + 1) == Some('\n') => {
+                                // Continued on the next line: its leading spaces do not count.
+                                i += 2;
+                                while at(i).is_some_and(char::is_whitespace) {
+                                    i += 1;
+                                }
+                                continue;
+                            }
+                            '\\' => {
+                                if let Some(next) = at(i + 1) {
+                                    text.push(next);
+                                }
+                                i += 2;
+                                continue;
+                            }
+                            '"' => break,
+                            c => text.push(c),
+                        }
+                        i += 1;
+                    }
+                    found.push(text);
+                }
+                '\'' => {
+                    // A char literal ('"', '\'') must not start a string; a lifetime has no
+                    // closing quote.
+                    if at(i + 1) == Some('\\') {
+                        i += 2;
+                        while at(i).is_some_and(|c| c != '\'') {
+                            i += 1;
+                        }
+                    } else if at(i + 2) == Some('\'') {
+                        i += 2;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        found
+    }
+
+    /// Texts on disk that are not interface texts: the recovery folder and copy names stay
+    /// the same in every language, so copies are found again after switching.
+    const NOT_INTERFACE: &[&str] = &[
+        " – Wiederherstellung ",
+        "{} – Wiederherstellung {}.plnwrk",
+        "Notkopien",
+    ];
+
+    /// Whether a text looks German: German letters or quotes, or a word only German uses. The
+    /// words are taken from the German texts themselves, so new texts widen the net.
+    fn looks_german(text: &str) -> bool {
+        if text.chars().any(|c| "äöüÄÖÜß„“".contains(c)) {
+            return true;
+        }
+        let english = format!("{EN:?}");
+        let english: std::collections::HashSet<&str> =
+            english.split(|c: char| !c.is_alphanumeric()).collect();
+        let german = format!("{DE:?}");
+        let german: std::collections::HashSet<&str> = german
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.chars().count() >= 3 && !english.contains(w))
+            .collect();
+        text.split(|c: char| !c.is_alphanumeric())
+            .any(|w| german.contains(w))
+    }
+
+    #[test]
+    fn interface_texts_live_only_here() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = vec![src.clone()];
+        let mut german = Vec::new();
+        let mut checked = 0;
+        while let Some(path) = files.pop() {
+            if path.is_dir() {
+                files.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if ["text.rs", "tests.rs", "model_tests.rs"].contains(&name.as_str()) {
+                continue;
+            }
+            checked += 1;
+            for literal in literals(&std::fs::read_to_string(&path).unwrap()) {
+                if looks_german(&literal) && !NOT_INTERFACE.contains(&literal.as_str()) {
+                    german.push(format!("{name}: {literal}"));
+                }
+            }
+        }
+        assert!(checked >= 10, "the sources were found");
+        assert!(
+            german.is_empty(),
+            "German texts outside text.rs: {german:#?}"
+        );
+    }
+
+    #[test]
+    fn the_literal_scanner_sees_continued_and_raw_strings() {
+        let source = "let a = \"Erste Zeile \\\n        nicht übernommen\";\n\
+                      /* \"im Kommentar\" */ let b = r#\"Bitte \"x\" jetzt\"#;\n\
+                      fn f<'a>(x: &'a str) -> &'a str { \"Frist\" }";
+        assert_eq!(
+            literals(source),
+            vec!["Erste Zeile nicht übernommen", "Bitte \"x\" jetzt", "Frist"]
+        );
+        let windows =
+            "fn f() {}\r\n#[cfg(test)]\r\nmod tests { const X: &str = \"Neue Aufgabe\"; }";
+        assert!(
+            literals(windows).is_empty(),
+            "the test module is skipped with CRLF too"
+        );
+        let continued = "let a = \"Erste \\\r\n    Zeile\";";
+        assert_eq!(literals(continued), vec!["Erste Zeile"]);
+        assert!(looks_german("Speichern"));
+        assert!(looks_german("Abbrechen"));
+        assert!(!looks_german("Save"));
+        assert!(!looks_german("task.update"));
+    }
+
+    #[test]
+    fn the_literal_scanner_sees_strings_and_skips_comments() {
+        let source =
+            "let a = \"Neue Aufgabe\"; // \"Kommentar\"\nlet b = '\"'; let c = \"x\\\"y\";";
+        assert_eq!(literals(source), vec!["Neue Aufgabe", "x\"y"]);
+    }
+
+    #[test]
+    fn both_languages_differ_where_they_should() {
+        // A text left untranslated in EN shows German in the English interface.
+        let same = [
+            "nobody",
+            "time_hint",
+            "vs_nfd",
+            "version",
+            "status",
+            "name",
+            "board",
+            "passphrase",
+            "new_person",
+        ];
+        let de = format!("{DE:?}");
+        let en = format!("{EN:?}");
+        let fields = |debug: &str| -> Vec<(String, String)> {
+            debug
+                .trim_start_matches("Texts {")
+                .split(", ")
+                .filter_map(|part| part.split_once(": "))
+                .map(|(k, v)| (k.trim().to_owned(), v.to_owned()))
+                .collect()
+        };
+        let english: std::collections::HashMap<_, _> = fields(&en).into_iter().collect();
+        // Every text field of the struct (from the source) must have been compared, so a
+        // change of the Debug format cannot make this test check nothing.
+        let declared: std::collections::BTreeSet<String> = include_str!("text.rs")
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("pub "))
+            .filter_map(|rest| rest.strip_suffix(": &'static str,"))
+            .map(str::to_owned)
+            .collect();
+        let mut compared = std::collections::BTreeSet::new();
+        for (key, german) in fields(&de) {
+            if !declared.contains(&key) {
+                continue; // a piece of a value that contains ", "
+            }
+            compared.insert(key.clone());
+            if same.contains(&key.as_str()) {
+                continue;
+            }
+            assert_ne!(english.get(&key), Some(&german), "{key} is not translated");
+        }
+        assert!(declared.len() > 100, "the fields were found");
+        assert_eq!(compared, declared, "every text was compared");
+    }
 
     #[test]
     fn days_read_naturally() {

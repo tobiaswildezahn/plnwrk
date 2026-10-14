@@ -84,7 +84,7 @@ impl OpenDoc {
             .document
             .open_session(Box::new(SystemClock), Box::new(RandomIds::default()))
             .map_err(|e| StoreError::Corrupt {
-                reason: format!("upgrade: {e}"),
+                reason: format!("{} {}", text::t().upgrade_failed, text::command_error(&e)),
             })?;
         // A conversion is a change in the log: the file counts as changed until saved.
         let mut doc = Self::with(session, None, protection, saved);
@@ -127,7 +127,7 @@ impl OpenDoc {
             None => self
                 .title
                 .clone()
-                .unwrap_or_else(|| text::UNTITLED.to_owned()),
+                .unwrap_or_else(|| text::t().untitled.to_owned()),
         }
     }
 
@@ -179,7 +179,7 @@ impl OpenDoc {
     pub fn save(&mut self) -> Result<(), StoreError> {
         let Some(path) = self.path.clone() else {
             return Err(StoreError::Io {
-                reason: "no file chosen yet".to_owned(),
+                reason: text::t().no_file_chosen.to_owned(),
             });
         };
         let bytes = self.to_bytes()?;
@@ -271,7 +271,7 @@ impl OpenDoc {
         path.file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .and_then(|stem| stem.split(" – Wiederherstellung").next().map(str::to_owned))
-            .unwrap_or_else(|| text::UNTITLED.to_owned())
+            .unwrap_or_else(|| text::t().untitled.to_owned())
     }
 }
 
@@ -284,7 +284,7 @@ fn resolve_target(path: &Path) -> Result<PathBuf, StoreError> {
         return file::resolve(path);
     }
     let name = path.file_name().ok_or_else(|| StoreError::Io {
-        reason: format!("{} is not a file name", path.display()),
+        reason: format!("{} {}", text::t().not_a_file_name, path.display()),
     })?;
     let folder = match path.parent() {
         Some(folder) if !folder.as_os_str().is_empty() => folder,
@@ -325,7 +325,7 @@ mod tests {
     fn a_new_workspace_is_clean_until_changed() {
         let mut doc = OpenDoc::new();
         assert!(!doc.is_dirty());
-        assert_eq!(doc.name(), text::UNTITLED);
+        assert_eq!(doc.name(), text::t().untitled);
         add_person(&mut doc, "Anna");
         assert!(doc.is_dirty());
     }

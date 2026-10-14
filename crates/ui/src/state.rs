@@ -78,6 +78,8 @@ pub enum Dialog {
     Unprotect,
     /// Confirm deleting a recovery copy.
     DeleteCopy(PathBuf),
+    /// The command palette: what is typed and the highlighted line.
+    Palette { query: String, selected: usize },
 }
 
 /// A line in the status bar.
@@ -168,6 +170,45 @@ impl ProjectForm {
         Ok(Value::Object(map))
     }
 
+    /// Whether something is typed that differs from `project` (dates compared as dates, so the
+    /// notation of the language does not count). A wrong date counts as typed.
+    pub fn is_pending(&self, project: &Project) -> bool {
+        self.update_params(project.id) != Self::of(project).update_params(project.id)
+    }
+
+    /// Follows a change of the stored project (undo, archive) without losing what is typed:
+    /// fields the person has not touched take the new value.
+    pub fn rebase(&mut self, old: &Project, new: &Project) {
+        let before = Self::of(old);
+        let after = Self::of(new);
+        let keep = |mine: &mut String, before: String, after: String| {
+            if *mine == before {
+                *mine = after;
+            }
+        };
+        keep(&mut self.title, before.title, after.title);
+        keep(&mut self.kind, before.kind, after.kind);
+        keep(&mut self.reference, before.reference, after.reference);
+        if dates::parse(&self.start) == Ok(old.start) {
+            self.start = after.start;
+        }
+        if dates::parse_deadline(&self.due, &self.due_time)
+            == Ok(old.due.map(|d| (d, old.due_time)))
+        {
+            self.due = after.due;
+            self.due_time = after.due_time;
+        }
+        if self.owner == before.owner {
+            self.owner = after.owner;
+        }
+        if self.status == before.status {
+            self.status = after.status;
+        }
+        if self.template == before.template {
+            self.template = after.template;
+        }
+    }
+
     /// Parameters of `project.update` (empty fields clear).
     pub fn update_params(&self, project: ProjectId) -> Result<Value, String> {
         let mut map = self.fields()?;
@@ -194,9 +235,9 @@ impl TemplateForm {
     pub fn params(&self) -> Result<Value, String> {
         let template = self
             .template
-            .ok_or_else(|| "Bitte eine Vorlage wählen.".to_owned())?;
+            .ok_or_else(|| crate::text::t().choose_template.to_owned())?;
         let start =
-            dates::parse(&self.start)?.ok_or_else(|| "Bitte den Beginn angeben.".to_owned())?;
+            dates::parse(&self.start)?.ok_or_else(|| crate::text::t().start_needed.to_owned())?;
         let mut map = Map::new();
         map.insert("template".to_owned(), json!(template.to_string()));
         map.insert("title".to_owned(), json!(self.title.trim()));
@@ -261,21 +302,25 @@ impl TaskDraft {
     pub fn drop_invalid_dates(&mut self) -> Option<String> {
         let mut dropped = Vec::new();
         if dates::parse(&self.start).is_err() {
-            dropped.push(format!("„{}“ ({})", self.start.trim(), crate::text::START));
+            dropped.push(format!(
+                "{} ({})",
+                crate::text::quoted(self.start.trim()),
+                crate::text::t().start
+            ));
             self.start = dates::format_opt(self.source.start);
         }
         if dates::parse_deadline(&self.due, &self.due_time).is_err() {
             let typed = format!("{} {}", self.due.trim(), self.due_time.trim());
-            dropped.push(format!("„{}“ ({})", typed.trim(), crate::text::DUE));
+            dropped.push(format!(
+                "{} ({})",
+                crate::text::quoted(typed.trim()),
+                crate::text::t().due
+            ));
             self.due = dates::format_opt(self.source.due);
             self.due_time = dates::format_time_opt(self.source.due_time);
         }
-        (!dropped.is_empty()).then(|| {
-            format!(
-                "Kein gültiges Datum oder keine gültige Uhrzeit, nicht übernommen: {}",
-                dropped.join(", ")
-            )
-        })
+        (!dropped.is_empty())
+            .then(|| format!("{} {}", crate::text::t().invalid_dates, dropped.join(", ")))
     }
 
     /// Whether something was typed that is not stored yet.
@@ -285,6 +330,8 @@ impl TaskDraft {
 
     /// Follows a change of the stored task (undo, another field, a drag on the board) without
     /// losing what is being typed: fields the person has not touched take the new value.
+    /// Dates count as untouched when they read as the stored date in any notation, so a change
+    /// of language (`01.12.2026` → `2026-12-01`) does not make them look typed.
     pub fn rebase(&mut self, task: &Task) {
         let old = Self::of(&self.source);
         let new = Self::of(task);
@@ -296,9 +343,14 @@ impl TaskDraft {
         keep(&mut self.title, &old.title, new.title);
         keep(&mut self.description, &old.description, new.description);
         keep(&mut self.tags, &old.tags, new.tags);
-        keep(&mut self.start, &old.start, new.start);
-        keep(&mut self.due, &old.due, new.due);
-        keep(&mut self.due_time, &old.due_time, new.due_time);
+        if dates::parse(&self.start) == Ok(self.source.start) {
+            self.start = new.start;
+        }
+        let stored_due = self.source.due.map(|day| (day, self.source.due_time));
+        if dates::parse_deadline(&self.due, &self.due_time) == Ok(stored_due) {
+            self.due = new.due;
+            self.due_time = new.due_time;
+        }
         if self.progress == old.progress {
             self.progress = new.progress;
         }
@@ -393,6 +445,12 @@ pub struct State {
     pub dialog_serial: u64,
     /// How the recovery copy stands, for the status bar.
     pub recovery: Option<crate::autosave::Written>,
+    /// The language of the interface.
+    pub language: crate::text::Language,
+    /// Light, dark or like the system.
+    pub theme: egui::ThemePreference,
+    /// The field for a new task takes the cursor in the next frame.
+    pub focus_new_task: bool,
 }
 
 impl State {
@@ -465,6 +523,32 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    fn project(title: &str, due: Option<&str>) -> Project {
+        let mut doc = crate::OpenDoc::new();
+        doc.session
+            .run(
+                "project.create",
+                &json!({"title": title, "due": due}),
+                plnwrk_engine::Origin::User,
+            )
+            .unwrap();
+        doc.session.workspace().projects().next().unwrap().clone()
+    }
+
+    #[test]
+    fn a_project_form_keeps_what_is_typed_and_follows_the_rest() {
+        let old = project("Umzug", Some("2026-12-01"));
+        let mut new = old.clone();
+        new.title = "Umzug alt".to_owned();
+        new.due = None;
+        let mut form = ProjectForm::of(&old);
+        form.title = "Umzug NEU".to_owned();
+        assert!(form.is_pending(&old));
+        form.rebase(&old, &new);
+        assert_eq!(form.title, "Umzug NEU", "typed");
+        assert_eq!(form.due, "", "untouched: follows the undo");
+    }
+
     use super::*;
 
     #[test]
