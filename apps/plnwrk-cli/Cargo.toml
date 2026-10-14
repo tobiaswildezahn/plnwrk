@@ -14,6 +14,8 @@ getrandom.workspace = true
 jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 plnwrk-core.workspace = true
 plnwrk-engine.workspace = true
+plnwrk-store.workspace = true
+rpassword.workspace = true
 serde_json.workspace = true
 ulid.workspace = true
 

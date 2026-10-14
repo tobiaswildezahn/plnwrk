@@ -348,12 +348,15 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 2026-10-14 | Nachreview Phase 1 → **Regel: Jeder Text, den ein Assistent lesen kann, wird auf unsichtbare Zeichen geprüft** (Unicode-Kategorie Cf, Zeilen-/Absatztrenner, Tag-Zeichen – Träger für versteckte KI-Anweisungen). Erlaubt bleiben, was echte Schrift braucht: weicher Trennstrich, ZWJ/ZWNJ (Emoji, persisch, indisch), LRM/RLM (hebräische/arabische Namen). |
 | 2026-10-14 | Nachreview Phase 1 → **Eine Regel für „überfällig“/„verpasst“** (`deadlines_count`): gilt nicht für Vorlagen, abgeschlossene und archivierte Projekte – in Liste, Board, Übersicht, Detail und `overdue` gleich. Vorlagen mit Terminen, aber ohne Startdatum, werden beim Erzeugen abgelehnt (vorher wurden Termine still verworfen). Übersicht/Überfälliges gruppieren Aufgaben und Meilensteine einmal je Projekt (linear auch bei vielen Projekten). |
 | 2026-10-14 | Lehre zur Arbeitsweise: Jede Behauptung „Test fängt X“ wird per Mutationsprobe belegt; zwei Tests waren beim ersten Versuch nicht in der Datei gelandet und fielen nur dadurch auf. Kandidat für Phase 2: `cargo-mutants` als nicht-blockierender Schritt `cargo xtask mutants` für rank, place/spread und Abfragen. |
+| 2026-10-14 | Phase 2: **Dateiformat v1** – immer ZIP mit lesbarem `manifest.json` (Format, Version, Einstufung, verschlüsselt ja/nein, Programm). Unverschlüsselt daneben `workspace.json` + `log.jsonl` (BLAKE3-Hash-Kette, Kopf-Hash im Manifest); verschlüsselt liegt dieses innere ZIP als `payload.age` (age, scrypt-Passphrase) vor, das äußere Manifest nennt dann weder Anzahl noch Hash der Änderungen. Laden prüft Version, Kette, **Replay des Logs = gespeicherter Zustand**, alle Invarianten und Einstufung (VS-NfD nur verschlüsselt, Kopf ≠ Inhalt → Fehler). Limits gegen ZIP-Bomben (256 MiB, 64 Einträge). |
+| 2026-10-14 | Phase 2: `plnwrk-store` arbeitet auf Bytes und baut für den Browser; atomares Schreiben (`store::file`) nur nativ. Autosave: Pfad-Konvention `.<name>.autosave.plnwrk` steht, die Auslöse-Logik (wann gesichert wird) gehört in die Oberfläche (Phase 3). CSV mit `;` und deutschen Spaltennamen (Excel in deutscher Umgebung), Formel-Injektion entschärft; Markdown escaped. Abdeckungsschranke umfasst jetzt auch `plnwrk-store`. Ehrliche Grenze: Eine unverschlüsselte Datei kann bei vollständiger Neuberechnung von Kette und Zustand unbemerkt verändert werden – Schutz dagegen ist die Signatur in Phase 7. |
+| 2026-10-14 | Phase 2 fand einen **Fehler aus Phase 1**: `Entity` nutzte im JSON das Typfeld `kind`, das mit `Project.kind` kollidiert – Projekte ließen sich schreiben, aber nicht einlesen. Typfeld jetzt `entity`; Round-Trip-Test über alle Entitätsarten (per Mutationsprobe belegt). |
 
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
 | 1 Kern | fertig (2026-10-14, PR #2, zwei Reviews) |
-| 2 Speicherung | in Arbeit |
+| 2 Speicherung | umgesetzt, PR offen (2026-10-14) |
 | 3 Desktop-UI | offen |
 | 4 Web | offen |
 | 5 Zeitplanung | offen |
