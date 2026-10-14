@@ -19,11 +19,12 @@ plnwrk-assistant = { path = "crates/assistant" }
 plnwrk-mcp = { path = "crates/mcp" }
 plnwrk-ui = { path = "crates/ui" }
 plnwrk-platform = { path = "crates/platform" }
-eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit", "persistence"] }
 age = "0.12.1"
 blake3 = "1.8.7"
 clap = "4.6.7"
 egui = "0.36.2"
+egui_kittest = "0.36.2"
 getrandom = "0.4.3"
 insta = { version = "1.49", features = ["json"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "serde"] }
@@ -38,6 +39,7 @@ serde_json = { version = "1.0.154", features = ["raw_value", "float_roundtrip"] 
 wasm-bindgen = "0.2"
 zip = { version = "9.0.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 rpassword = "7.5.4"
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 

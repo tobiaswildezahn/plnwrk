@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 eframe.workspace = true
 plnwrk-ui.workspace = true
+rfd.workspace = true
 
 [lints]
 workspace = true

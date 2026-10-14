@@ -26,7 +26,12 @@ fn main() {
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|cc| Ok(Box::new(plnwrk_ui::PlnwrkApp::new(cc)))),
+                Box::new(|cc| {
+                    Ok(Box::new(plnwrk_ui::PlnwrkApp::new(
+                        cc,
+                        Box::new(plnwrk_ui::NoDialogs),
+                    )))
+                }),
             )
             .await;
         if let Err(error) = started {

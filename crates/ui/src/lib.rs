@@ -1,70 +1,412 @@
 //! egui user interface of plnwrk (layer 4), shared by the desktop and web apps.
 //!
-//! See `docs/PLAN.md` §3.6.
+//! See `docs/PLAN.md` §3.6. The views only read the workspace (through the typed queries of the
+//! engine) and describe what the person wants as [`Intent`]s; [`PlnwrkApp`] carries them out
+//! after drawing, changing data only through `Session::run`.
+
+// In the browser, opening and saving files follows in Phase 4 (upload/download); until then the
+// file code is only used on desktop systems.
+#![cfg_attr(
+    target_arch = "wasm32",
+    allow(dead_code, reason = "file access in the browser follows in Phase 4")
+)]
+
+mod dates;
+mod doc;
+mod host;
+mod state;
+mod text;
+mod views;
+
+use std::path::PathBuf;
+
+use plnwrk_core::{EntityKey, PersonId, ProjectId, TaskId};
+use plnwrk_engine::Origin;
+use plnwrk_store::{SecretString, StoreError};
+use serde_json::Value;
+
+pub use doc::OpenDoc;
+pub use host::{Host, NoDialogs};
+use state::{Dialog, FileAction, Message, State, Tab, View};
 
 /// Name shown in the window title and the app header.
 pub const APP_NAME: &str = "plnwrk";
 
-/// The whole application state of the user interface.
-#[derive(Debug, Default)]
-pub struct PlnwrkApp {}
+/// Key of the list of recently opened files in the app's storage.
+const RECENT_KEY: &str = "plnwrk.recent";
+/// How many recent files are kept.
+const RECENT_MAX: usize = 8;
+
+/// What to do after a command succeeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Then {
+    /// Nothing more.
+    Nothing,
+    /// Show the project it created.
+    ShowProject,
+}
+
+/// Which form to empty after a command succeeded (on failure the input stays).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Clear {
+    NewTask,
+    NewSubtask,
+    DetailSubtask,
+    Milestone,
+    Comment,
+    Person,
+    Dialog,
+    ProjectEdit,
+}
+
+/// What a view asks for. Carried out after the frame is drawn.
+#[derive(Debug)]
+pub(crate) enum Intent {
+    /// Run a command.
+    Run {
+        command: &'static str,
+        params: Value,
+        then: Then,
+        clear: Option<Clear>,
+    },
+    /// Show another view.
+    Go(View),
+    /// Select a task (detail panel) or none.
+    Select(Option<TaskId>),
+    /// Open a dialog.
+    Open(Dialog),
+    /// Close the dialog.
+    CloseDialog,
+    /// A file action (new, open, save …).
+    File(FileAction),
+    /// Open an encrypted file with this passphrase.
+    Unlock(PathBuf, SecretString),
+    /// Save first, then carry out the action.
+    SaveThen(FileAction),
+    /// Carry out the action and drop unsaved changes.
+    Discard(FileAction),
+    /// Set who is working.
+    Actor(Option<PersonId>),
+}
+
+impl Intent {
+    /// A command without follow-up.
+    pub(crate) fn run(command: &'static str, params: Value) -> Self {
+        Self::Run {
+            command,
+            params,
+            then: Then::Nothing,
+            clear: None,
+        }
+    }
+}
+
+/// The whole application: the open workspace (if any), the dialogs of the platform and the
+/// state of the views.
+pub struct PlnwrkApp {
+    doc: Option<OpenDoc>,
+    host: Box<dyn Host>,
+    state: State,
+}
+
+impl std::fmt::Debug for PlnwrkApp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlnwrkApp")
+            .field("open", &self.doc.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for PlnwrkApp {
+    fn default() -> Self {
+        Self::with_host(Box::new(NoDialogs))
+    }
+}
 
 impl PlnwrkApp {
     /// Creates the app when the desktop or web shell starts it.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+    pub fn new(cc: &eframe::CreationContext<'_>, host: Box<dyn Host>) -> Self {
+        let mut app = Self::with_host(host);
+        if let Some(storage) = cc.storage
+            && let Some(text) = storage.get_string(RECENT_KEY)
+        {
+            app.state.recent = serde_json::from_str(&text).unwrap_or_default();
+        }
+        app
     }
 
-    /// Draws one frame. Kept apart from [`eframe::App`] so tests can run it without a window.
+    /// An app without stored settings, using these dialogs.
+    pub fn with_host(host: Box<dyn Host>) -> Self {
+        Self {
+            doc: None,
+            host,
+            state: State::default(),
+        }
+    }
+
+    /// The open workspace.
+    pub fn doc(&self) -> Option<&OpenDoc> {
+        self.doc.as_ref()
+    }
+
+    /// Whether closing the window may lose changes.
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.doc.as_ref().is_some_and(OpenDoc::is_dirty)
+    }
+
+    /// The window title: file name, a dot for unsaved changes, app name.
+    pub fn title(&self) -> String {
+        match &self.doc {
+            Some(doc) if doc.is_dirty() => format!("● {} – {APP_NAME}", doc.name()),
+            Some(doc) => format!("{} – {APP_NAME}", doc.name()),
+            None => APP_NAME.to_owned(),
+        }
+    }
+
+    /// Opens a file given from outside (e.g. on the command line).
+    pub fn open_path(&mut self, path: PathBuf) {
+        self.file(FileAction::OpenPath(path));
+    }
+
+    /// The person asked to close the window. Returns whether it may close now; otherwise the
+    /// app asks about unsaved changes and closes itself afterwards.
+    pub fn close_requested(&mut self) -> bool {
+        if self.state.quitting || !self.has_unsaved_changes() {
+            return true;
+        }
+        self.state.dialog = Some(Dialog::Unsaved(FileAction::Quit));
+        false
+    }
+
+    /// Whether the app decided to close the window (after the question about unsaved changes).
+    pub fn wants_to_quit(&self) -> bool {
+        self.state.quitting
+    }
+
+    /// Draws one frame and carries out what the person did. Kept apart from [`eframe::App`] so
+    /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(ui.available_height() * 0.3);
-                ui.heading(APP_NAME);
-                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                ui.add_space(8.0);
-                ui.label("Fundament steht. Projekte und Vorgänge folgen in Phase 1.");
-            });
-        });
+        self.forget_vanished();
+        let mut intents = Vec::new();
+        views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
+        views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
+        for intent in intents {
+            self.apply(intent);
+        }
+    }
+
+    /// Drops the selection or view of things that no longer exist (deleted, undone).
+    fn forget_vanished(&mut self) {
+        let Some(doc) = &self.doc else { return };
+        let ws = doc.session.workspace();
+        if let Some(id) = self.state.selected
+            && ws.task(id).is_none()
+        {
+            self.state.selected = None;
+        }
+        if let View::Project(id) = self.state.view
+            && ws.project(id).is_none()
+        {
+            self.state.view = View::Overview;
+        }
+    }
+
+    fn apply(&mut self, intent: Intent) {
+        match intent {
+            Intent::Run {
+                command,
+                params,
+                then,
+                clear,
+            } => self.run(command, &params, then, clear),
+            Intent::Go(view) => {
+                self.state.view = view;
+                self.state.selected = None;
+                if matches!(view, View::Project(_)) {
+                    self.state.tab = Tab::List;
+                }
+            }
+            Intent::Select(task) => self.state.selected = task,
+            Intent::Open(dialog) => self.state.dialog = Some(dialog),
+            Intent::CloseDialog => self.state.dialog = None,
+            Intent::File(action) => self.file(action),
+            Intent::Unlock(path, secret) => {
+                self.state.dialog = None;
+                self.open(path, Some(secret));
+            }
+            Intent::SaveThen(action) => {
+                self.state.dialog = None;
+                if self.save(false) {
+                    self.state.force = true;
+                    self.file(action);
+                }
+            }
+            Intent::Discard(action) => {
+                self.state.dialog = None;
+                self.state.force = true;
+                self.file(action);
+            }
+            Intent::Actor(person) => {
+                if let Some(doc) = &mut self.doc {
+                    doc.session.set_actor(person);
+                }
+            }
+        }
+    }
+
+    fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) {
+        let Some(doc) = &mut self.doc else { return };
+        match doc.session.run(command, params, Origin::User) {
+            Ok(outcome) => {
+                self.state.message = None;
+                if let (Then::ShowProject, Some(EntityKey::Project(id))) =
+                    (then, outcome.created.first())
+                {
+                    self.state.view = View::Project(*id);
+                    self.state.tab = Tab::List;
+                    self.state.selected = None;
+                }
+                if let Some(clear) = clear {
+                    self.state.clear(clear);
+                }
+            }
+            Err(error) => self.state.message = Some(Message::error(text::command_error(&error))),
+        }
+    }
+
+    /// Carries out a file action; actions that would drop unsaved changes ask first.
+    fn file(&mut self, action: FileAction) {
+        let force = std::mem::take(&mut self.state.force);
+        if action.replaces_doc() && !force && self.has_unsaved_changes() {
+            self.state.dialog = Some(Dialog::Unsaved(action));
+            return;
+        }
+        match action {
+            FileAction::New => self.replace(OpenDoc::new()),
+            FileAction::Sample => match OpenDoc::sample() {
+                Ok(doc) => self.replace(doc),
+                Err(error) => {
+                    self.state.message = Some(Message::error(text::command_error(&error)));
+                }
+            },
+            FileAction::Open => {
+                if let Some(path) = self.host.pick_open() {
+                    self.open(path, None);
+                }
+            }
+            FileAction::OpenPath(path) => self.open(path, None),
+            FileAction::Save => {
+                self.save(false);
+            }
+            FileAction::SaveAs => {
+                self.save(true);
+            }
+            FileAction::Close => {
+                self.doc = None;
+                self.state.reset_views();
+            }
+            FileAction::Quit => self.state.quitting = true,
+        }
+    }
+
+    fn replace(&mut self, doc: OpenDoc) {
+        self.doc = Some(doc);
+        self.state.reset_views();
+        self.state.message = None;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open(&mut self, path: PathBuf, passphrase: Option<SecretString>) {
+        match OpenDoc::open(&path, passphrase) {
+            Ok(doc) => {
+                if let Some(path) = doc.path() {
+                    self.state.remember(path.to_path_buf(), RECENT_MAX);
+                }
+                self.replace(doc);
+            }
+            Err(StoreError::PassphraseRequired) => {
+                self.state.dialog = Some(Dialog::Passphrase {
+                    path,
+                    text: String::new(),
+                });
+            }
+            Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn open(&mut self, _path: PathBuf, _passphrase: Option<SecretString>) {
+        self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
+            reason: "Dateien öffnen folgt im Browser in Phase 4".to_owned(),
+        })));
+    }
+
+    /// Saves (asking for a place if needed or wanted). Returns whether it was saved.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save(&mut self, choose_place: bool) -> bool {
+        let Some(doc) = &mut self.doc else {
+            return false;
+        };
+        let result = if choose_place || doc.path().is_none() {
+            let name = format!("{}.plnwrk", doc.name());
+            let Some(path) = self.host.pick_save(&name) else {
+                return false;
+            };
+            doc.save_as(&path)
+        } else {
+            doc.save()
+        };
+        match result {
+            Ok(()) => {
+                if let Some(path) = doc.path() {
+                    self.state.remember(path.to_path_buf(), RECENT_MAX);
+                }
+                self.state.message = Some(Message::info(text::SAVED));
+                true
+            }
+            Err(error) => {
+                self.state.message = Some(Message::error(text::store_error(&error)));
+                false
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn save(&mut self, _choose_place: bool) -> bool {
+        self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
+            reason: "Speichern folgt im Browser in Phase 4".to_owned(),
+        })));
+        false
+    }
+
+    /// The project shown, if a project view is open.
+    pub fn shown_project(&self) -> Option<ProjectId> {
+        match self.state.view {
+            View::Project(id) => Some(id),
+            _ => None,
+        }
     }
 }
 
 impl eframe::App for PlnwrkApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        if ctx.input(|i| i.viewport().close_requested()) && !self.close_requested() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         self.show(ui);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
+        if self.state.quitting {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Ok(text) = serde_json::to_string(&self.state.recent) {
+            storage.set_string(RECENT_KEY, text);
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn texts(output: &egui::FullOutput) -> String {
-        output
-            .shapes
-            .iter()
-            .filter_map(|clipped| match &clipped.shape {
-                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_owned()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    /// Runs two frames without a window (the first one only measures) and returns the second.
-    fn render(app: &mut PlnwrkApp) -> egui::FullOutput {
-        let ctx = egui::Context::default();
-        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.show(ui));
-        output.textures_delta.clear();
-        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.show(ui));
-        output.textures_delta.clear();
-        output
-    }
-
-    #[test]
-    fn shows_name_and_version_without_a_window() {
-        let shown = texts(&render(&mut PlnwrkApp::default()));
-        assert!(shown.contains(APP_NAME), "{shown}");
-        assert!(shown.contains(env!("CARGO_PKG_VERSION")), "{shown}");
-    }
-}
+mod tests;
