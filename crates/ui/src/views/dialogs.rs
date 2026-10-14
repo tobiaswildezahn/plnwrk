@@ -291,6 +291,20 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     }
                 });
             }
+            Dialog::DeleteStoredCopy { key, name } => {
+                ui.heading(format!("{}?", text::t().delete_copy));
+                ui.label(name.as_str());
+                ui.label(text::t().delete_copy_question);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::t().delete).clicked() {
+                        out.push(Intent::DeleteStoredCopy(key.clone()));
+                    }
+                    if ui.button(text::t().cancel).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
             Dialog::DeleteTask(task) => {
                 ui.heading(text::t().delete_task);
                 let title = doc

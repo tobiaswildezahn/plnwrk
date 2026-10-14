@@ -3329,6 +3329,7 @@ dependencies = [
 name = "plnwrk-ui"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "eframe",
  "egui",
  "egui_kittest",

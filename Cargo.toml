@@ -11,6 +11,7 @@ rust-version = "1.99"
 publish = false
 
 [workspace.dependencies]
+base64 = "0.22"
 plnwrk-core = { path = "crates/core" }
 plnwrk-engine = { path = "crates/engine" }
 plnwrk-store = { path = "crates/store" }

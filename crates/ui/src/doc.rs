@@ -36,8 +36,16 @@ fn recovery_key() -> String {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
-    // The process id keeps two plnwrk windows opened in the same second apart.
-    format!("{stamp} {}-{n}", std::process::id())
+    // The process id keeps two plnwrk windows opened in the same second apart. The browser has
+    // no process ids (asking for one stops the page); a random part keeps two tabs apart.
+    #[cfg(not(target_arch = "wasm32"))]
+    let apart = std::process::id().to_string();
+    #[cfg(target_arch = "wasm32")]
+    let apart = {
+        use plnwrk_core::IdSource as _;
+        RandomIds::default().next_ulid().to_string()
+    };
+    format!("{stamp} {apart}-{n}")
 }
 
 fn session(doc: Document) -> Session {
@@ -105,6 +113,16 @@ impl OpenDoc {
         let mut doc = Self::from_bytes(bytes, passphrase)?;
         doc.title = Some(stem(name));
         Ok(doc)
+    }
+
+    /// Treats it as work not saved anywhere (a recovered copy).
+    pub fn mark_unsaved(&mut self) {
+        self.saved = usize::MAX;
+    }
+
+    /// Tells the recovery copy of this opening apart from others.
+    pub fn recovery_key(&self) -> &str {
+        &self.recovery_key
     }
 
     /// The file was saved somewhere else (downloaded in the browser): nothing is unsaved now.

@@ -51,6 +51,17 @@ pub trait Host {
 
     /// Browser: whether leaving the page should ask first (there is unsaved work).
     fn set_leave_warning(&mut self, _on: bool) {}
+
+    /// Browser: keeps a value under a key in the browser's own storage (`None` removes it).
+    /// `Err` says why it failed (e.g. the storage is full).
+    fn store(&mut self, _key: &str, _value: Option<&str>) -> Result<(), String> {
+        Err(String::new())
+    }
+
+    /// Browser: every key and value kept with [`Host::store`].
+    fn stored(&mut self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 /// No dialogs: every request is cancelled.
@@ -100,6 +111,10 @@ pub struct BrowserLog {
     pub download_fails: Option<String>,
     /// Whether leaving the page would ask now.
     pub leave_warning: bool,
+    /// The browser's storage.
+    pub storage: std::collections::BTreeMap<String, String>,
+    /// Writing to the storage fails with this reason.
+    pub store_fails: Option<String>,
 }
 
 /// A browser for tests: shares its log with the test, which keeps a handle.
@@ -143,5 +158,30 @@ impl Host for TestBrowser {
 
     fn set_leave_warning(&mut self, on: bool) {
         self.0.borrow_mut().leave_warning = on;
+    }
+
+    fn store(&mut self, key: &str, value: Option<&str>) -> Result<(), String> {
+        let mut log = self.0.borrow_mut();
+        match value {
+            Some(_) if log.store_fails.is_some() => {
+                Err(log.store_fails.clone().unwrap_or_default())
+            }
+            Some(value) => {
+                log.storage.insert(key.to_owned(), value.to_owned());
+                Ok(())
+            }
+            None => {
+                log.storage.remove(key);
+                Ok(())
+            }
+        }
+    }
+
+    fn stored(&mut self) -> Vec<(String, String)> {
+        let log = self.0.borrow();
+        log.storage
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 }

@@ -103,6 +103,8 @@ pub enum Dialog {
     Unprotect,
     /// Confirm deleting a recovery copy.
     DeleteCopy(PathBuf),
+    /// Browser: confirm deleting the recovery copy under this key (and its name).
+    DeleteStoredCopy { key: String, name: String },
     /// The command palette: what is typed and the highlighted line.
     Palette { query: String, selected: usize },
 }
@@ -478,6 +480,8 @@ pub struct State {
     pub focus_new_task: bool,
     /// Files are uploaded and downloaded (the browser).
     pub browser: bool,
+    /// Browser: recovery copies in the browser's storage (key and file), newest first.
+    pub stored_copies: Vec<(String, crate::host::Upload)>,
 }
 
 impl State {

@@ -12,6 +12,7 @@
 )]
 
 mod autosave;
+mod browser_copy;
 mod dates;
 mod doc;
 mod host;
@@ -115,6 +116,10 @@ pub(crate) enum Intent {
     Unprotect,
     /// Delete a recovery copy for good.
     DeleteCopy(PathBuf),
+    /// Browser: open the recovery copy under this key.
+    OpenStoredCopy(String),
+    /// Browser: delete the recovery copy under this key for good.
+    DeleteStoredCopy(String),
     /// Use this language for the interface.
     Language(text::Language),
     /// Use this theme.
@@ -151,6 +156,8 @@ pub struct PlnwrkApp {
     leave_warning: bool,
     /// Recovery copies of the open workspace.
     autosave: autosave::Autosave,
+    /// Browser: the recovery copy in the browser's storage.
+    browser_copy: browser_copy::BrowserCopy,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -183,17 +190,24 @@ impl PlnwrkApp {
     }
 
     /// An app without stored settings, using these dialogs.
-    pub fn with_host(host: Box<dyn Host>) -> Self {
+    pub fn with_host(mut host: Box<dyn Host>) -> Self {
+        let stored_copies = if host.browser() {
+            browser_copy::offered(&mut *host)
+        } else {
+            Vec::new()
+        };
         Self {
             doc: None,
             state: State {
                 browser: host.browser(),
+                stored_copies,
                 ..State::default()
             },
             host,
             shown_title: String::new(),
             leave_warning: false,
             autosave: autosave::Autosave::default(),
+            browser_copy: browser_copy::BrowserCopy::default(),
         }
     }
 
@@ -454,9 +468,14 @@ impl PlnwrkApp {
 
     /// The autosave at this egui time (seconds); how long until it is due again, if it is.
     fn autosave_at(&mut self, time: f64) -> Option<f64> {
-        let before = self.autosave.last().cloned();
-        let wait = self.autosave.tick(self.doc.as_ref(), time);
-        let after = self.autosave.last().cloned();
+        let before = self.copy_status();
+        let wait = if self.state.browser {
+            self.browser_copy
+                .tick(&mut *self.host, self.doc.as_ref(), time)
+        } else {
+            self.autosave.tick(self.doc.as_ref(), time)
+        };
+        let after = self.copy_status();
         // Said once when it starts failing, without hiding another error that is shown.
         if after != before
             && let Some(autosave::Written::Failed(reason)) = &after
@@ -469,6 +488,48 @@ impl PlnwrkApp {
         }
         self.state.recovery = after;
         wait
+    }
+
+    /// How the recovery copy of the open work stands (file on the desktop, browser storage).
+    fn copy_status(&self) -> Option<autosave::Written> {
+        if self.state.browser {
+            self.browser_copy.last().cloned()
+        } else {
+            self.autosave.last().cloned()
+        }
+    }
+
+    /// Browser: the recovered copies to offer, without the one of the open work.
+    fn refresh_stored_copies(&mut self) {
+        let own = self.browser_copy.key().map(str::to_owned);
+        self.state.stored_copies = browser_copy::offered(&mut *self.host)
+            .into_iter()
+            .filter(|(key, _)| Some(key) != own.as_ref())
+            .collect();
+    }
+
+    /// Browser: opens a recovered copy as unsaved work; it stays until the work is saved.
+    fn open_stored_copy(&mut self, key: String) {
+        let Some((_, copy)) = self
+            .state
+            .stored_copies
+            .iter()
+            .find(|(k, _)| *k == key)
+            .cloned()
+        else {
+            return;
+        };
+        match OpenDoc::from_upload(&copy.name, &copy.bytes, None) {
+            Ok(mut doc) if browser_may_hold(doc.session.workspace()) => {
+                doc.mark_unsaved();
+                self.replace(doc);
+                self.browser_copy.adopt(key);
+                self.refresh_stored_copies();
+                self.state.message = Some(Message::info(text::t().recovered_opened));
+            }
+            Ok(_) => self.state.message = Some(Message::error(text::t().vs_blocked)),
+            Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
+        }
     }
 
     /// Drops the selection or view of things that no longer exist (deleted, undone).
@@ -540,6 +601,14 @@ impl PlnwrkApp {
                     plnwrk_store::Protection::Passphrase(secret),
                     text::t().protected,
                 );
+            }
+            Intent::OpenStoredCopy(key) => self.open_stored_copy(key),
+            Intent::DeleteStoredCopy(key) => {
+                self.state.close_dialog();
+                if let Err(reason) = self.host.store(&key, None) {
+                    self.state.message = Some(Message::error(reason));
+                }
+                self.refresh_stored_copies();
             }
             Intent::DeleteCopy(path) => {
                 self.state.close_dialog();
@@ -685,6 +754,10 @@ impl PlnwrkApp {
 
     /// The open work is dropped on purpose: its copy goes; a recovered copy is offered again.
     fn drop_copy(&mut self) {
+        if self.state.browser {
+            self.browser_copy.discard(&mut *self.host);
+            self.refresh_stored_copies();
+        }
         if let Some(kept) = self.autosave.discard() {
             self.state.recovered.retain(|p| !same_place(p, &kept));
             self.state.recovered.insert(0, kept);
@@ -857,6 +930,7 @@ impl PlnwrkApp {
             Ok(()) => {
                 doc.mark_saved();
                 self.autosave.saved();
+                self.browser_copy.saved(&mut *self.host);
                 self.state.message =
                     Some(Message::info(format!("{} {name}", text::t().downloaded)));
                 true
