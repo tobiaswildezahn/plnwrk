@@ -1,0 +1,83 @@
+---
+source: crates/engine/tests/queries.rs
+expression: "snapshot_value(&s, \"project\", case)"
+---
+{
+  "milestones": [
+    {
+      "date": "2026-10-19",
+      "id": "0000000000000000000000000V",
+      "state": "open",
+      "title": "Abgabe Senatskanzlei"
+    }
+  ],
+  "progress": {
+    "done": 1,
+    "percent": 33,
+    "tasks": 3
+  },
+  "project": {
+    "classification": "open",
+    "created": "2026-10-14T00:00:00Z",
+    "description": "Ablauf für Schriftliche Kleine Anfragen der Bürgerschaft.",
+    "due": "2026-10-19",
+    "id": "0000000000000000000000000P",
+    "kind": "SKA",
+    "owner": "00000000000000000000000002",
+    "reference": "23/1234",
+    "start": "2026-10-12",
+    "status": "active",
+    "template": false,
+    "title": "SKA 23/1234 Sirenenwarnung"
+  },
+  "tasks": [
+    {
+      "assignee": null,
+      "classification": "open",
+      "due": "2026-10-12",
+      "id": "0000000000000000000000000Q",
+      "overdue": false,
+      "parent": null,
+      "priority": "normal",
+      "progress": 100,
+      "project": "0000000000000000000000000P",
+      "status": "done",
+      "subtasks": 0,
+      "subtasks_done": 0,
+      "tags": [],
+      "title": "Eingang erfassen und Federführung klären"
+    },
+    {
+      "assignee": null,
+      "classification": "open",
+      "due": "2026-10-16",
+      "id": "0000000000000000000000000R",
+      "overdue": false,
+      "parent": null,
+      "priority": "normal",
+      "progress": 0,
+      "project": "0000000000000000000000000P",
+      "status": "todo",
+      "subtasks": 1,
+      "subtasks_done": 0,
+      "tags": [],
+      "title": "Zuarbeiten anfordern"
+    },
+    {
+      "assignee": null,
+      "classification": "open",
+      "due": "2026-10-18",
+      "id": "0000000000000000000000000T",
+      "overdue": false,
+      "parent": null,
+      "priority": "high",
+      "progress": 0,
+      "project": "0000000000000000000000000P",
+      "status": "todo",
+      "subtasks": 0,
+      "subtasks_done": 0,
+      "tags": [],
+      "title": "Antwort entwerfen"
+    }
+  ]
+}

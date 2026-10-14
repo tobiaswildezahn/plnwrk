@@ -20,6 +20,8 @@ ist; Abweichungen dort in Abschnitt 9 eintragen.
 source ~/.cargo/env                     # falls cargo nicht im PATH ist
 cargo xtask ci                          # die Schranke; muss grün sein
 cargo xtask layers | purity             # Einzelprüfungen
+cargo run -p plnwrk-cli -- demo         # Beispiel-Arbeitsbereich als JSON
+cargo run -p plnwrk-cli -- commands     # alle Befehle mit JSON-Schema
 cargo run -p plnwrk                     # Desktop-App
 cd apps/plnwrk-web && trunk serve       # Browser-Version
 ```
@@ -30,6 +32,14 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   (`xtask/src/layers.rs`); verbotene Aufrufe stehen in `crates/{core,engine}/clippy.toml`.
 - Absturz-Lints sind `forbid`: `#[allow]` hilft nicht. Lösung ist immer echte Fehlerbehandlung.
 - Jedes `#[allow]`/`#[expect]` braucht `reason = "…"`.
+- Integrationstests (`crates/*/tests/*.rs`): Inhalt in `#[cfg(test)] mod … { }` packen, sonst
+  gelten Hilfsfunktionen für Clippy als Produktionscode (`unwrap`/`panic!` verboten).
+- Neue Befehle: `CommandSpec` im passenden `crates/engine/src/commands/*.rs`, Eintrag in
+  `REGISTRY` (`command.rs`), Verhaltenstest in `crates/engine/tests/commands.rs`. Der
+  Müll-Parameter-Test (`tests/junk.rs`) erfasst ihn automatisch.
+- Abfragen: `QuerySpec` in `crates/engine/src/query/mod.rs`; Snapshots mit
+  `INSTA_UPDATE=always cargo test -p plnwrk-engine --test queries` erneuern und Diff prüfen.
+- Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar (siehe `crates/ui`).
 - egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),

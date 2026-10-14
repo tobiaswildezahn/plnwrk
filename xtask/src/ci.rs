@@ -10,6 +10,9 @@ use crate::{layers, purity};
 /// (docs/PLAN.md §2, §3.1), so a new crate is checked for wasm32 unless it is listed here.
 const NATIVE_ONLY: &[&str] = &["plnwrk-mcp", "plnwrk", "plnwrk-cli", "xtask"];
 
+/// Pure crates and the share of their lines the tests must cover (docs/PLAN.md §7 Phase 1).
+const COVERAGE: (&[&str], &str) = (&["plnwrk-core", "plnwrk-engine"], "90");
+
 /// Never-crash lints, forbidden on the command line so they hold for every crate regardless of
 /// its manifest (docs/PLAN.md §2).
 const FORBID: &[&str] = &[
@@ -140,6 +143,10 @@ fn lint_flags() -> Vec<String> {
 pub fn all() -> Result<(), String> {
     step("tools");
     require_tool(&["deny", "--version"], "cargo install --locked cargo-deny")?;
+    require_tool(
+        &["llvm-cov", "--version"],
+        "cargo install --locked cargo-llvm-cov (and: rustup component add llvm-tools)",
+    )?;
     step("format");
     cargo(&["fmt", "--all", "--check"])?;
     let packages = metadata()?;
@@ -179,6 +186,19 @@ pub fn all() -> Result<(), String> {
 
     step("tests");
     cargo(&["test", "--workspace", "--locked"])?;
+
+    step("coverage of the pure crates");
+    let mut coverage = vec![
+        "llvm-cov",
+        "--locked",
+        "--summary-only",
+        "--fail-under-lines",
+        COVERAGE.1,
+    ];
+    for krate in COVERAGE.0 {
+        coverage.extend(["-p", krate]);
+    }
+    cargo(&coverage)?;
 
     step("dependencies (cargo-deny)");
     cargo(&["deny", "--locked", "check"])?;

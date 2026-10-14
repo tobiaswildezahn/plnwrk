@@ -19,9 +19,17 @@ plnwrk-assistant = { path = "crates/assistant" }
 plnwrk-mcp = { path = "crates/mcp" }
 plnwrk-ui = { path = "crates/ui" }
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+clap = "4.6.7"
 egui = "0.36.2"
+getrandom = "0.4.3"
+insta = { version = "1.49", features = ["json"] }
+jiff = { version = "0.2.38", default-features = false, features = ["std", "serde"] }
 log = "0.4"
-serde_json = "1"
+proptest = "1.12"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+ulid = { version = "3.0.0", default-features = false }
+serde_json = "1.0.154"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"

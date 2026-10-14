@@ -43,5 +43,4 @@ disallowed-methods = [
   { path = "std::time::Instant::now", reason = "pure crate: time comes from Clock" },
   { path = "jiff::Timestamp::now", reason = "pure crate: time comes from Clock" },
   { path = "jiff::Zoned::now", reason = "pure crate: time comes from Clock" },
-  { path = "jiff::civil::Date::today", reason = "pure crate: time comes from Clock" },
 ]
