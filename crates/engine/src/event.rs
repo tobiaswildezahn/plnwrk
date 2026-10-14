@@ -10,7 +10,7 @@ use crate::CommandError;
 
 /// One stored or removed entity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
     /// An entity was created (`before` is `None`) or replaced.
     Put {
@@ -98,6 +98,7 @@ pub enum Origin {
 
 /// One successful command: an entry in the append-only log and one undo step.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Change {
     /// Position in the log, starting at 1.
     pub seq: u64,

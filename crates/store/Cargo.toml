@@ -17,6 +17,7 @@ plnwrk-engine.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+unicode-normalization.workspace = true
 zip.workspace = true
 
 # age draws randomness through getrandom; in the browser it must use the Web Crypto API.

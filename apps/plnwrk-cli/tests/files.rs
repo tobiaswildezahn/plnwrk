@@ -61,6 +61,11 @@ mod files {
         path.to_str().unwrap()
     }
 
+    fn project_id_any(file: &str, passphrase: Option<&str>) -> String {
+        let overview = ok(&["query", file, "overview"], passphrase);
+        overview[0]["id"].as_str().unwrap().to_owned()
+    }
+
     fn project_id(file: &str, passphrase: Option<&str>) -> String {
         let overview = ok(&["query", file, "overview"], passphrase);
         overview[1]["id"].as_str().unwrap().to_owned()
@@ -122,7 +127,7 @@ mod files {
         let dir = Dir::new("crypt");
         let file = dir.file();
         ok(&["new", s(&file), "--sample"], None);
-        ok(&["encrypt", s(&file)], Some("Lagezentrum"));
+        ok(&["encrypt", s(&file)], Some("Lagezentrum-2026"));
         let info = ok(&["info", s(&file)], None);
         assert_eq!(info["encrypted"], true);
         assert_eq!(
@@ -133,10 +138,13 @@ mod files {
             fails(&["verify", s(&file)], Some("falsch"))["error"],
             "wrong_passphrase"
         );
-        assert_eq!(ok(&["verify", s(&file)], Some("Lagezentrum"))["ok"], true);
+        assert_eq!(
+            ok(&["verify", s(&file)], Some("Lagezentrum-2026"))["ok"],
+            true
+        );
         let raw = std::fs::read(&file).unwrap();
         assert!(!String::from_utf8_lossy(&raw).contains("Digitalfunk"));
-        ok(&["decrypt", s(&file)], Some("Lagezentrum"));
+        ok(&["decrypt", s(&file)], Some("Lagezentrum-2026"));
         assert_eq!(ok(&["info", s(&file)], None)["encrypted"], false);
     }
 
@@ -148,26 +156,129 @@ mod files {
         let before = std::fs::read(&file).unwrap();
         let classified = json!({"title": "Lage Nord", "classification": "vs_nfd"}).to_string();
         let error = fails(&["run", s(&file), "project.create", &classified], None);
-        assert_eq!(error["error"], "classified_unencrypted");
+        assert_eq!(error["error"], "not_saved");
+        assert_eq!(error["cause"]["error"], "classified_unencrypted");
         assert_eq!(std::fs::read(&file).unwrap(), before);
-        ok(&["encrypt", s(&file)], Some("geheim"));
+        ok(&["encrypt", s(&file)], Some("geheim-und-lang"));
         ok(
             &["run", s(&file), "project.create", &classified],
-            Some("geheim"),
+            Some("geheim-und-lang"),
         );
         assert_eq!(ok(&["info", s(&file)], None)["classification"], "vs_nfd");
         assert_eq!(
-            fails(&["decrypt", s(&file)], Some("geheim"))["error"],
+            fails(&["decrypt", s(&file)], Some("geheim-und-lang"))["error"],
             "classified_unencrypted"
         );
         let markdown = cli(
             &["export", s(&file), "--format", "markdown"],
-            Some("geheim"),
+            Some("geheim-und-lang"),
         );
         assert!(
             String::from_utf8_lossy(&markdown.stdout)
                 .starts_with("> **VS – NUR FÜR DEN DIENSTGEBRAUCH**")
         );
+    }
+
+    #[test]
+    fn classified_history_keeps_the_file_classified() {
+        // Review finding B1: a VS-NfD task that is later deleted (or a project that is later
+        // declassified) still sits in the change log; the file must stay VS-NfD.
+        for undo_it in ["task.delete", "project.update"] {
+            let dir = Dir::new(&format!("sticky-{undo_it}"));
+            let file = dir.file();
+            ok(&["new", s(&file), "--encrypt"], Some("Lagezentrum-2026"));
+            let project = json!({"title": "Übung", "classification": "open"}).to_string();
+            ok(
+                &["run", s(&file), "project.create", &project],
+                Some("Lagezentrum-2026"),
+            );
+            let p = project_id_any(s(&file), Some("Lagezentrum-2026"));
+            if undo_it == "task.delete" {
+                let secret = json!({"project": p, "title": "Standort Gefechtsstand Bunker 7", "classification": "vs_nfd"}).to_string();
+                let created = ok(
+                    &["run", s(&file), "task.create", &secret],
+                    Some("Lagezentrum-2026"),
+                );
+                let task = created["outcome"]["created"][0]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                ok(
+                    &[
+                        "run",
+                        s(&file),
+                        "task.delete",
+                        &json!({"task": task}).to_string(),
+                    ],
+                    Some("Lagezentrum-2026"),
+                );
+            } else {
+                let up = json!({"project": p, "classification": "vs_nfd", "description": "Standort Gefechtsstand Bunker 7"}).to_string();
+                ok(
+                    &["run", s(&file), "project.update", &up],
+                    Some("Lagezentrum-2026"),
+                );
+                let down =
+                    json!({"project": p, "classification": "open", "description": ""}).to_string();
+                ok(
+                    &["run", s(&file), "project.update", &down],
+                    Some("Lagezentrum-2026"),
+                );
+            }
+            assert_eq!(
+                ok(&["info", s(&file)], None)["classification"],
+                "vs_nfd",
+                "{undo_it}"
+            );
+            assert_eq!(
+                fails(&["decrypt", s(&file)], Some("Lagezentrum-2026"))["error"],
+                "classified_unencrypted",
+                "{undo_it}"
+            );
+        }
+    }
+
+    #[test]
+    fn passphrase_rules_and_guards() {
+        let dir = Dir::new("rules");
+        let file = dir.file();
+        ok(&["new", s(&file), "--sample"], None);
+        let short = fails(&["encrypt", s(&file)], Some("zu-kurz"));
+        assert!(short["message"].as_str().unwrap().contains("12"));
+        assert_eq!(ok(&["info", s(&file)], None)["encrypted"], false);
+        assert!(
+            fails(&["decrypt", s(&file)], None)["message"]
+                .as_str()
+                .unwrap()
+                .contains("not encrypted")
+        );
+        ok(&["encrypt", s(&file)], Some("Lagezentrum-2026"));
+        assert!(
+            fails(&["encrypt", s(&file)], Some("Lagezentrum-2026"))["message"]
+                .as_str()
+                .unwrap()
+                .contains("already encrypted")
+        );
+        // verify reports the verified inner head, including the change count.
+        let verified = ok(&["verify", s(&file)], Some("Lagezentrum-2026"));
+        assert_eq!(verified["manifest"]["encrypted"], true);
+        assert!(
+            verified["manifest"]["changes"]
+                .as_u64()
+                .is_some_and(|n| n > 0)
+        );
+        // The readable head alone says nothing about the content.
+        assert!(ok(&["info", s(&file)], None).get("changes").is_none());
+    }
+
+    #[test]
+    fn a_passphrase_for_an_unencrypted_file_triggers_a_warning() {
+        let dir = Dir::new("warn");
+        let file = dir.file();
+        ok(&["new", s(&file), "--sample"], None);
+        let output = cli(&["verify", s(&file)], Some("Lagezentrum-2026"));
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("not encrypted"));
     }
 
     #[test]
@@ -189,8 +300,12 @@ mod files {
         let file = dir.file();
         ok(&["new", s(&file), "--sample"], None);
         let csv = cli(&["export", s(&file), "--format", "csv"], None);
-        assert!(String::from_utf8_lossy(&csv.stdout).starts_with("Projekt;Aktenzeichen;Aufgabe"));
+        assert!(
+            String::from_utf8_lossy(&csv.stdout)
+                .starts_with("\u{FEFF}Projekt;Aktenzeichen;Aufgabe")
+        );
         let json = ok(&["export", s(&file), "--format", "json"], None);
-        assert!(json["projects"].is_object());
+        assert!(json["workspace"]["projects"].is_object());
+        assert_eq!(json["marking"], Value::Null);
     }
 }

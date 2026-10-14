@@ -15,6 +15,7 @@ use crate::{
 
 /// Everything in one file, kept in id order so that output is deterministic.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Workspace {
     projects: BTreeMap<ProjectId, Project>,
     tasks: BTreeMap<TaskId, Task>,

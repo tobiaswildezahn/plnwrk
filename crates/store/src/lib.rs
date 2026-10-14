@@ -25,7 +25,8 @@ use plnwrk_core::{Classification, Workspace};
 use plnwrk_engine::Change;
 
 pub use container::Limits;
-pub use crypto::WORK_FACTOR_RANGE;
+use container::Packing;
+pub use crypto::{MAX_READ_WORK_FACTOR, WORK_FACTOR, WORK_FACTOR_RANGE};
 pub use error::StoreError;
 pub use manifest::Manifest;
 pub use replay::replay;
@@ -56,8 +57,54 @@ pub enum Protection {
 /// Tuning for [`save_with`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SaveOptions {
-    /// scrypt work factor; `None` lets age pick about one second of work.
+    /// scrypt work factor; `None` means [`WORK_FACTOR`]. Lower values only for tests.
     pub work_factor: Option<u8>,
+}
+
+/// A loaded file: its head and its content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Opened {
+    /// The verified head. For encrypted files the inner one (with change count and hash),
+    /// marked `encrypted`.
+    pub manifest: Manifest,
+    /// Data and history.
+    pub document: Document,
+}
+
+/// Largest manifest accepted.
+const MANIFEST_LIMIT: u64 = 64 * 1024;
+
+const PLAIN_ENTRIES: [&str; 3] = [LOG, MANIFEST, WORKSPACE];
+const ENCRYPTED_ENTRIES: [&str; 2] = [MANIFEST, PAYLOAD];
+
+/// The classification of a file: the highest level anywhere in the current data **or anywhere
+/// in its history**. The change log keeps every earlier value, so content that was once VS-NfD
+/// stays in the file even after the task is deleted or the project is declassified – like a
+/// paper file, a plnwrk file is never classified lower again. Lowering it needs a deliberate,
+/// history-dropping export (docs/PLAN.md Phase 7).
+pub fn classification_of(doc: &Document) -> Classification {
+    fn level(entity: &plnwrk_core::Entity) -> Classification {
+        match entity {
+            plnwrk_core::Entity::Project(p) => p.classification,
+            plnwrk_core::Entity::Task(t) => t.classification.unwrap_or_default(),
+            _ => Classification::Open,
+        }
+    }
+    let history = doc
+        .log
+        .iter()
+        .flat_map(|change| &change.events)
+        .flat_map(|event| {
+            let (before, after) = match event {
+                plnwrk_engine::Event::Put { before, after } => (before.as_deref(), Some(&**after)),
+                plnwrk_engine::Event::Remove { before } => (Some(&**before), None),
+            };
+            before.into_iter().chain(after).map(level)
+        });
+    history
+        .chain(std::iter::once(doc.workspace.highest_classification()))
+        .max()
+        .unwrap_or_default()
 }
 
 /// Writes a document with default options.
@@ -75,7 +122,7 @@ pub fn save_with(
     if !violations.is_empty() {
         return Err(StoreError::Invalid { violations });
     }
-    let classification = doc.workspace.highest_classification();
+    let classification = classification_of(doc);
     if classification >= Classification::VsNfd && matches!(protection, Protection::None) {
         return Err(StoreError::ClassifiedUnencrypted);
     }
@@ -92,9 +139,9 @@ pub fn save_with(
         head,
     };
     let plain = container::write_zip(&[
-        (MANIFEST, &inner.to_bytes()?),
-        (WORKSPACE, &workspace),
-        (LOG, log.as_bytes()),
+        (MANIFEST, &inner.to_bytes()?, Packing::Compressed),
+        (WORKSPACE, &workspace, Packing::Compressed),
+        (LOG, log.as_bytes(), Packing::Compressed),
     ])?;
     match protection {
         Protection::None => Ok(plain),
@@ -106,21 +153,22 @@ pub fn save_with(
                 head: None,
                 ..inner
             };
-            container::write_zip(&[(MANIFEST, &outer.to_bytes()?), (PAYLOAD, &payload)])
+            container::write_zip(&[
+                (MANIFEST, &outer.to_bytes()?, Packing::Compressed),
+                (PAYLOAD, &payload, Packing::Stored),
+            ])
         }
     }
 }
 
-/// Reads only the manifest – works without the passphrase.
+/// Reads only the readable head – works without the passphrase.
 pub fn peek(bytes: &[u8]) -> Result<Manifest, StoreError> {
-    let entries = container::read_zip(bytes, Limits::default())?;
-    let manifest = entries.get(MANIFEST).ok_or(StoreError::NotPlnwrk)?;
-    Manifest::parse(manifest)
+    Manifest::parse(&container::read_entry(bytes, MANIFEST, MANIFEST_LIMIT)?)
 }
 
 /// Reads and fully verifies a document with default limits.
 pub fn load(bytes: &[u8], passphrase: Option<&SecretString>) -> Result<Document, StoreError> {
-    load_with(bytes, passphrase, Limits::default())
+    open(bytes, passphrase).map(|opened| opened.document)
 }
 
 /// Reads and fully verifies a document.
@@ -129,9 +177,40 @@ pub fn load_with(
     passphrase: Option<&SecretString>,
     limits: Limits,
 ) -> Result<Document, StoreError> {
+    open_with(bytes, passphrase, limits).map(|opened| opened.document)
+}
+
+/// Reads and fully verifies a file with default limits, returning its verified head too.
+pub fn open(bytes: &[u8], passphrase: Option<&SecretString>) -> Result<Opened, StoreError> {
+    open_with(bytes, passphrase, Limits::default())
+}
+
+fn expect_entries(entries: &BTreeMap<String, Vec<u8>>, names: &[&str]) -> Result<(), StoreError> {
+    let found: Vec<&str> = entries.keys().map(String::as_str).collect();
+    if found == names {
+        Ok(())
+    } else {
+        Err(StoreError::corrupt(format!(
+            "unexpected entries {found:?}; expected {names:?}"
+        )))
+    }
+}
+
+/// Reads and fully verifies a file, returning its verified head too.
+pub fn open_with(
+    bytes: &[u8],
+    passphrase: Option<&SecretString>,
+    limits: Limits,
+) -> Result<Opened, StoreError> {
     let entries = container::read_zip(bytes, limits)?;
     let manifest = Manifest::parse(entries.get(MANIFEST).ok_or(StoreError::NotPlnwrk)?)?;
-    let doc = if manifest.encrypted {
+    let (verified, document) = if manifest.encrypted {
+        expect_entries(&entries, &ENCRYPTED_ENTRIES)?;
+        if manifest.changes.is_some() || manifest.head.is_some() {
+            return Err(StoreError::corrupt(
+                "the readable head of an encrypted file must not describe its content",
+            ));
+        }
         let payload = entries
             .get(PAYLOAD)
             .ok_or_else(|| StoreError::corrupt("encrypted content is missing"))?;
@@ -153,20 +232,33 @@ pub fn load_with(
                 "the readable head does not match the encrypted content",
             ));
         }
-        read_plain(&inner, &inner_entries)?
+        expect_entries(&inner_entries, &PLAIN_ENTRIES)?;
+        let document = read_plain(&inner, &inner_entries)?;
+        (
+            Manifest {
+                encrypted: true,
+                ..inner
+            },
+            document,
+        )
     } else {
-        read_plain(&manifest, &entries)?
+        expect_entries(&entries, &PLAIN_ENTRIES)?;
+        let document = read_plain(&manifest, &entries)?;
+        (manifest, document)
     };
-    let actual = doc.workspace.highest_classification();
-    if actual > manifest.classification {
+    let actual = classification_of(&document);
+    if actual != verified.classification {
         return Err(StoreError::corrupt(
-            "the content is classified higher than the head says",
+            "the classification in the head does not match the content and its history",
         ));
     }
-    if actual >= Classification::VsNfd && !manifest.encrypted {
+    if actual >= Classification::VsNfd && !verified.encrypted {
         return Err(StoreError::ClassifiedUnencrypted);
     }
-    Ok(doc)
+    Ok(Opened {
+        manifest: verified,
+        document,
+    })
 }
 
 fn text(entries: &BTreeMap<String, Vec<u8>>, name: &str) -> Result<String, StoreError> {

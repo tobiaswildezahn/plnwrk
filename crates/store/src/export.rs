@@ -33,15 +33,19 @@ fn tasks<'a>(ws: &'a Workspace, project: &Project) -> Vec<&'a Task> {
     tasks
 }
 
-/// The whole workspace as JSON.
+/// The whole workspace as JSON: `{"marking": …, "workspace": …}`; `marking` is the
+/// classification marking or `null`.
 pub fn json(ws: &Workspace) -> Result<String, StoreError> {
-    serde_json::to_string_pretty(ws).map_err(|e| StoreError::corrupt(format!("export: {e}")))
+    let marking = is_classified(ws).then_some(VS_NFD_MARK);
+    let value = serde_json::json!({ "marking": marking, "workspace": ws });
+    serde_json::to_string_pretty(&value).map_err(|e| StoreError::corrupt(format!("export: {e}")))
 }
 
 /// A CSV field: quoted when needed; a leading `=`, `+`, `-`, `@`, tab or carriage return is
 /// neutralised with `'` so spreadsheets never run it as a formula.
 fn field(text: &str) -> String {
-    let safe = if text.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+    let safe = if text.starts_with(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠'])
+    {
         format!("'{text}")
     } else {
         text.to_owned()
@@ -57,14 +61,15 @@ fn date(value: Option<jiff::civil::Date>) -> String {
     value.map(|d| d.to_string()).unwrap_or_default()
 }
 
-/// One row per task, separated by `;` (as spreadsheets in German locales expect).
+/// One row per task, separated by `;` (as spreadsheets in German locales expect), with a byte
+/// order mark so that spreadsheets read the umlauts as UTF-8.
 pub fn csv(ws: &Workspace) -> String {
-    let mut out = String::new();
+    let mut out = String::from("\u{FEFF}");
     if is_classified(ws) {
         out.push_str(VS_NFD_MARK);
         out.push_str("\r\n");
     }
-    out.push_str("Projekt;Aktenzeichen;Aufgabe;Übergeordnet;Status;Priorität;Bearbeitung;Beginn;Frist;Fortschritt;Schlagworte\r\n");
+    out.push_str("Projekt;Aktenzeichen;Aufgabe;Übergeordnet;Status;Priorität;Bearbeitung;Beginn;Frist;Fortschritt;Schlagworte;Einstufung\r\n");
     for project in projects(ws) {
         for task in tasks(ws, project) {
             let parent = task
@@ -89,6 +94,7 @@ pub fn csv(ws: &Workspace) -> String {
                 date(task.due),
                 task.progress.to_string(),
                 field(&task.tags.join(", ")),
+                ws.effective_classification(task).name().to_owned(),
             ];
             out.push_str(&row.join(";"));
             out.push_str("\r\n");
@@ -113,14 +119,15 @@ fn md(text: &str) -> String {
     out
 }
 
-fn task_lines(
-    ws: &Workspace,
-    all: &[&Task],
-    parent: Option<TaskId>,
-    depth: usize,
-    out: &mut String,
-) {
-    for task in all.iter().filter(|t| t.parent == parent) {
+/// The task tree as a checklist, depth first, without recursion (trees can be deep).
+fn task_lines(ws: &Workspace, project: &Project, all: &[&Task], out: &mut String) {
+    let mut stack: Vec<(&Task, usize)> = all
+        .iter()
+        .rev()
+        .filter(|t| t.parent.is_none())
+        .map(|t| (*t, 0))
+        .collect();
+    while let Some((task, depth)) = stack.pop() {
         let mark = if task.status == TaskStatus::Done {
             "x"
         } else {
@@ -136,6 +143,11 @@ fn task_lines(
         if !matches!(task.status, TaskStatus::Todo | TaskStatus::Done) {
             details.push(task.status.name().replace('_', " "));
         }
+        if project.classification < Classification::VsNfd
+            && ws.effective_classification(task) >= Classification::VsNfd
+        {
+            details.push("VS-NfD".to_owned());
+        }
         let suffix = if details.is_empty() {
             String::new()
         } else {
@@ -147,9 +159,13 @@ fn task_lines(
             "  ".repeat(depth),
             md(&task.title)
         );
-        if depth < 32 {
-            task_lines(ws, all, Some(task.id), depth + 1, out);
-        }
+        let id: TaskId = task.id;
+        stack.extend(
+            all.iter()
+                .rev()
+                .filter(|t| t.parent == Some(id))
+                .map(|t| (*t, depth + 1)),
+        );
     }
 }
 
@@ -211,7 +227,7 @@ pub fn markdown(ws: &Workspace) -> String {
         let all = tasks(ws, project);
         if !all.is_empty() {
             out.push_str("\n### Aufgaben\n\n");
-            task_lines(ws, &all, None, 0, &mut out);
+            task_lines(ws, project, &all, &mut out);
         }
     }
     out
@@ -231,6 +247,9 @@ mod tests {
         assert_eq!(field("-1"), "'-1");
         assert_eq!(field("@SUM(A1)"), "'@SUM(A1)");
         assert_eq!(field("Zeile\nzwei"), "\"Zeile\nzwei\"");
+        assert_eq!(field("\tx"), "'\tx");
+        assert_eq!(field("\rx"), "\"'\rx\"");
+        assert_eq!(field("＝1+1"), "'＝1+1");
     }
 
     #[test]
@@ -238,5 +257,6 @@ mod tests {
         assert_eq!(md("[klick](http://x)"), "\\[klick\\](http://x)");
         assert_eq!(md("<script>"), "\\<script\\>");
         assert_eq!(md("# Titel *fett*"), "\\# Titel \\*fett\\*");
+        assert_eq!(md("a|b !c ~d"), "a\\|b \\!c \\~d");
     }
 }

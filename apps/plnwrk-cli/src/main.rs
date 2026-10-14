@@ -173,7 +173,8 @@ fn new_file(matches: &ArgMatches) -> Result<Output, Failure> {
     } else {
         Protection::None
     };
-    files::save(path, &files::document(&session), &protection)?;
+    // The early check gives a quick answer; save_new is what guarantees no overwrite.
+    files::save_new(path, &files::document(&session), &protection)?;
     Ok(Output::Json(
         json!({"created": path.display().to_string(), "encrypted": matches.get_flag("encrypt")}),
     ))
@@ -195,11 +196,19 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
         .get_one::<String>("command")
         .map_or("", String::as_str);
     let params = params(matches)?;
-    let open = files::open(path)?;
+    let (open, _lock) = files::open_for_change(path)?;
     let mut session: Session = files::session(open.doc);
     let outcome = session.run(command, &params, Origin::User)?;
     if outcome.change.is_some() {
-        files::save(path, &files::document(&session), &open.protection)?;
+        files::save(path, &files::document(&session), &open.protection).map_err(
+            |Failure(cause)| {
+                Failure(json!({
+                    "error": "not_saved",
+                    "message": "the change was NOT saved; the file is unchanged",
+                    "cause": cause,
+                }))
+            },
+        )?;
     }
     Ok(Output::Json(
         json!({"outcome": outcome, "saved": outcome.change.is_some()}),
@@ -226,7 +235,7 @@ fn export_file(matches: &ArgMatches) -> Result<Output, Failure> {
 
 fn encrypt(matches: &ArgMatches) -> Result<Output, Failure> {
     let path = path(matches)?;
-    let open = files::open(path)?;
+    let (open, _lock) = files::open_for_change(path)?;
     if open.manifest.encrypted {
         return Err(Failure::message("the file is already encrypted"));
     }
@@ -237,7 +246,7 @@ fn encrypt(matches: &ArgMatches) -> Result<Output, Failure> {
 
 fn decrypt(matches: &ArgMatches) -> Result<Output, Failure> {
     let path = path(matches)?;
-    let open = files::open(path)?;
+    let (open, _lock) = files::open_for_change(path)?;
     if !open.manifest.encrypted {
         return Err(Failure::message("the file is not encrypted"));
     }
@@ -302,11 +311,19 @@ fn print(text: &str) -> ExitCode {
     }
 }
 
+/// Prints text exactly as is (exports keep their own line endings).
+fn print_raw(text: &str) -> ExitCode {
+    match write!(std::io::stdout().lock(), "{text}") {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
+    }
+}
+
 fn main() -> ExitCode {
     let matches = cli().get_matches();
     match run(&matches) {
         Ok(Output::Json(value)) => print(&serde_json::to_string_pretty(&value).unwrap_or_default()),
-        Ok(Output::Text(text)) => print(text.trim_end()),
+        Ok(Output::Text(text)) => print_raw(&text),
         Err(Failure(value)) => {
             let _ = print(&serde_json::to_string_pretty(&value).unwrap_or_default());
             eprintln!(

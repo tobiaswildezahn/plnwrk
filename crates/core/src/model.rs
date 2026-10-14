@@ -17,6 +17,7 @@ pub const LAG_MAX: i32 = 365;
 
 /// A project or a case: a container of tasks with an optional reference number and deadline.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Project {
     /// Identity.
     pub id: ProjectId,
@@ -46,6 +47,7 @@ pub struct Project {
 
 /// A piece of work inside a project. Tasks nest: `parent` makes it a subtask.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Task {
     /// Identity.
     pub id: TaskId,
@@ -83,6 +85,7 @@ pub struct Task {
 
 /// A date that matters in a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Milestone {
     /// Identity.
     pub id: MilestoneId,
@@ -98,6 +101,7 @@ pub struct Milestone {
 
 /// `to` waits for `from` (within one project).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Dependency {
     /// Identity.
     pub id: DependencyId,
@@ -113,6 +117,7 @@ pub struct Dependency {
 
 /// Someone who owns projects, does tasks or writes comments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Person {
     /// Identity.
     pub id: PersonId,
@@ -128,6 +133,7 @@ pub struct Person {
 
 /// A note on a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Comment {
     /// Identity.
     pub id: CommentId,
@@ -322,6 +328,15 @@ mod tests {
                 body: "b".into(),
             }),
         ];
+        for entity in &entities {
+            let json = serde_json::to_string(entity).unwrap();
+            let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+            value["smuggled"] = serde_json::json!("hidden payload");
+            assert!(
+                serde_json::from_value::<Entity>(value).is_err(),
+                "unknown fields are refused: {json}"
+            );
+        }
         for entity in entities {
             let json = serde_json::to_string(&entity).unwrap();
             let back: Entity =

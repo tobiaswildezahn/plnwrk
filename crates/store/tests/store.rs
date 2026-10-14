@@ -240,6 +240,179 @@ mod store {
         ));
     }
 
+    /// Wraps an inner (plain) container the way `save` does: padded, age-encrypted, next to a
+    /// readable head – so tests can hand-craft hostile inner content.
+    fn wrap_encrypted(inner: &[u8], passphrase: &str) -> Vec<u8> {
+        let mut padded = u64::try_from(inner.len()).unwrap().to_le_bytes().to_vec();
+        padded.extend_from_slice(inner);
+        while padded.len() % 4096 != 0 {
+            padded.push(0);
+        }
+        let mut recipient = age::scrypt::Recipient::new(pass(passphrase));
+        recipient.set_work_factor(10);
+        let payload = age::encrypt(&recipient, &padded).unwrap();
+        let mut head: Value = serde_json::from_slice(&entries(inner)["manifest.json"]).unwrap();
+        head["encrypted"] = json!(true);
+        if let Some(object) = head.as_object_mut() {
+            object.remove("changes");
+            object.remove("head");
+        }
+        rebuild(&BTreeMap::from([
+            (
+                "manifest.json".to_owned(),
+                serde_json::to_vec(&head).unwrap(),
+            ),
+            ("payload.age".to_owned(), payload),
+        ]))
+    }
+
+    #[test]
+    fn a_wrong_change_count_in_the_head_is_refused() {
+        let bytes = save(&sample_doc(), &Protection::None).unwrap();
+        let tampered = edit_json(&bytes, "manifest.json", |m| m["changes"] = json!(1));
+        assert!(matches!(
+            load(&tampered, None),
+            Err(StoreError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
+    fn a_head_claiming_a_higher_classification_is_refused() {
+        let bytes = save(&sample_doc(), &Protection::None).unwrap();
+        let tampered = edit_json(&bytes, "manifest.json", |m| {
+            m["classification"] = json!("vs_nfd")
+        });
+        assert!(matches!(
+            load(&tampered, None),
+            Err(StoreError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
+    fn an_inner_head_claiming_encryption_is_refused() {
+        let inner = save(&sample_doc(), &Protection::None).unwrap();
+        let inner = edit_json(&inner, "manifest.json", |m| m["encrypted"] = json!(true));
+        let file = wrap_encrypted(&inner, "richtig");
+        assert!(matches!(
+            load(&file, Some(&pass("richtig"))),
+            Err(StoreError::Corrupt { .. })
+        ));
+        // The same wrapping with an honest inner head loads – the helper itself is sound.
+        let honest = wrap_encrypted(&save(&sample_doc(), &Protection::None).unwrap(), "richtig");
+        assert_eq!(load(&honest, Some(&pass("richtig"))).unwrap(), sample_doc());
+    }
+
+    #[test]
+    fn a_consistent_file_that_breaks_rules_is_refused() {
+        // Workspace and log agree perfectly, but the content breaks a rule (empty name);
+        // `save` would never write this, so the file is hand-made.
+        let person = plnwrk_core::Entity::Person(plnwrk_core::Person {
+            id: plnwrk_core::PersonId::from_ulid(plnwrk_core::ids::Ulid(1)),
+            name: String::new(),
+            email: None,
+            role: None,
+            initials: "X".into(),
+        });
+        let change = plnwrk_engine::Change {
+            seq: 1,
+            at: jiff::Timestamp::UNIX_EPOCH,
+            origin: Origin::Script,
+            actor: None,
+            command: "person.create".into(),
+            params: json!({}),
+            events: vec![plnwrk_engine::Event::Put {
+                before: None,
+                after: Box::new(person),
+            }],
+            undoes: None,
+            redoes: None,
+        };
+        let log = vec![change];
+        let workspace = plnwrk_store::replay(&log).unwrap();
+        let (text, head) = chain::seal(&log).unwrap();
+        let manifest = json!({
+            "format": "plnwrk", "version": 1, "classification": "open", "encrypted": false,
+            "created_with": "test", "changes": 1, "head": head
+        });
+        let file = rebuild(&BTreeMap::from([
+            (
+                "manifest.json".to_owned(),
+                serde_json::to_vec(&manifest).unwrap(),
+            ),
+            (
+                "workspace.json".to_owned(),
+                serde_json::to_vec(&workspace).unwrap(),
+            ),
+            ("log.jsonl".to_owned(), text.into_bytes()),
+        ]));
+        assert!(matches!(load(&file, None), Err(StoreError::Invalid { .. })));
+    }
+
+    #[test]
+    fn extra_entries_are_refused() {
+        let plain = save(&sample_doc(), &Protection::None).unwrap();
+        let mut all = entries(&plain);
+        all.insert("notes.txt".to_owned(), b"hidden".to_vec());
+        assert!(matches!(
+            load(&rebuild(&all), None),
+            Err(StoreError::Corrupt { .. })
+        ));
+        let encrypted_file = encrypted(&sample_doc(), "richtig");
+        let mut all = entries(&encrypted_file);
+        all.insert("workspace.json".to_owned(), b"{}".to_vec());
+        assert!(matches!(
+            load(&rebuild(&all), Some(&pass("richtig"))),
+            Err(StoreError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
+    fn the_readable_head_of_an_encrypted_file_may_not_describe_its_content() {
+        let bytes = encrypted(&sample_doc(), "richtig");
+        let tampered = edit_json(&bytes, "manifest.json", |m| {
+            m["changes"] = json!(999);
+            m["head"] = json!("deadbeef");
+        });
+        assert!(matches!(
+            load(&tampered, Some(&pass("richtig"))),
+            Err(StoreError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
+    fn duplicate_entry_names_are_refused() {
+        // Write a fourth entry under a placeholder name, then patch the name to an existing one.
+        let plain = save(&sample_doc(), &Protection::None).unwrap();
+        let mut all = entries(&plain);
+        all.insert("log.jsonX".to_owned(), b"other".to_vec());
+        let bytes = rebuild(&all);
+        let patched: Vec<u8> = {
+            let needle = b"log.jsonX";
+            let mut out = bytes.clone();
+            let mut at = 0;
+            while let Some(position) = out[at..].windows(needle.len()).position(|w| w == needle) {
+                let start = at + position;
+                out[start + needle.len() - 1] = b'l';
+                at = start + needle.len();
+            }
+            out
+        };
+        assert_ne!(patched, bytes);
+        assert!(matches!(
+            load(&patched, None),
+            Err(StoreError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
+    fn an_oversized_head_is_refused_by_peek() {
+        let plain = save(&sample_doc(), &Protection::None).unwrap();
+        let tampered = edit_json(&plain, "manifest.json", |m| {
+            m["created_with"] = json!("x".repeat(70_000))
+        });
+        assert!(matches!(peek(&tampered), Err(StoreError::TooLarge { .. })));
+    }
+
     // ------------------------------------------------------------ foreign and broken files
 
     #[test]
@@ -333,6 +506,25 @@ mod store {
         }
     }
 
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, failure_persistence: None, ..ProptestConfig::default() })]
+
+        #[test]
+        fn damaged_encrypted_files_never_panic_and_never_give_other_data(
+            flips in prop::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..4),
+        ) {
+            let doc = sample_doc();
+            let mut bytes = encrypted(&doc, "richtig");
+            for (index, value) in flips {
+                let at = index.index(bytes.len());
+                bytes[at] ^= value | 1;
+            }
+            if let Ok(loaded) = load(&bytes, Some(&pass("richtig"))) {
+                prop_assert_eq!(loaded, doc);
+            }
+        }
+    }
+
     // ------------------------------------------------------------ encryption and classification
 
     #[test]
@@ -389,8 +581,48 @@ mod store {
         // The decrypted inner container on its own is refused.
         let payload = entries(&bytes).remove("payload.age").unwrap();
         let identity = age::scrypt::Identity::new(pass("geheim"));
-        let inner = age::decrypt(&identity, &payload).unwrap();
-        assert_eq!(load(&inner, None), Err(StoreError::ClassifiedUnencrypted));
+        let padded = age::decrypt(&identity, &payload).unwrap();
+        let length = usize::try_from(u64::from_le_bytes(padded[..8].try_into().unwrap())).unwrap();
+        let inner = &padded[8..8 + length];
+        assert_eq!(load(inner, None), Err(StoreError::ClassifiedUnencrypted));
+    }
+
+    #[test]
+    fn classified_history_keeps_the_file_classified() {
+        let mut session = Session::new(clock(), Box::new(SequentialIds::default()));
+        let created = session
+            .run("project.create", &json!({"title": "Übung"}), Origin::User)
+            .unwrap();
+        let project = serde_json::to_value(created.created[0]).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let task = session
+            .run(
+                "task.create",
+                &json!({"project": project, "title": "Bunker 7", "classification": "vs_nfd"}),
+                Origin::User,
+            )
+            .unwrap();
+        let task = serde_json::to_value(task.created[0]).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        session
+            .run("task.delete", &json!({"task": task}), Origin::User)
+            .unwrap();
+        let doc = Document {
+            workspace: session.workspace().clone(),
+            log: session.log().to_vec(),
+        };
+        assert_eq!(doc.workspace.highest_classification(), Classification::Open);
+        assert_eq!(plnwrk_store::classification_of(&doc), Classification::VsNfd);
+        assert_eq!(
+            save(&doc, &Protection::None),
+            Err(StoreError::ClassifiedUnencrypted)
+        );
+        let bytes = encrypted(&doc, "richtig-und-lang");
+        assert_eq!(peek(&bytes).unwrap().classification, Classification::VsNfd);
     }
 
     #[test]
@@ -456,19 +688,89 @@ mod store {
         insta::assert_snapshot!("csv", csv);
         let json: Value =
             serde_json::from_str(&plnwrk_store::export::json(&doc.workspace).unwrap()).unwrap();
-        assert!(json["tasks"].as_object().is_some_and(|t| t.len() == 14));
+        assert!(
+            json["workspace"]["tasks"]
+                .as_object()
+                .is_some_and(|t| t.len() == 14)
+        );
     }
 
     #[test]
     fn classified_exports_are_marked() {
         let doc = classified();
         let mark = plnwrk_store::export::VS_NFD_MARK;
-        assert!(plnwrk_store::export::csv(&doc.workspace).starts_with(mark));
+        assert!(plnwrk_store::export::csv(&doc.workspace).starts_with(&format!("\u{FEFF}{mark}")));
+        let json: Value =
+            serde_json::from_str(&plnwrk_store::export::json(&doc.workspace).unwrap()).unwrap();
+        assert_eq!(json["marking"], mark);
         assert!(
             plnwrk_store::export::markdown(&doc.workspace).starts_with(&format!("> **{mark}**"))
         );
         let open = sample_doc();
         assert!(!plnwrk_store::export::csv(&open.workspace).contains(mark));
+        let json: Value =
+            serde_json::from_str(&plnwrk_store::export::json(&open.workspace).unwrap()).unwrap();
+        assert_eq!(json["marking"], Value::Null);
+    }
+
+    #[test]
+    fn a_single_classified_task_in_an_open_project_is_marked() {
+        let mut session = Session::new(clock(), Box::new(SequentialIds::default()));
+        let created = session
+            .run("project.create", &json!({"title": "Offen"}), Origin::User)
+            .unwrap();
+        let project = serde_json::to_value(created.created[0]).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        session
+            .run(
+                "task.create",
+                &json!({"project": project, "title": "Geheim", "classification": "vs_nfd"}),
+                Origin::User,
+            )
+            .unwrap();
+        session
+            .run(
+                "task.create",
+                &json!({"project": project, "title": "Offen"}),
+                Origin::User,
+            )
+            .unwrap();
+        let markdown = plnwrk_store::export::markdown(session.workspace());
+        assert!(markdown.contains("- [ ] Geheim — VS-NfD"));
+        assert!(markdown.contains("- [ ] Offen\n"));
+        let csv = plnwrk_store::export::csv(session.workspace());
+        assert!(
+            csv.lines()
+                .any(|l| l.contains(";Geheim;") && l.ends_with(";vs_nfd"))
+        );
+    }
+
+    #[test]
+    fn deep_task_trees_are_exported_completely() {
+        let mut session = Session::new(clock(), Box::new(SequentialIds::default()));
+        let created = session
+            .run("project.create", &json!({"title": "Tief"}), Origin::User)
+            .unwrap();
+        let project = serde_json::to_value(created.created[0]).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut parent: Option<String> = None;
+        for level in 0..40 {
+            let mut params = json!({"project": project, "title": format!("Ebene {level}")});
+            if let Some(parent) = &parent {
+                params["parent"] = json!(parent);
+            }
+            let created = session.run("task.create", &params, Origin::User).unwrap();
+            parent = serde_json::to_value(created.created[0]).unwrap()["id"]
+                .as_str()
+                .map(str::to_owned);
+        }
+        let markdown = plnwrk_store::export::markdown(session.workspace());
+        assert_eq!(markdown.matches("- [ ] Ebene").count(), 40);
+        assert!(markdown.contains(&format!("{}- [ ] Ebene 39", "  ".repeat(39))));
     }
 
     #[test]

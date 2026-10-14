@@ -6,11 +6,15 @@ use std::path::Path;
 use plnwrk_engine::Session;
 use plnwrk_store::{Document, Manifest, Protection, SecretString, StoreError, file};
 use serde_json::{Value, json};
+use zeroize::Zeroize as _;
 
 use crate::system::{RandomIds, SystemClock};
 
 /// Environment variable with the passphrase (for scripts and agents).
 pub const PASSPHRASE_VAR: &str = "PLNWRK_PASSPHRASE";
+
+/// Shortest passphrase accepted when a file is protected.
+pub const MIN_PASSPHRASE_CHARS: usize = 12;
 
 /// A failure with a machine-readable form.
 pub struct Failure(pub Value);
@@ -34,11 +38,24 @@ impl Failure {
     }
 }
 
-/// The passphrase from the environment, or asked interactively (twice when `confirm`).
-pub fn passphrase(confirm: bool) -> Result<SecretString, Failure> {
+fn check_new(passphrase: &str) -> Result<(), Failure> {
+    if passphrase.chars().count() < MIN_PASSPHRASE_CHARS {
+        return Err(Failure::message(format!(
+            "a new passphrase needs at least {MIN_PASSPHRASE_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
+/// The passphrase from the environment, or asked interactively. `new` = it protects a file
+/// from now on: then it is asked twice and must be long enough.
+pub fn passphrase(new: bool) -> Result<SecretString, Failure> {
     if let Ok(value) = std::env::var(PASSPHRASE_VAR) {
         if value.is_empty() {
             return Err(Failure::message(format!("{PASSPHRASE_VAR} is empty")));
+        }
+        if new {
+            check_new(&value)?;
         }
         return Ok(SecretString::from(value));
     }
@@ -50,10 +67,19 @@ pub fn passphrase(confirm: bool) -> Result<SecretString, Failure> {
     if first.is_empty() {
         return Err(Failure::message("the passphrase must not be empty"));
     }
-    if confirm {
-        let second = rpassword::prompt_password("Passphrase (again): ")
+    if new {
+        if let Err(failure) = check_new(&first) {
+            let mut first = first;
+            first.zeroize();
+            return Err(failure);
+        }
+        let mut second = rpassword::prompt_password("Passphrase (again): ")
             .map_err(|e| Failure::message(format!("cannot read the passphrase: {e}")))?;
-        if first != second {
+        let same = first == second;
+        second.zeroize();
+        if !same {
+            let mut first = first;
+            first.zeroize();
             return Err(Failure::message("the two passphrases differ"));
         }
     }
@@ -73,25 +99,44 @@ pub struct Open {
 /// Reads and verifies a file, asking for the passphrase if it is encrypted.
 pub fn open(path: &Path) -> Result<Open, Failure> {
     let bytes = file::read(path)?;
-    let manifest = plnwrk_store::peek(&bytes)?;
-    let (doc, protection) = if manifest.encrypted {
+    let head = plnwrk_store::peek(&bytes)?;
+    let (opened, protection) = if head.encrypted {
         let secret = passphrase(false)?;
-        let doc = plnwrk_store::load(&bytes, Some(&secret))?;
-        (doc, Protection::Passphrase(secret))
+        let opened = plnwrk_store::open(&bytes, Some(&secret))?;
+        (opened, Protection::Passphrase(secret))
     } else {
-        (plnwrk_store::load(&bytes, None)?, Protection::None)
+        if std::env::var_os(PASSPHRASE_VAR).is_some() {
+            eprintln!(
+                "plnwrk-cli: warning: {} is not encrypted; {PASSPHRASE_VAR} is ignored and changes are saved unencrypted",
+                path.display()
+            );
+        }
+        (plnwrk_store::open(&bytes, None)?, Protection::None)
     };
     Ok(Open {
-        doc,
+        doc: opened.document,
         protection,
-        manifest,
+        manifest: opened.manifest,
     })
 }
 
-/// Writes a document atomically.
+/// Locks a file against other plnwrk processes, then opens it – for anything that changes it.
+pub fn open_for_change(path: &Path) -> Result<(Open, file::Lock), Failure> {
+    let lock = file::lock(path)?;
+    Ok((open(path)?, lock))
+}
+
+/// Writes a document atomically over an existing file.
 pub fn save(path: &Path, doc: &Document, protection: &Protection) -> Result<(), Failure> {
     let bytes = plnwrk_store::save(doc, protection)?;
     file::write_atomic(path, &bytes)?;
+    Ok(())
+}
+
+/// Writes a document to a new file; never replaces an existing one.
+pub fn save_new(path: &Path, doc: &Document, protection: &Protection) -> Result<(), Failure> {
+    let bytes = plnwrk_store::save(doc, protection)?;
+    file::write_new(path, &bytes)?;
     Ok(())
 }
 
