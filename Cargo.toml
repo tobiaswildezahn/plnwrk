@@ -19,7 +19,9 @@ plnwrk-assistant = { path = "crates/assistant" }
 plnwrk-mcp = { path = "crates/mcp" }
 plnwrk-ui = { path = "crates/ui" }
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+clap = "4.6.7"
 egui = "0.36.2"
+getrandom = "0.4.3"
 insta = { version = "1.49", features = ["json"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "serde"] }
 log = "0.4"

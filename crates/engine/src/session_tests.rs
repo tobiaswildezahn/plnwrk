@@ -220,3 +220,42 @@ fn errors_serialize_with_a_tag() {
     assert_eq!(json["param"], "title");
     assert_eq!(error.to_string(), "parameter title: is required");
 }
+
+#[test]
+fn error_messages_are_readable() {
+    let key = EntityKey::Person(PersonId::from_ulid(ulid::Ulid(1)));
+    let cases = [
+        (
+            CommandError::UnknownCommand {
+                command: "x".into(),
+            },
+            "unknown command \"x\"",
+        ),
+        (
+            CommandError::Disabled {
+                command: "undo".into(),
+                reason: "nothing to undo".into(),
+            },
+            "undo is not possible now: nothing to undo",
+        ),
+        (
+            CommandError::NotFound { entity: key },
+            "person 00000000000000000000000001 does not exist",
+        ),
+        (CommandError::Conflict { reason: "r".into() }, "conflict: r"),
+    ];
+    for (error, text) in cases {
+        assert_eq!(error.to_string(), text);
+    }
+    let invalid = CommandError::Invalid {
+        violations: vec![plnwrk_core::Violation {
+            entity: key,
+            rule: Rule::Text,
+            message: "name is not a valid title".into(),
+        }],
+    };
+    assert_eq!(
+        invalid.to_string(),
+        "the change would break 1 rule(s): person 00000000000000000000000001: name is not a valid title"
+    );
+}

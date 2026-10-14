@@ -7,7 +7,8 @@ Datei, funktioniert ohne Netz und ist vollständig durch KI steuerbar.
 Ziel: modernes Projektmanagement in gewachsene Verwaltungsstrukturen bringen. Ein Vorgang
 (Aktenzeichen, Frist, fester Ablauf) und ein Projekt sind dabei dasselbe – ein Datenmodell.
 
-> **Status:** Phase 0 (Fundament). Noch keine Fachfunktionen. Fahrplan: [docs/PLAN.md](docs/PLAN.md).
+> **Status:** Phase 1 (Kern) fertig: Datenmodell, 23 Befehle mit Undo/Redo und Revisionsspur,
+> 9 Abfragen – bedienbar über die Kommandozeile. Oberfläche folgt. Fahrplan: [docs/PLAN.md](docs/PLAN.md).
 
 ## Starten
 
@@ -16,7 +17,8 @@ Voraussetzung: [Rust](https://rustup.rs) (die Version legt `rust-toolchain.toml`
 ```sh
 cargo run -p plnwrk                                  # Desktop-App
 cd apps/plnwrk-web && trunk serve                    # Browser-Version (http://127.0.0.1:8080)
-cargo run -p plnwrk-cli                              # Kommandozeile
+cargo run -p plnwrk-cli -- demo                      # Beispiel als JSON
+cargo run -p plnwrk-cli -- commands                  # alle Befehle mit Parametern
 ```
 
 ## Qualität
@@ -26,7 +28,7 @@ WebAssembly), Tests, Schichtregeln, Reinheit des Kerns und Lizenzen/Sicherheitsm
 Abhängigkeiten.
 
 ```sh
-cargo install --locked cargo-deny   # einmalig
+cargo install --locked cargo-deny cargo-llvm-cov   # einmalig
 cargo xtask ci
 ```
 

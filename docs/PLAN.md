@@ -19,8 +19,8 @@ Strukturen. Der Einsatz in der Stabsarbeit ist eine Option, nicht der Zweck.
 
 **Warum (Alleinstellung):**
 
-1. **Datenhoheit** – jedes Projekt ist eine Datei, die dem Nutzer gehört. Kein Konto, keine Cloud,
-   keine Telemetrie.
+1. **Datenhoheit** – jeder Arbeitsbereich (Projekte, Vorgänge, Vorlagen, Personen) ist eine Datei,
+   die dem Nutzer gehört. Kein Konto, keine Cloud, keine Telemetrie.
 2. **Offline** – alles funktioniert ohne Netz. Netzzugriffe sind die Ausnahme und immer explizit.
 3. **Volle KI-Integration** – ein Agent kann alles, was ein Mensch kann: über dieselben Befehle,
    in der App (Assistent), per Kommandozeile und als MCP-Server.
@@ -130,7 +130,8 @@ pub struct CommandSpec {
 
 ### 3.4 Speicherung (`store`) und Offline-/Team-Vorbereitung
 
-- **Dateiformat `.plnwrk`:** ZIP-Container mit `manifest.json` (Formatversion, Einstufung,
+- **Dateiformat `.plnwrk`:** eine Datei je Arbeitsbereich (`Workspace`: beliebig viele Projekte
+  und Vorgänge samt Vorlagen und Personen). ZIP-Container mit `manifest.json` (Formatversion, Einstufung,
   Erstellt-mit), `snapshot.json` (aktueller Zustand) und `events.jsonl` (Log). Lesbar, diffbar,
   langfristig archivierbar.
 - **Verschlüsselung (optional, Pflicht bei Einstufung ≥ VS-NfD):** gesamter Container mit
@@ -336,11 +337,16 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 2026-10-14 | WASM-Risiko (§8) geprüft per Wegwerf-Build: `age` 0.12, `zip` 9 (ohne Default-Features, `deflate`), `ulid` 3, `jiff` 0.2, `blake3` 1 bauen für `wasm32-unknown-unknown`. **Auflagen:** (1) Web-App muss `getrandom` 0.2 mit Feature `js` und 0.4 mit `wasm_js` aktivieren (age zieht beides). (2) `ulid` 3 hat kein `Ulid::new()` ohne Zufallsquelle – passt zur Regel „deterministischer Kern“: IDs per `Ulid::from_parts(zeit, zufall)` aus Clock-/Id-Traits, die die Apps liefern. `jiff::Timestamp::now()` nie im Kern verwenden. |
 | 2026-10-14 | Review Phase 0 (unabhängiger Agent) → Schranke gehärtet: Absturz-Lints `forbid` + zusätzlich als `-F`-Flags in `xtask ci` (greifen auch ohne `[lints] workspace = true`); neue Lints `string_slice`, `unreachable`, `exit`, `allow_attributes_without_reason`; Reinheit primär über `disallowed-methods/types` in `crates/{core,engine}/clippy.toml`, Textsuche nur Rückfallebene; Positivliste externer Abhängigkeiten für core/engine; Workspace-Crates per Mitgliedschaft statt Namenspräfix; wasm32-Prüfung für alle Crates außer `NATIVE_ONLY` plus echter WASM-Build; `--locked` überall, CI prüft Cargo.lock; CI-Werkzeuge versioniert, Ubuntu 24.04 fixiert. |
 | 2026-10-14 | Bewusste Abweichungen Phase 0: cargo-dist, mdbook, cargo-insta werden erst in der Phase installiert, die sie braucht. `deny.toml` erlaubt nur tatsächlich genutzte Lizenzen (strenger als Plan). Der eine UI-Text der Startseite ist bis zur i18n in Phase 3 deutsch fest verdrahtet. |
+| 2026-10-14 | Phase 1: **Eine Datei = ein Arbeitsbereich** mit vielen Projekten/Vorgängen, Vorlagen und Personen (statt „ein Projekt = eine Datei“; Vorgänge sind zahlreich und klein, Vorlagen und Personen werden geteilt). §1 und §3.4 angepasst. |
+| 2026-10-14 | Phase 1: Events sind `Put{before, after}` / `Remove{before}` – ohne Nachschlagen umkehrbar. Undo/Redo erzeugen kompensierende Changes, das Log bleibt append-only; der Undo-Stapel wird nicht gespeichert. Nach **jedem** Befehl prüft `Workspace::check` alle Invarianten; bei Verstoß vollständiger Rollback (Sicherheitsnetz gegen vergessene Einzelprüfungen). `Outcome.change` ist `Option<u64>` (kein Eintrag, wenn nichts geändert wurde). |
+| 2026-10-14 | Phase 1: Meilenstein „verpasst“ wird aus Datum und Status abgeleitet, nicht gespeichert. `Project.kind` optional, Default-Status `active`. Reihenfolge per fraktionalem Rang (Basis 36), damit ein Verschieben genau eine Aufgabe ändert. Parameter strikt: unbekannte Schlüssel → Fehler, `null` leert. |
+| 2026-10-14 | Phase 1 Technik: `ulid` ohne `serde`-Feature (Fehler in ulid 3 ohne std), eigene serde-Implementierung der ID-Typen. `SystemClock`/`RandomIds` (monoton steigend) liegen vorerst in `plnwrk-cli`; ziehen in einen gemeinsamen Plattform-Crate um, sobald Desktop/Web sie brauchen. clap per Builder-API: Proc-Makros, die verbotene Lints per `#[allow]` abschalten (clap-derive), sind mit `forbid` unvereinbar – Regel für alle künftigen Makros. |
+| 2026-10-14 | Phase 1 Qualität: Abdeckung core+engine ≥ 90 % als Schritt in `cargo xtask ci` (cargo-llvm-cov; Stand 95 %). Müll-Parameter-Test als typisiertes Mutations-Fuzzing aller 23 Befehle und 9 Abfragen; jeder Befehl muss ≥ 5 echte Erfolge erreichen, sonst schlägt der Test fehl (verhindert, dass er unbemerkt nur Parameterprüfungen testet). |
 
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
-| 1 Kern | offen |
+| 1 Kern | fertig (2026-10-14) |
 | 2 Speicherung | offen |
 | 3 Desktop-UI | offen |
 | 4 Web | offen |

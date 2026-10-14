@@ -235,3 +235,55 @@ impl std::fmt::Display for EntityKey {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CommentId, DependencyId, MilestoneId, PersonId, ProjectId, TaskId};
+
+    #[test]
+    fn keys_know_their_kind_and_read_well() {
+        let u = ulid::Ulid(1);
+        let keys = [
+            (
+                EntityKey::Project(ProjectId::from_ulid(u)),
+                EntityKind::Project,
+                "project",
+            ),
+            (
+                EntityKey::Task(TaskId::from_ulid(u)),
+                EntityKind::Task,
+                "task",
+            ),
+            (
+                EntityKey::Milestone(MilestoneId::from_ulid(u)),
+                EntityKind::Milestone,
+                "milestone",
+            ),
+            (
+                EntityKey::Dependency(DependencyId::from_ulid(u)),
+                EntityKind::Dependency,
+                "dependency",
+            ),
+            (
+                EntityKey::Person(PersonId::from_ulid(u)),
+                EntityKind::Person,
+                "person",
+            ),
+            (
+                EntityKey::Comment(CommentId::from_ulid(u)),
+                EntityKind::Comment,
+                "comment",
+            ),
+        ];
+        for (key, kind, word) in keys {
+            assert_eq!(key.kind(), kind);
+            assert_eq!(
+                key.to_string(),
+                format!("{word} 00000000000000000000000001")
+            );
+            let json = serde_json::to_value(key).unwrap();
+            assert_eq!(json["kind"], word);
+        }
+    }
+}
