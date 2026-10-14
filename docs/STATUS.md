@@ -19,7 +19,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Details, Vorlagen, Personen) | **fertig**, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
 | 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
-| 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **umgesetzt**, PR offen | – |
+| 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **umgesetzt**, Review + Nachreview, PR offen | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
