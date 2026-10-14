@@ -199,13 +199,22 @@ impl WebHost {
         });
         let live = Rc::clone(&self.live);
         let ctx = self.ctx.clone();
+        // After this many failed questions the browser will not tell: every other tab then
+        // counts as closed (as without Web Locks), so copies of closed tabs are still offered.
+        let failures = Rc::new(Cell::new(0u8));
         let ask = Closure::<dyn FnMut()>::new(move || {
             let live = Rc::clone(&live);
             let ctx = ctx.clone();
             let locks = locks.clone();
+            let failures = Rc::clone(&failures);
             wasm_bindgen_futures::spawn_local(async move {
-                let Some(tabs) = open_tabs(&locks).await else {
-                    return;
+                let tabs = match open_tabs(&locks).await {
+                    Some(tabs) => tabs,
+                    None if failures.get() >= 2 => Vec::new(),
+                    None => {
+                        failures.set(failures.get().saturating_add(1));
+                        return;
+                    }
                 };
                 let mut known = live.borrow_mut();
                 if known.0.as_ref() != Some(&tabs) {
