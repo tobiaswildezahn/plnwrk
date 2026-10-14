@@ -1,6 +1,7 @@
 # plnwrk – Agenten-Einstieg
 
-**Zuerst lesen: [docs/PLAN.md](docs/PLAN.md).** Es ist das verbindliche Steuerdokument
+**Zuerst lesen: [docs/STATUS.md](docs/STATUS.md)** (aktueller Stand, offene Punkte, nächste
+Schritte), **dann [docs/PLAN.md](docs/PLAN.md).** Es ist das verbindliche Steuerdokument
 (Architektur, Regeln, Phasen, Entscheidungsprotokoll). Nichts bauen, was dort nicht vorgesehen
 ist; Abweichungen dort in Abschnitt 9 eintragen.
 
