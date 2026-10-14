@@ -298,7 +298,8 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     .layout_no_wrap(name.clone(), font, egui::Color32::PLACEHOLDER)
                     .size()
                     .x
-                    + 40.0;
+                    + 2.0 * ui.spacing().item_spacing.x
+                    + 3.0 * ui.spacing().interact_size.y;
                 let size = egui::vec2(width, ui.spacing().interact_size.y);
                 let layout = egui::Layout::left_to_right(egui::Align::Center);
                 ui.allocate_ui_with_layout(size, layout, |ui| {

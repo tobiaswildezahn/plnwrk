@@ -227,11 +227,35 @@ impl PlnwrkApp {
                 || self.project_pending().is_some())
     }
 
-    /// A project form with typed changes: the project and the form.
+    /// A project form with typed changes: the project and the form, brought up to date with
+    /// the stored project first (an undo while the form was out of sight must not count).
     fn project_pending(&self) -> Option<(ProjectId, state::ProjectForm)> {
         let (source, form) = self.state.forms.project.as_ref()?;
         let project = self.doc.as_ref()?.session.workspace().project(source.id)?;
-        form.is_pending(project).then(|| (project.id, form.clone()))
+        let mut form = form.clone();
+        form.rebase(source, project);
+        form.is_pending(project).then(|| (project.id, form))
+    }
+
+    /// Brings an open project form up to date with the stored project (undo, archive …) –
+    /// also while another view is shown: untouched fields follow, typed ones stay. A form of
+    /// a project that is gone is closed.
+    fn sync_project_form(&mut self) {
+        let Some((source, form)) = &mut self.state.forms.project else {
+            return;
+        };
+        match self
+            .doc
+            .as_ref()
+            .and_then(|d| d.session.workspace().project(source.id))
+        {
+            Some(project) if project != source => {
+                form.rebase(source, project);
+                *source = project.clone();
+            }
+            Some(_) => {}
+            None => self.state.forms.project = None,
+        }
     }
 
     /// A title typed in the list and not taken yet: the task and the new title.
@@ -247,6 +271,9 @@ impl PlnwrkApp {
     /// to the stored value and named in a message, so saving and closing always work.
     /// Returns the warning about what was put back, if anything.
     fn flush_draft(&mut self) -> Option<String> {
+        // What could not be taken, named in one message at the end (a later success must not
+        // hide an earlier refusal).
+        let mut refused: Vec<String> = Vec::new();
         // A title being renamed in the list counts like any typed text.
         if let Some((id, title)) = self.inline_pending() {
             self.run(
@@ -255,10 +282,12 @@ impl PlnwrkApp {
                 Then::Nothing,
                 Some(Clear::Inline),
             );
+            if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
+                refused.push(format!("{} {}", text::t().not_taken, message.text));
+            }
         }
         self.state.forms.inline = None;
         // A half-edited project form counts too: taken like "Übernehmen", or put back and named.
-        let mut project_warning = None;
         if let Some((id, form)) = self.project_pending() {
             match form.update_params(id) {
                 Ok(params) => {
@@ -269,16 +298,17 @@ impl PlnwrkApp {
                         Some(Clear::ProjectEdit),
                     );
                     if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
-                        project_warning = Some(format!("{} {}", text::t().not_taken, message.text));
+                        refused.push(format!("{} {}", text::t().not_taken, message.text));
                         self.state.forms.project = None;
                     }
                 }
                 Err(reason) => {
-                    project_warning = Some(format!("{} {reason}", text::t().not_taken));
+                    refused.push(format!("{} {reason}", text::t().not_taken));
                     self.state.forms.project = None;
                 }
             }
         }
+        let project_warning = (!refused.is_empty()).then(|| refused.join(" · "));
         if let Some(text) = &project_warning {
             self.state.message = Some(Message::error(text.clone()));
         }
@@ -422,6 +452,7 @@ impl PlnwrkApp {
 
     /// Drops the selection or view of things that no longer exist (deleted, undone).
     fn forget_vanished(&mut self) {
+        self.sync_project_form();
         let Some(doc) = &self.doc else { return };
         let ws = doc.session.workspace();
         if let Some(id) = self.state.selected
@@ -502,6 +533,9 @@ impl PlnwrkApp {
                 if let Some(draft) = &mut self.state.forms.task {
                     let source = draft.source.clone();
                     draft.rebase(&source);
+                }
+                if let Some((source, form)) = &mut self.state.forms.project {
+                    form.rebase(source, source);
                 }
             }
             Intent::Theme(theme) => self.state.theme = theme,

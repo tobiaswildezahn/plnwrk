@@ -2300,3 +2300,67 @@ fn the_palette_shows_a_limited_number_of_results_and_skips_archived_projects() {
         "archived: its tasks are not offered"
     );
 }
+
+#[test]
+fn an_untouched_project_form_on_another_view_does_not_undo_an_undo() {
+    let mut harness = with_project("Umzug");
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().reference, "AZ 1", false);
+    click(&mut harness, text::t().apply);
+    open_project_form(&mut harness);
+    click(&mut harness, text::t().overview);
+    assert!(
+        harness.state().state.forms.project.is_some(),
+        "still open, out of sight"
+    );
+    let reference =
+        |h: &Harness<'_, PlnwrkApp>| projects(h.state()).first().unwrap().reference.clone();
+    // Undone without a frame in between (e.g. closing right after): nothing typed in the form,
+    // so it is not unsaved work, and no flush writes it back.
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    assert_eq!(reference(&harness), None, "undone");
+    assert!(harness.state().project_pending().is_none());
+    harness.state_mut().close_requested();
+    assert_eq!(reference(&harness), None, "the undo stays");
+    // And after frames, on another view.
+    harness.run();
+    click(&mut harness, text::t().templates);
+    harness.state_mut().close_requested();
+    assert_eq!(reference(&harness), None);
+}
+
+#[test]
+fn a_refused_rename_is_named_even_when_more_is_taken_after_it() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::t().new_task_hint, "Bericht", true);
+    let task = task_named(harness.state(), "Bericht").unwrap().id;
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().title, "Umzug NEU", false);
+    // A title the data rules refuse (control character), typed in the list, still in its field.
+    harness.state_mut().state.forms.inline = Some((task, "Be\u{7}richt".to_owned()));
+    harness.state_mut().close_requested();
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(message.error, "{message:?}");
+    assert!(message.text.starts_with(text::t().not_taken), "{message:?}");
+    assert!(
+        projects(harness.state())
+            .iter()
+            .any(|p| p.title == "Umzug NEU")
+    );
+}
+
+#[test]
+fn project_form_dates_follow_a_language_switch() {
+    let mut harness = with_project("Umzug");
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().due, "01.12.2026", false);
+    click(&mut harness, text::t().apply);
+    open_project_form(&mut harness);
+    to_english(&mut harness);
+    assert_eq!(
+        harness.state().state.forms.project.as_ref().unwrap().1.due,
+        "2026-12-01"
+    );
+}
