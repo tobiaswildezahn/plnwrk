@@ -58,30 +58,53 @@ impl Calendar {
 
     /// The public holidays of `year`, each once, in order.
     pub fn holidays(&self, year: i16) -> Vec<Date> {
+        let (days, n) = self.holiday_days(year);
+        days.get(..n).map_or_else(Vec::new, <[Date]>::to_vec)
+    }
+
+    /// The public holidays of `year`, each once, in order: the first `n` of the array. Without
+    /// allocating, as counting working days asks for every year in a range.
+    fn holiday_days(&self, year: i16) -> ([Date; 10], usize) {
+        let mut days = [Date::MIN; 10];
+        let mut n = 0;
+        let mut add = |day: Date| {
+            if let Some(slot) = days.get_mut(n) {
+                *slot = day;
+                n += 1;
+            }
+        };
         match self.region {
             Region::Hamburg => {
-                let mut days: Vec<Date> = [(1, 1), (5, 1), (10, 3), (12, 25), (12, 26)]
+                [(1, 1), (5, 1), (10, 3), (12, 25), (12, 26)]
                     .into_iter()
                     .chain((year >= 2017).then_some((10, 31)))
                     .filter_map(|(month, day)| Date::new(year, month, day).ok())
-                    .collect();
+                    .for_each(&mut add);
                 if let Some(easter) = easter(year) {
-                    days.extend(
-                        [-2, 1, 39, 50]
-                            .into_iter()
-                            .map(|offset| plus(easter, offset)),
-                    );
+                    [-2, 1, 39, 50]
+                        .into_iter()
+                        .map(|offset| plus(easter, offset))
+                        .for_each(&mut add);
                 }
-                days.sort();
-                days.dedup();
-                days
             }
         }
+        let found = days.get_mut(..n).unwrap_or_default();
+        found.sort_unstable();
+        // Twice the same day (Ascension on 1 May): kept once.
+        let mut unique = 0;
+        for i in 0..found.len() {
+            if unique == 0 || found.get(unique - 1) != found.get(i) {
+                found.swap(unique, i);
+                unique += 1;
+            }
+        }
+        (days, unique)
     }
 
     /// Whether `date` is a public holiday.
     pub fn is_holiday(&self, date: Date) -> bool {
-        self.holidays(date.year()).contains(&date)
+        let (days, n) = self.holiday_days(date.year());
+        days.get(..n).is_some_and(|days| days.contains(&date))
     }
 
     /// Whether people work on `date`.
@@ -228,7 +251,8 @@ impl Calendar {
             day = next;
         }
         for year in start.year()..=end.year() {
-            for holiday in self.holidays(year) {
+            let (days, found) = self.holiday_days(year);
+            for &holiday in days.get(..found).unwrap_or_default() {
                 if holiday >= start && holiday <= end && weekday(holiday) {
                     n = n.saturating_sub(1);
                 }
@@ -287,6 +311,9 @@ mod tests {
         for ordinary in ["2026-04-02", "2026-06-04", "2026-11-01", "2026-12-24"] {
             assert!(!hh.is_holiday(d(ordinary)), "{ordinary}");
         }
+        // 2008: Ascension on 1 May, counted once (no Reformation Day yet): 8 days.
+        assert_eq!(hh.holidays(2008).len(), 8);
+        assert_eq!(hh.count(d("2008-05-01"), d("2008-05-01")), 0);
         assert!(
             !hh.is_holiday(d("2016-10-31")),
             "Reformation Day only since 2017"
@@ -344,7 +371,8 @@ mod tests {
         assert_eq!(hh.between(d("2026-10-14"), far), 1_500_000);
         assert_eq!(hh.add(far, -1_500_000), d("2026-10-14"));
         assert!(
-            start.elapsed() < std::time::Duration::from_secs(2),
+            // Day by day this takes minutes; the bound leaves room for slow, instrumented runs.
+            start.elapsed() < std::time::Duration::from_secs(20),
             "{:?}",
             start.elapsed()
         );
