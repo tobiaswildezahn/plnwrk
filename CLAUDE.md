@@ -30,6 +30,8 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   (`xtask/src/layers.rs`); verbotene Aufrufe stehen in `crates/{core,engine}/clippy.toml`.
 - Absturz-Lints sind `forbid`: `#[allow]` hilft nicht. Lösung ist immer echte Fehlerbehandlung.
 - Jedes `#[allow]`/`#[expect]` braucht `reason = "…"`.
+- Integrationstests (`crates/*/tests/*.rs`): Inhalt in `#[cfg(test)] mod … { }` packen, sonst
+  gelten Hilfsfunktionen für Clippy als Produktionscode (`unwrap`/`panic!` verboten).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar (siehe `crates/ui`).
 - egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),

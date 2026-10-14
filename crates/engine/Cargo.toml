@@ -9,7 +9,16 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+jiff.workspace = true
 plnwrk-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ulid.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true
 
 [lints]
 workspace = true
