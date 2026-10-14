@@ -447,7 +447,12 @@ fn history(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId) {
                         format!("{} {}", text::t().changed, fields.join(", "))
                     }
                 };
-                ui.label(RichText::new(format!("{when}{who}")).small().weak());
+                let by = if entry.origin == plnwrk_engine::Origin::Assistant {
+                    format!(" · {}", text::t().by_ai)
+                } else {
+                    String::new()
+                };
+                ui.label(RichText::new(format!("{when}{who}{by}")).small().weak());
                 ui.label(what);
             }
         });

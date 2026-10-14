@@ -519,6 +519,22 @@ pub fn lag(name: &str, value: &Value) -> Result<i32, CommandError> {
         .and_then(|n| i32::try_from(n).map_err(|_| CommandError::bad(name, "out of range")))
 }
 
+/// Whether command parameters ask for VS-NfD or higher anywhere (a `classification` field).
+/// Places that must never hold VS-NfD (the browser, the MCP server) refuse such a command
+/// **before** running it: undone afterwards, it would stay in the history.
+pub fn asks_for_classified(params: &Value) -> bool {
+    match params {
+        Value::Object(fields) => fields.iter().any(|(name, value)| {
+            (name == "classification"
+                && serde_json::from_value::<plnwrk_core::Classification>(value.clone())
+                    .is_ok_and(|c| c >= plnwrk_core::Classification::VsNfd))
+                || asks_for_classified(value)
+        }),
+        Value::Array(items) => items.iter().any(asks_for_classified),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,5 +677,20 @@ mod tests {
             schema["properties"]["due"]["type"],
             json!(["string", "null"])
         );
+    }
+
+    #[test]
+    fn classified_parameters_are_found_anywhere() {
+        assert!(asks_for_classified(&json!({"classification": "vs_nfd"})));
+        assert!(asks_for_classified(
+            &json!({"items": [{"title": "x"}, {"classification": "vs_nfd"}]})
+        ));
+        assert!(asks_for_classified(
+            &json!({"a": {"b": {"classification": "vs_nfd"}}})
+        ));
+        assert!(!asks_for_classified(&json!({"classification": "open"})));
+        assert!(!asks_for_classified(&json!({"title": "vs_nfd"})));
+        assert!(!asks_for_classified(&json!({"classification": "VS-NfD"})));
+        assert!(!asks_for_classified(&json!(null)));
     }
 }

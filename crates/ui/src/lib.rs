@@ -41,20 +41,6 @@ fn browser_may_hold(workspace: &plnwrk_core::Workspace) -> bool {
     workspace.highest_classification() < Classification::VsNfd
 }
 
-/// Whether command parameters ask for VS-NfD or higher anywhere (a `classification` field).
-fn asks_for_classified(params: &Value) -> bool {
-    match params {
-        Value::Object(fields) => fields.iter().any(|(name, value)| {
-            (name == "classification"
-                && serde_json::from_value::<Classification>(value.clone())
-                    .is_ok_and(|c| c >= Classification::VsNfd))
-                || asks_for_classified(value)
-        }),
-        Value::Array(items) => items.iter().any(asks_for_classified),
-        _ => false,
-    }
-}
-
 /// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
 /// `/private/var` on macOS).
 fn same_place(a: &std::path::Path, b: &std::path::Path) -> bool {
@@ -764,7 +750,7 @@ impl PlnwrkApp {
         };
         // Decided before running: a refused change must not even reach the history (undo
         // would leave it there, and the file would count as VS-NfD).
-        if self.state.browser && asks_for_classified(params) {
+        if self.state.browser && plnwrk_engine::params::asks_for_classified(params) {
             self.state.message = Some(Message::error(text::t().vs_blocked));
             return false;
         }
@@ -821,43 +807,23 @@ impl PlnwrkApp {
         if unchanged {
             return true;
         }
-        let plan =
-            plnwrk_schedule::Plan::of(ws, current.project, plnwrk_schedule::Calendar::hamburg());
-        let own = plnwrk_schedule::Move { task, start, due };
-        let mut moves = plan.push(own);
-        if !moves.iter().any(|m| m.task == task) {
-            moves.insert(0, own);
-        }
-        let along = moves.iter().filter(|m| m.task != task).count();
-        if moves.len() > plnwrk_engine::params::MOVES_MAX {
+        let Some(reschedule) = plnwrk_schedule::Reschedule::of(
+            ws,
+            task,
+            start,
+            due,
+            plnwrk_schedule::Calendar::hamburg(),
+        ) else {
+            return false;
+        };
+        let along = reschedule.along();
+        if reschedule.moves.len() > plnwrk_engine::params::MOVES_MAX {
             // Said plainly instead of the command's refusal of its parameters.
             self.state.message = Some(Message::error(text::too_many_moves(along)));
             return false;
         }
-        let list: Vec<Value> = moves
-            .iter()
-            .map(|m| {
-                let mut entry = serde_json::json!({
-                    "task": m.task.to_string(),
-                    "start": dates::param(m.start),
-                    "due": dates::param(m.due),
-                });
-                if m.task == task
-                    && let Some(time) = due_time
-                    && let Some(fields) = entry.as_object_mut()
-                {
-                    let time = time.map_or(Value::Null, |t| Value::from(dates::format_time(t)));
-                    fields.insert("due_time".to_owned(), time);
-                }
-                entry
-            })
-            .collect();
-        let taken = self.run(
-            "task.reschedule",
-            &serde_json::json!({ "moves": list }),
-            Then::Nothing,
-            None,
-        );
+        let params = reschedule.params(due_time);
+        let taken = self.run("task.reschedule", &params, Then::Nothing, None);
         if taken && along > 0 {
             self.state.message = Some(Message::info(text::moved_along(along)));
         }
@@ -1241,27 +1207,6 @@ impl eframe::App for PlnwrkApp {
         }
         storage.set_string(LANGUAGE_KEY, self.state.language.code().to_owned());
         storage.set_string(THEME_KEY, theme_code(self.state.theme).to_owned());
-    }
-}
-
-#[cfg(test)]
-mod guard_tests {
-    use super::asks_for_classified;
-    use serde_json::json;
-
-    #[test]
-    fn classified_parameters_are_found_anywhere() {
-        assert!(asks_for_classified(&json!({"classification": "vs_nfd"})));
-        assert!(asks_for_classified(
-            &json!({"items": [{"title": "x"}, {"classification": "vs_nfd"}]})
-        ));
-        assert!(asks_for_classified(
-            &json!({"a": {"b": {"classification": "vs_nfd"}}})
-        ));
-        assert!(!asks_for_classified(&json!({"classification": "open"})));
-        assert!(!asks_for_classified(&json!({"title": "vs_nfd"})));
-        assert!(!asks_for_classified(&json!({"classification": "VS-NfD"})));
-        assert!(!asks_for_classified(&json!(null)));
     }
 }
 

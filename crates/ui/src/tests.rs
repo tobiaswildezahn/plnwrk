@@ -3166,6 +3166,30 @@ fn waits_for_does_not_offer_what_would_make_a_circle() {
 }
 
 #[test]
+fn changes_by_an_ai_are_marked_in_the_history() {
+    let (mut harness, first, _) = two_dated_tasks();
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "task.update",
+            &serde_json::json!({"task": first.to_string(), "title": "Ausschreibung (KI)"}),
+            plnwrk_engine::Origin::Assistant,
+        )
+        .unwrap();
+    // Tall enough that the history is in view.
+    harness.set_size(egui::vec2(1200.0, 1600.0));
+    harness.run();
+    click(&mut harness, "Ausschreibung (KI)");
+    click(&mut harness, text::t().history);
+    let marked = harness.query_all_by_label_contains(text::t().by_ai).count();
+    assert_eq!(marked, 1, "only the change by the AI");
+}
+
+#[test]
 fn a_dependency_is_removed_in_the_detail_panel() {
     let (mut harness, first, second) = two_dated_tasks();
     let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});

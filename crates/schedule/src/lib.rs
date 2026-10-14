@@ -4,6 +4,8 @@
 
 mod calendar;
 mod plan;
+mod reschedule;
 
 pub use calendar::{Calendar, easter};
 pub use plan::{Analysis, Item, Link, Move, Plan, Warning};
+pub use reschedule::Reschedule;
