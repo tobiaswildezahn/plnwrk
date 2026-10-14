@@ -2567,43 +2567,72 @@ fn the_browser_refuses_vs_nfd_before_asking_for_a_passphrase() {
 }
 
 #[test]
-fn the_browser_takes_back_what_would_make_the_work_vs_nfd() {
-    let (mut harness, _browser) = in_browser();
+fn the_browser_refuses_vs_nfd_before_it_reaches_the_history() {
+    let (mut harness, browser) = in_browser();
     click(&mut harness, text::t().new_file);
     click(&mut harness, text::t().new_project);
     type_into(&mut harness, text::t().title, "Lage", false);
     click(&mut harness, text::t().create);
     let id = projects(harness.state()).first().unwrap().id.to_string();
-    harness.state_mut().apply(crate::Intent::run(
-        "project.update",
-        serde_json::json!({"project": id, "classification": "vs_nfd"}),
-    ));
-    let app = harness.state();
+    let log = |h: &Harness<'_, PlnwrkApp>| h.state().doc().unwrap().log_len();
+    let before = log(&harness);
+    for (command, params) in [
+        (
+            "project.update",
+            serde_json::json!({"project": id, "classification": "vs_nfd"}),
+        ),
+        (
+            "project.create",
+            serde_json::json!({"title": "STRENG", "classification": "vs_nfd"}),
+        ),
+    ] {
+        harness
+            .state_mut()
+            .apply(crate::Intent::run(command, params));
+        assert_eq!(
+            harness.state().state.message.clone().unwrap().text,
+            text::t().vs_blocked
+        );
+        assert_eq!(log(&harness), before, "{command}: not even in the history");
+    }
+    // Nothing tainted: saving and the recovery copy still work.
+    harness.run();
+    assert!(!stored_copies(&browser).is_empty());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    let download = browser.0.borrow().downloads.last().cloned().unwrap();
+    let saved = plnwrk_store::peek(&download.bytes).unwrap();
+    assert_eq!(saved.classification, plnwrk_core::Classification::Open);
+}
+
+#[test]
+fn a_file_that_ever_held_vs_nfd_never_leaves_the_browser() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().new_file);
+    // A way the parameter check does not foresee: straight into the session.
+    {
+        let app = harness.state_mut();
+        let doc = app.doc.as_mut().unwrap();
+        doc.session
+            .run(
+                "project.create",
+                &serde_json::json!({"title": "STRENG", "classification": "vs_nfd"}),
+                plnwrk_engine::Origin::User,
+            )
+            .unwrap();
+        doc.session
+            .run("undo", &serde_json::json!({}), plnwrk_engine::Origin::User)
+            .unwrap();
+    }
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
     assert!(
-        app.doc()
-            .unwrap()
-            .session
-            .workspace()
-            .highest_classification()
-            < plnwrk_core::Classification::VsNfd
+        browser.0.borrow().downloads.is_empty(),
+        "not even encrypted"
     );
     assert_eq!(
-        app.state.message.clone().unwrap().text,
+        harness.state().state.message.clone().unwrap().text,
         text::t().vs_blocked
-    );
-    // Redo brings it back – and it is taken back again.
-    harness
-        .state_mut()
-        .apply(crate::Intent::run("redo", serde_json::json!({})));
-    assert!(
-        harness
-            .state()
-            .doc()
-            .unwrap()
-            .session
-            .workspace()
-            .highest_classification()
-            < plnwrk_core::Classification::VsNfd
     );
 }
 

@@ -41,6 +41,20 @@ fn browser_may_hold(workspace: &plnwrk_core::Workspace) -> bool {
     workspace.highest_classification() < Classification::VsNfd
 }
 
+/// Whether command parameters ask for VS-NfD or higher anywhere (a `classification` field).
+fn asks_for_classified(params: &Value) -> bool {
+    match params {
+        Value::Object(fields) => fields.iter().any(|(name, value)| {
+            (name == "classification"
+                && serde_json::from_value::<Classification>(value.clone())
+                    .is_ok_and(|c| c >= Classification::VsNfd))
+                || asks_for_classified(value)
+        }),
+        Value::Array(items) => items.iter().any(asks_for_classified),
+        _ => false,
+    }
+}
+
 /// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
 /// `/private/var` on macOS).
 fn same_place(a: &std::path::Path, b: &std::path::Path) -> bool {
@@ -659,9 +673,16 @@ impl PlnwrkApp {
 
     fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) {
         let Some(doc) = &mut self.doc else { return };
+        // Decided before running: a refused change must not even reach the history (undo
+        // would leave it there, and the file would count as VS-NfD).
+        if self.state.browser && asks_for_classified(params) {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return;
+        }
         match doc.session.run(command, params, Origin::User) {
             Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
-                // Taken back at once: VS-NfD content never stays in the browser.
+                // Last line for a way not foreseen above: taken back at once, and the file can
+                // no longer leave the browser (see `download`).
                 let _ = doc
                     .session
                     .run("undo", &serde_json::json!({}), Origin::User);
@@ -921,6 +942,11 @@ impl PlnwrkApp {
         let Some(doc) = &mut self.doc else {
             return false;
         };
+        // Content and history: nothing that was ever VS-NfD leaves the browser as a file.
+        if plnwrk_store::classification_of(&doc.snapshot().0) >= Classification::VsNfd {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return false;
+        }
         let name = format!("{}.plnwrk", doc.name());
         let result = doc
             .to_bytes()
