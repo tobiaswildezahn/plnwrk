@@ -92,13 +92,17 @@ impl ParamSpec {
     /// The JSON schema of the value.
     pub fn schema(&self) -> Value {
         let mut schema = match self.kind {
-            ParamKind::Title => json!({"type": "string", "maxLength": text::TITLE_MAX}),
+            ParamKind::Title => {
+                json!({"type": "string", "minLength": 1, "maxLength": text::TITLE_MAX})
+            }
             ParamKind::LongText => json!({"type": "string", "maxLength": text::BODY_MAX}),
-            ParamKind::Label => json!({"type": "string", "maxLength": text::LABEL_MAX}),
+            ParamKind::Label => {
+                json!({"type": "string", "minLength": 1, "maxLength": text::LABEL_MAX})
+            }
             ParamKind::Date => json!({"type": "string", "format": "date"}),
             ParamKind::Id(kind) => json!({
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
                 "x-entity": kind,
             }),
             ParamKind::Choice(names) => json!({"type": "string", "enum": names}),

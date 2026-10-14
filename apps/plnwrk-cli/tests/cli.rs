@@ -31,6 +31,7 @@ mod cli {
     #[test]
     fn searches_commands_and_lists_queries() {
         let (_, value) = run(&["commands", "--search", "milestone"]);
+        assert!(value.as_array().is_some_and(|found| found.len() >= 4));
         assert!(value.as_array().unwrap().iter().all(|c| {
             c["id"].as_str().unwrap().contains("milestone")
                 || c["summary"]

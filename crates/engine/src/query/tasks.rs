@@ -43,9 +43,39 @@ pub struct TaskCard {
     pub classification: Classification,
 }
 
+/// Direct subtasks of every task, built once per query so that cards and progress stay linear
+/// in the number of tasks.
+#[derive(Debug, Default)]
+pub struct TaskIndex<'a> {
+    children: BTreeMap<TaskId, Vec<&'a Task>>,
+}
+
+impl<'a> TaskIndex<'a> {
+    /// Indexes all tasks of the workspace.
+    pub fn new(ws: &'a Workspace) -> Self {
+        let mut children: BTreeMap<TaskId, Vec<&'a Task>> = BTreeMap::new();
+        for task in ws.tasks() {
+            if let Some(parent) = task.parent {
+                children.entry(parent).or_default().push(task);
+            }
+        }
+        Self { children }
+    }
+
+    /// The direct subtasks of a task.
+    pub fn children(&self, id: TaskId) -> &[&'a Task] {
+        self.children.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether a task has no subtasks.
+    pub fn is_leaf(&self, id: TaskId) -> bool {
+        self.children(id).is_empty()
+    }
+}
+
 /// Builds the card of a task.
-pub fn card(ws: &Workspace, task: &Task, today: Date) -> TaskCard {
-    let children: Vec<&Task> = ws.children(task.id).collect();
+pub fn card(ws: &Workspace, index: &TaskIndex<'_>, task: &Task, today: Date) -> TaskCard {
+    let children = index.children(task.id);
     TaskCard {
         id: task.id,
         project: task.project,
@@ -96,7 +126,8 @@ pub enum TaskGroup {
     Priority,
 }
 
-/// Filter, order and grouping for [`tasks`].
+/// Filter, order and grouping for [`tasks`]. Without `project`, tasks of templates and of
+/// archived projects are left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TaskQuery {
     /// Only this project.
@@ -126,9 +157,15 @@ pub struct TaskGroupRows {
     pub tasks: Vec<TaskCard>,
 }
 
-fn matches(task: &Task, query: &TaskQuery) -> bool {
+fn matches(ws: &Workspace, task: &Task, query: &TaskQuery) -> bool {
     let text = query.text.as_ref().map(|t| t.to_lowercase());
-    query.project.is_none_or(|p| task.project == p)
+    let in_scope = match query.project {
+        Some(project) => task.project == project,
+        None => ws
+            .project(task.project)
+            .is_some_and(|p| !p.template && p.status != plnwrk_core::ProjectStatus::Archived),
+    };
+    in_scope
         && (query.status.is_empty() || query.status.contains(&task.status))
         && (query.include_done || !query.status.is_empty() || task.status != TaskStatus::Done)
         && query.assignee.is_none_or(|a| task.assignee == Some(a))
@@ -139,7 +176,7 @@ fn matches(task: &Task, query: &TaskQuery) -> bool {
 fn sort(tasks: &mut [&Task], order: TaskSort) {
     tasks.sort_by(|a, b| {
         let primary = match order {
-            TaskSort::Rank => a.rank.cmp(&b.rank),
+            TaskSort::Rank => a.project.cmp(&b.project).then_with(|| a.rank.cmp(&b.rank)),
             TaskSort::Due => match (a.due, b.due) {
                 (Some(x), Some(y)) => x.cmp(&y),
                 (Some(_), None) => std::cmp::Ordering::Less,
@@ -158,10 +195,13 @@ fn sort(tasks: &mut [&Task], order: TaskSort) {
 
 /// Filtered, sorted and grouped tasks.
 pub fn tasks(ws: &Workspace, query: &TaskQuery, today: Date) -> Vec<TaskGroupRows> {
-    let mut found: Vec<&Task> = ws.tasks().filter(|t| matches(t, query)).collect();
+    let index = TaskIndex::new(ws);
+    let mut found: Vec<&Task> = ws.tasks().filter(|t| matches(ws, t, query)).collect();
     sort(&mut found, query.sort);
     let cards = |list: Vec<&Task>| -> Vec<TaskCard> {
-        list.into_iter().map(|t| card(ws, t, today)).collect()
+        list.into_iter()
+            .map(|t| card(ws, &index, t, today))
+            .collect()
     };
     match query.group {
         None => vec![TaskGroupRows {
@@ -240,6 +280,7 @@ pub struct Board {
 /// The board of a project (all tasks, subtasks included); `None` if it does not exist.
 pub fn board(ws: &Workspace, project: ProjectId, today: Date) -> Option<Board> {
     let title = ws.project(project)?.title.clone();
+    let index = TaskIndex::new(ws);
     let mut all: Vec<&Task> = ws.tasks_of(project).collect();
     sort(&mut all, TaskSort::Rank);
     let columns = TaskStatus::ALL
@@ -249,7 +290,7 @@ pub fn board(ws: &Workspace, project: ProjectId, today: Date) -> Option<Board> {
             tasks: all
                 .iter()
                 .filter(|t| t.status == *status)
-                .map(|t| card(ws, t, today))
+                .map(|t| card(ws, &index, t, today))
                 .collect(),
         })
         .collect();

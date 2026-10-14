@@ -15,8 +15,7 @@ fn add(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         created: tx.now(),
         body: params.req("body", p::body)?,
     };
-    tx.put(Entity::Comment(comment));
-    Ok(())
+    tx.insert(Entity::Comment(comment))
 }
 
 /// `comment.add`

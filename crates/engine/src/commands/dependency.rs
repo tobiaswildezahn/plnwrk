@@ -1,23 +1,22 @@
 //! Dependencies between tasks: add, remove.
 
-use plnwrk_core::{Dependency, DependencyId, Entity, EntityKey, EntityKind};
+use plnwrk_core::{Dependency, DependencyId, DependencyKind, Entity, EntityKey, EntityKind};
 
 use crate::command::{CommandSpec, Runner, always};
 use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
-const KIND: &[&str] = &["finish_to_start", "start_to_start", "finish_to_finish"];
+const KIND: &[&str] = &DependencyKind::NAMES;
 
 fn add(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     let id: DependencyId = tx.new_id();
-    tx.put(Entity::Dependency(Dependency {
+    tx.insert(Entity::Dependency(Dependency {
         id,
         from: params.req("from", p::id)?,
         to: params.req("to", p::id)?,
         kind: params.opt("kind", p::choice)?.unwrap_or_default(),
         lag_days: params.opt("lag_days", p::lag)?.unwrap_or(0),
-    }));
-    Ok(())
+    }))
 }
 
 fn remove(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {

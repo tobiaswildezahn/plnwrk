@@ -17,7 +17,8 @@ pub use overview::{
     effective_progress, milestone_state, overdue, overview, progress, templates,
 };
 pub use tasks::{
-    Board, Column, TaskCard, TaskGroup, TaskGroupRows, TaskQuery, TaskSort, board, card, tasks,
+    Board, Column, TaskCard, TaskGroup, TaskGroupRows, TaskIndex, TaskQuery, TaskSort, board, card,
+    tasks,
 };
 
 use crate::command::search_words;
@@ -149,7 +150,8 @@ fn q_task(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     let today = s.clock().today();
     let id: TaskId = params.req("task", p::id)?;
     let task = ws.task(id).ok_or(not_found(EntityKey::Task(id)))?;
-    let mut subtasks: Vec<&Task> = ws.children(id).collect();
+    let index = TaskIndex::new(ws);
+    let mut subtasks: Vec<&Task> = index.children(id).to_vec();
     subtasks.sort_by(|a, b| a.rank.cmp(&b.rank));
     let link = |dependency: &plnwrk_core::Dependency, other: TaskId| -> Option<Link> {
         Some(Link {
@@ -164,8 +166,11 @@ fn q_task(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     comments.sort_by(|a, b| a.created.cmp(&b.created).then(a.id.cmp(&b.id)));
     json(&TaskDetail {
         task: task.clone(),
-        card: card(ws, task, today),
-        subtasks: subtasks.into_iter().map(|t| card(ws, t, today)).collect(),
+        card: card(ws, &index, task, today),
+        subtasks: subtasks
+            .into_iter()
+            .map(|t| card(ws, &index, t, today))
+            .collect(),
         waits_for: ws
             .dependencies()
             .filter(|d| d.to == id)
@@ -210,12 +215,16 @@ fn q_project(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
         })
         .collect();
     milestones.sort_by(|a, b| a.date.cmp(&b.date).then(a.title.cmp(&b.title)));
+    let index = TaskIndex::new(ws);
     let mut top: Vec<&Task> = ws.tasks_of(id).filter(|t| t.parent.is_none()).collect();
     top.sort_by(|a, b| a.rank.cmp(&b.rank));
     json(&ProjectDetail {
         project: project.clone(),
         milestones,
-        tasks: top.into_iter().map(|t| card(ws, t, today)).collect(),
+        tasks: top
+            .into_iter()
+            .map(|t| card(ws, &index, t, today))
+            .collect(),
         progress: progress(ws, id).ok_or(not_found(EntityKey::Project(id)))?,
     })
 }

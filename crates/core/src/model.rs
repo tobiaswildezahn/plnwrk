@@ -209,6 +209,18 @@ impl Entity {
     }
 }
 
+impl EntityKind {
+    /// Machine names, as in JSON.
+    pub const NAMES: [&'static str; 6] = [
+        "project",
+        "task",
+        "milestone",
+        "dependency",
+        "person",
+        "comment",
+    ];
+}
+
 impl EntityKey {
     /// The type of the entity.
     pub const fn kind(self) -> EntityKind {
@@ -277,6 +289,8 @@ mod tests {
             ),
         ];
         for (key, kind, word) in keys {
+            assert!(EntityKind::NAMES.contains(&word));
+            assert_eq!(serde_json::to_value(kind).unwrap(), word);
             assert_eq!(key.kind(), kind);
             assert_eq!(
                 key.to_string(),

@@ -555,6 +555,7 @@ mod commands {
         let mut h = Harness::new();
         let (template, _) = ska_template(&mut h);
         let template_before = h.ws().tasks_of(template).cloned().collect::<Vec<_>>();
+        let workspace_before = h.ws().clone();
         let created = h.ok(
             "project.instantiate",
             json!({"template": template.to_string(), "title": "SKA 23/999", "start": "2026-11-02", "reference": "23/999"}),
@@ -596,10 +597,14 @@ mod commands {
             h.ws().tasks_of(template).cloned().collect::<Vec<_>>(),
             template_before
         );
-        let count = h.ws().len();
+        for milestone in workspace_before.milestones() {
+            assert_eq!(h.ws().milestone(milestone.id), Some(milestone));
+        }
+        for dependency in workspace_before.dependencies() {
+            assert_eq!(h.ws().dependency(dependency.id), Some(dependency));
+        }
         h.undo();
-        assert!(h.ws().project(case).is_none());
-        assert!(h.ws().len() < count);
+        assert_eq!(h.ws(), &workspace_before);
     }
 
     #[test]
@@ -630,5 +635,140 @@ mod commands {
             json!({"template": normal.to_string(), "title": "x", "start": "2026-11-02"}),
         );
         assert!(is_bad_param(&error, "template"));
+    }
+
+    #[test]
+    fn instantiate_moves_dates_backwards_too() {
+        let mut h = Harness::new();
+        let (template, _) = ska_template(&mut h);
+        let created = h.ok(
+            "project.instantiate",
+            json!({"template": template.to_string(), "title": "Früher", "start": "2025-12-25"}),
+        );
+        let Some(EntityKey::Project(case)) = created.first().copied() else {
+            panic!("{created:?}");
+        };
+        assert_eq!(
+            h.ws().project(case).unwrap().due.unwrap().to_string(),
+            "2026-01-01"
+        );
+        let draft = h
+            .ws()
+            .tasks_of(case)
+            .find(|t| t.title == "Antwort entwerfen")
+            .unwrap();
+        assert_eq!(draft.due.unwrap().to_string(), "2025-12-31");
+    }
+
+    #[test]
+    fn instantiate_refuses_dates_that_leave_the_calendar() {
+        let mut h = Harness::new();
+        let template = h.project(json!({
+            "title": "T", "template": true, "start": "2026-01-01", "due": "9999-12-31"
+        }));
+        h.task(template, "spät", json!({"due": "9999-12-30"}));
+        let error = h.err(
+            "project.instantiate",
+            json!({"template": template.to_string(), "title": "x", "start": "2026-11-02"}),
+        );
+        assert!(is_bad_param(&error, "start"));
+    }
+
+    #[test]
+    fn two_thousand_tasks_in_one_project_keep_short_ranks() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "Groß"}));
+        for n in 0..2_000 {
+            h.task(p, &format!("Aufgabe {n}"), json!({}));
+        }
+        let mut ranks: Vec<_> = h.ws().tasks_of(p).map(|t| t.rank.clone()).collect();
+        assert!(ranks.iter().all(|r| r.as_str().len() <= 4));
+        let count = ranks.len();
+        ranks.sort();
+        ranks.dedup();
+        assert_eq!(ranks.len(), count);
+    }
+
+    #[test]
+    fn a_crowded_gap_is_spread_out_and_one_undo_restores_the_old_order() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let first = h.task(p, "first", json!({}));
+        let mut last = h.task(p, "second", json!({}));
+        // Always insert right after `first`: the gap is used up after about 1 500 inserts, so
+        // the order must be spread out once on the way.
+        for n in 0..1_600 {
+            last = h.task(p, &format!("n{n}"), json!({"after": first.to_string()}));
+        }
+        let max = h
+            .ws()
+            .tasks_of(p)
+            .map(|t| t.rank.as_str().len())
+            .max()
+            .unwrap();
+        assert!(max <= plnwrk_core::rank::RANK_MAX);
+        // The newest task sits right after `first`.
+        let mut order: Vec<_> = h.ws().tasks_of(p).cloned().collect();
+        order.sort_by(|a, b| a.rank.cmp(&b.rank));
+        assert_eq!(order[0].id, first);
+        assert_eq!(order[1].id, last);
+        let before = h.ws().clone();
+        h.ok(
+            "task.create",
+            json!({"project": p.to_string(), "title": "x", "after": first.to_string()}),
+        );
+        h.undo();
+        assert_eq!(h.ws(), &before);
+    }
+
+    #[test]
+    fn create_reports_rank_problems_on_after() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let q = h.project(json!({"title": "Q"}));
+        let x = h.task(q, "x", json!({}));
+        let error = h.err(
+            "task.create",
+            json!({"project": p.to_string(), "title": "a", "after": x.to_string()}),
+        );
+        assert!(is_bad_param(&error, "after"));
+    }
+
+    #[test]
+    fn renaming_a_person_updates_derived_initials_only() {
+        let mut h = Harness::new();
+        let a = h.person("Anna Berg");
+        h.ok(
+            "person.update",
+            json!({"person": a.to_string(), "name": "Anna Clausen"}),
+        );
+        assert_eq!(h.ws().person(a).unwrap().initials, "AC");
+        h.ok(
+            "person.update",
+            json!({"person": a.to_string(), "initials": "ANC"}),
+        );
+        h.ok(
+            "person.update",
+            json!({"person": a.to_string(), "name": "Anna Dorn"}),
+        );
+        assert_eq!(h.ws().person(a).unwrap().initials, "ANC");
+    }
+
+    #[test]
+    fn subtask_classification_below_parent_is_refused() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let a = h.task(p, "geheim", json!({"classification": "vs_nfd"}));
+        let error = h.err(
+            "task.create",
+            json!({"project": p.to_string(), "title": "offen", "parent": a.to_string(), "classification": "open"}),
+        );
+        assert_eq!(rule_of(&error), Some(Rule::Classification));
+        let b = h.task(p, "erbt", json!({"parent": a.to_string()}));
+        let task = h.ws().task(b).unwrap().clone();
+        assert_eq!(
+            h.ws().effective_classification(&task),
+            Classification::VsNfd
+        );
     }
 }

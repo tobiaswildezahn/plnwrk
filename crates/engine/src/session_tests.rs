@@ -259,3 +259,168 @@ fn error_messages_are_readable() {
         "the change would break 1 rule(s): person 00000000000000000000000001: name is not a valid title"
     );
 }
+
+fn person(id: u128, name: &str) -> Entity {
+    Entity::Person(Person {
+        id: PersonId::from_ulid(ulid::Ulid(id)),
+        name: name.into(),
+        email: None,
+        role: None,
+        initials: "X".into(),
+    })
+}
+
+fn write_then_fail(tx: &mut Tx<'_>, _: &Params<'_>) -> Result<(), CommandError> {
+    tx.put(person(900, "neu"));
+    Err(CommandError::bad("x", "fails after writing"))
+}
+
+fn put_twice_then_fail(tx: &mut Tx<'_>, _: &Params<'_>) -> Result<(), CommandError> {
+    // Overwrites an existing person twice: rollback must restore the original, not the
+    // intermediate value.
+    let existing = tx.ws().people().next().map(|p| p.id.ulid().0).unwrap_or(0);
+    tx.put(person(existing, "zwischen"));
+    tx.put(person(existing, "danach"));
+    Err(CommandError::bad("x", "fails after two writes"))
+}
+
+fn put_then_remove_then_fail(tx: &mut Tx<'_>, _: &Params<'_>) -> Result<(), CommandError> {
+    let existing = tx.ws().people().next().map(|p| p.id.ulid().0).unwrap_or(0);
+    tx.put(person(existing, "geändert"));
+    tx.remove(EntityKey::Person(PersonId::from_ulid(ulid::Ulid(existing))))?;
+    tx.put(person(901, "neu"));
+    Err(CommandError::bad("x", "fails after put, remove, put"))
+}
+
+fn insert_existing(tx: &mut Tx<'_>, _: &Params<'_>) -> Result<(), CommandError> {
+    let existing = tx.ws().people().next().map(|p| p.id.ulid().0).unwrap_or(0);
+    tx.insert(person(existing, "Doppel"))
+}
+
+fn spec(run: crate::command::EditFn) -> CommandSpec {
+    CommandSpec {
+        id: "test.edit",
+        summary: "Test.",
+        params: &[],
+        enabled: always,
+        run: Runner::Edit(run),
+    }
+}
+
+#[test]
+fn an_error_after_writes_rolls_every_write_back_in_reverse() {
+    for run in [
+        write_then_fail,
+        put_twice_then_fail,
+        put_then_remove_then_fail,
+    ] {
+        let mut s = session();
+        create_person(&mut s, "Anna");
+        create_person(&mut s, "Ben");
+        let before = snapshot(&s);
+        let undo_before = (s.can_undo(), s.can_redo());
+        assert!(s.run_spec(&spec(run), &json!({}), Origin::User).is_err());
+        assert_eq!(snapshot(&s), before);
+        assert_eq!((s.can_undo(), s.can_redo()), undo_before);
+    }
+}
+
+#[test]
+fn insert_never_overwrites() {
+    let mut s = session();
+    create_person(&mut s, "Anna");
+    let before = snapshot(&s);
+    let error = s
+        .run_spec(&spec(insert_existing), &json!({}), Origin::User)
+        .unwrap_err();
+    assert!(matches!(error, CommandError::Conflict { .. }));
+    assert_eq!(snapshot(&s), before);
+}
+
+#[test]
+fn undo_refuses_when_the_data_was_changed_behind_its_back() {
+    let mut s = session();
+    let id = create_person(&mut s, "Anna");
+    // Simulate an outside edit (e.g. a damaged file): the person no longer looks as logged.
+    if let Some(Entity::Person(mut p)) = s.workspace().get(EntityKey::Person(id)) {
+        p.name = "Außen geändert".into();
+        s.workspace_mut().put(Entity::Person(p));
+    }
+    let before = snapshot(&s);
+    let error = s.run("undo", &json!({}), Origin::User).unwrap_err();
+    assert!(matches!(error, CommandError::Conflict { .. }));
+    assert_eq!(snapshot(&s), before);
+    assert!(s.can_undo());
+}
+
+#[test]
+fn undo_refuses_when_the_result_would_break_rules() {
+    let mut s = session();
+    let id = create_person(&mut s, "Anna");
+    // Outside edit: something now refers to the person. Undoing its creation would leave a
+    // dangling owner, so undo must refuse and restore everything.
+    s.workspace_mut().put(Entity::Project(plnwrk_core::Project {
+        id: plnwrk_core::ProjectId::from_ulid(ulid::Ulid(5000)),
+        title: "P".into(),
+        description: String::new(),
+        reference: None,
+        kind: None,
+        owner: Some(id),
+        start: None,
+        due: None,
+        status: plnwrk_core::ProjectStatus::Active,
+        template: false,
+        classification: plnwrk_core::Classification::Open,
+        created: jiff::Timestamp::UNIX_EPOCH,
+    }));
+    let before = snapshot(&s);
+    let error = s.run("undo", &json!({}), Origin::User).unwrap_err();
+    assert!(matches!(error, CommandError::Invalid { .. }));
+    assert_eq!(snapshot(&s), before);
+}
+
+#[test]
+fn redo_refuses_when_the_data_was_changed_behind_its_back() {
+    let mut s = session();
+    let id = create_person(&mut s, "Anna");
+    s.run("undo", &json!({}), Origin::User).unwrap();
+    // Outside edit: the person reappears with other data, so redo's "before" does not match.
+    s.workspace_mut().put(Entity::Person(Person {
+        id,
+        name: "Fremd".into(),
+        email: None,
+        role: None,
+        initials: "F".into(),
+    }));
+    let before = snapshot(&s);
+    let error = s.run("redo", &json!({}), Origin::User).unwrap_err();
+    assert!(matches!(error, CommandError::Conflict { .. }));
+    assert_eq!(snapshot(&s), before);
+    assert!(s.can_redo());
+}
+
+fn create_then_rename(tx: &mut Tx<'_>, _: &Params<'_>) -> Result<(), CommandError> {
+    tx.put(person(900, "erst"));
+    tx.put(person(900, "dann"));
+    let existing = tx.ws().people().next().map(|p| p.id.ulid().0).unwrap_or(0);
+    tx.put(person(existing, "einmal"));
+    tx.put(person(existing, "zweimal"));
+    Ok(())
+}
+
+#[test]
+fn undo_reverts_repeated_writes_to_one_entity_in_reverse_order() {
+    let mut s = session();
+    create_person(&mut s, "Anna");
+    let before = s.workspace().clone();
+    s.run_spec(&spec(create_then_rename), &json!({}), Origin::User)
+        .unwrap();
+    s.run("undo", &json!({}), Origin::User).unwrap();
+    assert_eq!(s.workspace(), &before);
+    s.run("redo", &json!({}), Origin::User).unwrap();
+    let after = s
+        .workspace()
+        .person(PersonId::from_ulid(ulid::Ulid(900)))
+        .unwrap();
+    assert_eq!(after.name, "dann");
+}

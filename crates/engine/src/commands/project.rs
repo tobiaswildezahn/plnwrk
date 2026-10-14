@@ -5,16 +5,16 @@ use std::collections::BTreeMap;
 
 use jiff::civil::Date;
 use plnwrk_core::{
-    Dependency, Entity, EntityKey, EntityKind, Milestone, MilestoneStatus, Project, ProjectId,
-    ProjectStatus, Task, TaskId, TaskStatus,
+    Classification, Dependency, Entity, EntityKey, EntityKind, Milestone, MilestoneStatus, Project,
+    ProjectId, ProjectStatus, Task, TaskId, TaskStatus,
 };
 
 use crate::command::{CommandSpec, Runner, always};
 use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
-pub(crate) const PROJECT_STATUS: &[&str] = &["draft", "active", "on_hold", "done", "archived"];
-pub(crate) const CLASSIFICATION: &[&str] = &["open", "vs_nfd"];
+pub(crate) const PROJECT_STATUS: &[&str] = &ProjectStatus::NAMES;
+pub(crate) const CLASSIFICATION: &[&str] = &Classification::NAMES;
 
 pub(crate) fn load(tx: &Tx<'_>, id: ProjectId) -> Result<Project, CommandError> {
     tx.ws().project(id).cloned().ok_or(CommandError::NotFound {
@@ -38,8 +38,7 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         classification: params.opt("classification", p::choice)?.unwrap_or_default(),
         created: tx.now(),
     };
-    tx.put(Entity::Project(project));
-    Ok(())
+    tx.insert(Entity::Project(project))
 }
 
 fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
@@ -79,10 +78,20 @@ fn archive(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Moves `date` by the distance between two anchors; `None` if the result is out of range.
-fn shift(date: Date, from: Date, to: Date) -> Option<Date> {
-    let days = from.until(to).ok()?.get_days();
-    date.checked_add(jiff::Span::new().days(days)).ok()
+/// Moves `date` by the distance between two anchors.
+fn shift(date: Date, from: Date, to: Date) -> Result<Date, CommandError> {
+    from.until(to)
+        .ok()
+        .and_then(|span| {
+            date.checked_add(jiff::Span::new().days(span.get_days()))
+                .ok()
+        })
+        .ok_or_else(|| {
+            CommandError::bad(
+                "start",
+                format!("moving the template to this start puts {date} out of the calendar"),
+            )
+        })
 }
 
 fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
@@ -91,9 +100,12 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         return Err(CommandError::bad("template", "is not a template"));
     }
     let start: Date = params.req("start", p::date)?;
-    let moved = |date: Option<Date>| -> Option<Date> {
-        let anchor = template.start?;
-        shift(date?, anchor, start)
+    // With an anchor, every date moves along; without one, task dates are not taken over.
+    let moved = |date: Option<Date>| -> Result<Option<Date>, CommandError> {
+        match (date, template.start) {
+            (Some(date), Some(anchor)) => shift(date, anchor, start).map(Some),
+            _ => Ok(None),
+        }
     };
     let id: ProjectId = tx.new_id();
     let project = Project {
@@ -106,14 +118,14 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         start: Some(start),
         due: match params.opt("due", p::date)? {
             Some(due) => Some(due),
-            None => moved(template.due),
+            None => moved(template.due)?,
         },
         status: ProjectStatus::Active,
         template: false,
         classification: template.classification,
         created: tx.now(),
     };
-    tx.put(Entity::Project(project));
+    tx.insert(Entity::Project(project))?;
 
     let source: Vec<Task> = tx.ws().tasks_of(template.id).cloned().collect();
     let mut new_ids: BTreeMap<TaskId, TaskId> = BTreeMap::new();
@@ -125,17 +137,19 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         let Some(&new) = new_ids.get(&task.id) else {
             continue;
         };
-        tx.put(Entity::Task(Task {
+        let start = moved(task.start)?;
+        let due = moved(task.due)?;
+        tx.insert(Entity::Task(Task {
             id: new,
             project: id,
             parent: task.parent.and_then(|old| new_ids.get(&old).copied()),
             status: TaskStatus::Todo,
             progress: 0,
-            start: moved(task.start),
-            due: moved(task.due),
+            start,
+            due,
             created: now,
             ..task
-        }));
+        }))?;
     }
     let milestones: Vec<Milestone> = tx
         .ws()
@@ -145,13 +159,14 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         .collect();
     for milestone in milestones {
         let new = tx.new_id();
-        tx.put(Entity::Milestone(Milestone {
+        let date = moved(Some(milestone.date))?.unwrap_or(start);
+        tx.insert(Entity::Milestone(Milestone {
             id: new,
             project: id,
-            date: moved(Some(milestone.date)).unwrap_or(start),
+            date,
             status: MilestoneStatus::Open,
             ..milestone
-        }));
+        }))?;
     }
     let dependencies: Vec<Dependency> = tx
         .ws()
@@ -164,12 +179,12 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
             (new_ids.get(&dependency.from), new_ids.get(&dependency.to))
         {
             let new = tx.new_id();
-            tx.put(Entity::Dependency(Dependency {
+            tx.insert(Entity::Dependency(Dependency {
                 id: new,
                 from,
                 to,
                 ..dependency
-            }));
+            }))?;
         }
     }
     Ok(())

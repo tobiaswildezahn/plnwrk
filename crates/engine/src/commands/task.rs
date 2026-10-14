@@ -1,14 +1,17 @@
 //! Tasks: create, update, move, reparent, assign, set status or progress, delete.
 
-use plnwrk_core::{Entity, EntityKey, EntityKind, ProjectId, Rank, Task, TaskId};
+use plnwrk_core::{
+    Classification, Entity, EntityKey, EntityKind, Priority, ProjectId, Rank, RankError, Task,
+    TaskId, TaskStatus,
+};
 
 use crate::command::{CommandSpec, Runner, always};
 use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
-pub(crate) const TASK_STATUS: &[&str] = &["todo", "in_progress", "blocked", "review", "done"];
-const PRIORITY: &[&str] = &["low", "normal", "high", "critical"];
-const CLASSIFICATION: &[&str] = &["open", "vs_nfd"];
+pub(crate) const TASK_STATUS: &[&str] = &TaskStatus::NAMES;
+const PRIORITY: &[&str] = &Priority::NAMES;
+const CLASSIFICATION: &[&str] = &Classification::NAMES;
 
 pub(crate) fn load(tx: &Tx<'_>, id: TaskId) -> Result<Task, CommandError> {
     tx.ws().task(id).cloned().ok_or(CommandError::NotFound {
@@ -28,7 +31,7 @@ fn ranks(tx: &Tx<'_>, project: ProjectId, except: Option<TaskId>) -> Vec<Rank> {
     ranks
 }
 
-fn rank_error(param: &str, error: plnwrk_core::RankError) -> CommandError {
+fn rank_error(param: &str, error: RankError) -> CommandError {
     CommandError::bad(param, error.to_string())
 }
 
@@ -39,14 +42,13 @@ fn neighbour(
     param: &str,
     project: ProjectId,
     me: Option<TaskId>,
-) -> Result<Option<Task>, CommandError> {
+) -> Result<Option<TaskId>, CommandError> {
     let Some(id) = params.opt::<TaskId>(param, p::id)? else {
         return Ok(None);
     };
     let task = tx
         .ws()
         .task(id)
-        .cloned()
         .ok_or_else(|| CommandError::bad(param, "task does not exist"))?;
     if task.project != project {
         return Err(CommandError::bad(param, "task is in another project"));
@@ -57,29 +59,61 @@ fn neighbour(
             "a task cannot be its own neighbour",
         ));
     }
-    Ok(Some(task))
+    Ok(Some(id))
 }
 
-/// The rank for a task placed after `after` and/or before `before` (both optional).
-fn place(
+/// A rank after `after` and/or before `before` (task ids, both optional; neither: the end).
+fn compute_rank(
     tx: &Tx<'_>,
     project: ProjectId,
     me: Option<TaskId>,
-    after: Option<&Task>,
-    before: Option<&Task>,
-) -> Result<Rank, CommandError> {
+    after: Option<TaskId>,
+    before: Option<TaskId>,
+) -> Result<Rank, RankError> {
+    let rank_of = |id: TaskId| tx.ws().task(id).map(|t| t.rank.clone());
+    let after = after.and_then(rank_of);
+    let before = before.and_then(rank_of);
     let all = ranks(tx, project, me);
-    let low = match (after, before) {
-        (Some(a), _) => Some(a.rank.clone()),
-        (None, Some(b)) => all.iter().rev().find(|r| **r < b.rank).cloned(),
+    let low = match (&after, &before) {
+        (Some(a), _) => Some(a.clone()),
+        (None, Some(b)) => all.iter().rev().find(|r| *r < b).cloned(),
         (None, None) => all.last().cloned(),
     };
-    let high = match (after, before) {
-        (_, Some(b)) => Some(b.rank.clone()),
-        (Some(a), None) => all.iter().find(|r| **r > a.rank).cloned(),
+    let high = match (&after, &before) {
+        (_, Some(b)) => Some(b.clone()),
+        (Some(a), None) => all.iter().find(|r| *r > a).cloned(),
         (None, None) => None,
     };
-    Rank::between(low.as_ref(), high.as_ref()).map_err(|e| rank_error("before", e))
+    Rank::between(low.as_ref(), high.as_ref())
+}
+
+/// Gives every task of the project a fresh, short rank in the current order.
+fn spread(tx: &mut Tx<'_>, project: ProjectId) {
+    let mut tasks: Vec<Task> = tx.ws().tasks_of(project).cloned().collect();
+    tasks.sort_by(|a, b| a.rank.cmp(&b.rank));
+    let ranks = Rank::spread(tasks.len());
+    for (mut task, rank) in tasks.into_iter().zip(ranks) {
+        task.rank = rank;
+        tx.put(Entity::Task(task));
+    }
+}
+
+/// The rank for a placed task. If the gap is too crowded, the project's order is spread out
+/// first (part of the same change, so one undo restores everything).
+fn place(
+    tx: &mut Tx<'_>,
+    project: ProjectId,
+    me: Option<TaskId>,
+    (after, before): (Option<TaskId>, Option<TaskId>),
+    param: &str,
+) -> Result<Rank, CommandError> {
+    match compute_rank(tx, project, me, after, before) {
+        Err(RankError::TooLong) => {
+            spread(tx, project);
+            compute_rank(tx, project, me, after, before).map_err(|e| rank_error(param, e))
+        }
+        other => other.map_err(|e| rank_error(param, e)),
+    }
 }
 
 fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
@@ -90,7 +124,7 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         });
     }
     let after = neighbour(tx, params, "after", project, None)?;
-    let rank = place(tx, project, None, after.as_ref(), None)?;
+    let rank = place(tx, project, None, (after, None), "after")?;
     let id: TaskId = tx.new_id();
     let task = Task {
         id,
@@ -110,8 +144,7 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         rank,
         created: tx.now(),
     };
-    tx.put(Entity::Task(task));
-    Ok(())
+    tx.insert(Entity::Task(task))
 }
 
 fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
@@ -156,19 +189,15 @@ fn move_task(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     }
     let after = neighbour(tx, params, "after", task.project, Some(task.id))?;
     let before = neighbour(tx, params, "before", task.project, Some(task.id))?;
-    if let (Some(a), Some(b)) = (&after, &before)
-        && a.rank >= b.rank
+    let rank_of = |id: Option<TaskId>| id.and_then(|id| tx.ws().task(id)).map(|t| t.rank.clone());
+    if let (Some(a), Some(b)) = (rank_of(after), rank_of(before))
+        && a >= b
     {
         return Err(CommandError::bad("before", "must come after `after`"));
     }
     if after.is_some() || before.is_some() {
-        task.rank = place(
-            tx,
-            task.project,
-            Some(task.id),
-            after.as_ref(),
-            before.as_ref(),
-        )?;
+        let param = if before.is_some() { "before" } else { "after" };
+        task.rank = place(tx, task.project, Some(task.id), (after, before), param)?;
     }
     tx.put(Entity::Task(task));
     Ok(())

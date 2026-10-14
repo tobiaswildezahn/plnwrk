@@ -57,6 +57,19 @@ impl<'a> Tx<'a> {
         });
     }
 
+    /// Stores a new entity; refuses if one with the same key exists (a create must never
+    /// overwrite).
+    pub fn insert(&mut self, entity: Entity) -> Result<(), CommandError> {
+        let key = entity.key();
+        if self.ws.get(key).is_some() {
+            return Err(CommandError::Conflict {
+                reason: format!("{key} already exists"),
+            });
+        }
+        self.put(entity);
+        Ok(())
+    }
+
     /// Removes an entity and returns it.
     pub fn remove(&mut self, key: EntityKey) -> Result<Entity, CommandError> {
         let before = self

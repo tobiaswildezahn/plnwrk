@@ -8,7 +8,7 @@ use crate::command::{CommandSpec, Runner, always};
 use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
-const STATUS: &[&str] = &["open", "reached"];
+const STATUS: &[&str] = &MilestoneStatus::NAMES;
 
 fn load(tx: &Tx<'_>, id: MilestoneId) -> Result<Milestone, CommandError> {
     tx.ws()
@@ -22,14 +22,13 @@ fn load(tx: &Tx<'_>, id: MilestoneId) -> Result<Milestone, CommandError> {
 fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     let project: ProjectId = params.req("project", p::id)?;
     let id: MilestoneId = tx.new_id();
-    tx.put(Entity::Milestone(Milestone {
+    tx.insert(Entity::Milestone(Milestone {
         id,
         project,
         title: params.req("title", p::title)?,
         date: params.req("date", p::date)?,
         status: MilestoneStatus::Open,
-    }));
-    Ok(())
+    }))
 }
 
 fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {

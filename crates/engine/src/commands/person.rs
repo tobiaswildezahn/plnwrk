@@ -22,14 +22,13 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         None => initials_of(&name),
     };
     let id: PersonId = tx.new_id();
-    tx.put(Entity::Person(Person {
+    tx.insert(Entity::Person(Person {
         id,
         name,
         email: params.opt("email", p::label)?,
         role: params.opt("role", p::label)?,
         initials,
-    }));
-    Ok(())
+    }))
 }
 
 fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
@@ -38,6 +37,10 @@ fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         entity: plnwrk_core::EntityKey::Person(id),
     })?;
     if let Some(name) = params.patch_required("name", p::title)? {
+        // Initials that were derived from the old name follow the new one.
+        if person.initials == initials_of(&person.name) {
+            person.initials = initials_of(&name);
+        }
         person.name = name;
     }
     params.patch("email", p::label)?.apply_to(&mut person.email);

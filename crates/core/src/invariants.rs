@@ -159,22 +159,22 @@ impl Workspace {
                     format!("estimate_minutes is above {ESTIMATE_MAX}"),
                 );
             }
-            let Some(project) = self.project(task.project) else {
+            if self.project(task.project).is_none() {
                 report.add(
                     key,
                     Rule::MissingReference,
                     format!("project {} does not exist", task.project),
                 );
                 continue;
-            };
+            }
             if task
                 .classification
-                .is_some_and(|own| own < project.classification)
+                .is_some_and(|own| own < self.inherited_classification(task))
             {
                 report.add(
                     key,
                     Rule::Classification,
-                    "classification is lower than the project's",
+                    "classification is lower than the project's or the parent task's",
                 );
             }
             if let Some(parent_id) = task.parent {
@@ -201,7 +201,7 @@ impl Workspace {
     fn is_own_ancestor(&self, id: TaskId) -> bool {
         let mut current = self.task(id).and_then(|t| t.parent);
         let mut steps = 0usize;
-        let limit = self.tasks().count();
+        let limit = self.task_count();
         while let Some(parent) = current {
             if parent == id {
                 return true;
@@ -427,11 +427,11 @@ mod tests {
             classification: Classification::Open,
             created: ts(),
         }));
-        ws.put(Entity::Task(task(ids.a, ids.project, "Lage", "a")));
-        let mut b = task(ids.b, ids.project, "Teil", "b");
+        ws.put(Entity::Task(task(ids.a, ids.project, "Lage", "a0")));
+        let mut b = task(ids.b, ids.project, "Teil", "a1");
         b.parent = Some(ids.a);
         ws.put(Entity::Task(b));
-        ws.put(Entity::Task(task(ids.c, ids.project, "Bericht", "c")));
+        ws.put(Entity::Task(task(ids.c, ids.project, "Bericht", "a2")));
         ws.put(Entity::Milestone(Milestone {
             id: ids.milestone,
             project: ids.project,
@@ -569,6 +569,21 @@ mod tests {
         ws.put(Entity::Project(project));
         assert!(ws.check().is_empty(), "tasks without own level inherit");
         edit_task(&mut ws, ids.c, |t| {
+            t.classification = Some(Classification::Open)
+        });
+        assert_eq!(rules(&ws), vec![Rule::Classification]);
+    }
+
+    #[test]
+    fn subtask_classification_below_parent_is_reported() {
+        let (mut ws, ids) = valid();
+        edit_task(&mut ws, ids.a, |t| {
+            t.classification = Some(Classification::VsNfd)
+        });
+        assert!(ws.check().is_empty());
+        let b = ws.task(ids.b).cloned().unwrap();
+        assert_eq!(ws.effective_classification(&b), Classification::VsNfd);
+        edit_task(&mut ws, ids.b, |t| {
             t.classification = Some(Classification::Open)
         });
         assert_eq!(rules(&ws), vec![Rule::Classification]);

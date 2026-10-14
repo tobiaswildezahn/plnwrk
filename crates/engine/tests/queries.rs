@@ -203,6 +203,57 @@ mod queries {
     }
 
     #[test]
+    fn task_lists_without_project_leave_out_templates_and_archive() {
+        let (mut s, ids) = setup();
+        let all = query::tasks(
+            s.workspace(),
+            &TaskQuery {
+                include_done: true,
+                ..TaskQuery::default()
+            },
+            today(),
+        );
+        assert!(all[0].tasks.iter().all(|t| t.project != ids.template));
+        assert_eq!(all[0].tasks.len(), 10);
+        let template = query::tasks(
+            s.workspace(),
+            &TaskQuery {
+                project: Some(ids.template),
+                ..TaskQuery::default()
+            },
+            today(),
+        );
+        assert_eq!(template[0].tasks.len(), 4);
+        s.run(
+            "project.archive",
+            &json!({"project": ids.case.to_string()}),
+            Origin::User,
+        )
+        .unwrap();
+        let live = query::tasks(
+            s.workspace(),
+            &TaskQuery {
+                include_done: true,
+                ..TaskQuery::default()
+            },
+            today(),
+        );
+        assert!(live[0].tasks.iter().all(|t| t.project == ids.project));
+    }
+
+    #[test]
+    fn finished_projects_report_nothing_overdue() {
+        let (mut s, ids) = setup();
+        s.run(
+            "project.update",
+            &json!({"project": ids.project.to_string(), "status": "done"}),
+            Origin::User,
+        )
+        .unwrap();
+        assert!(query::overdue(s.workspace(), today()).is_empty());
+    }
+
+    #[test]
     fn history_shows_field_changes_with_origin() {
         let (mut s, ids) = setup();
         let tender = s

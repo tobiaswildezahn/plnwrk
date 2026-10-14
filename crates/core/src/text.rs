@@ -28,9 +28,22 @@ pub enum TextError {
         /// The limit.
         max: usize,
     },
-    /// A control character (line breaks only allowed in long texts).
-    #[error("must not contain control characters")]
+    /// A control or invisible formatting character (line breaks only allowed in long texts).
+    #[error("must not contain control or invisible characters")]
     ControlChar,
+}
+
+/// Invisible formatting characters that can make text read differently than it is stored
+/// ("Trojan Source"): zero-width characters, bidirectional overrides and isolates, BOM.
+fn is_hidden(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
 }
 
 fn single_line(text: &str, max: usize) -> Result<String, TextError> {
@@ -38,7 +51,7 @@ fn single_line(text: &str, max: usize) -> Result<String, TextError> {
     if trimmed.is_empty() {
         return Err(TextError::Empty);
     }
-    if trimmed.chars().any(char::is_control) {
+    if trimmed.chars().any(|c| c.is_control() || is_hidden(c)) {
         return Err(TextError::ControlChar);
     }
     if trimmed.chars().count() > max {
@@ -61,7 +74,7 @@ pub fn label(text: &str) -> Result<String, TextError> {
 pub fn body(text: &str) -> Result<String, TextError> {
     if text
         .chars()
-        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+        .any(|c| (c.is_control() && !matches!(c, '\n' | '\r' | '\t')) || is_hidden(c))
     {
         return Err(TextError::ControlChar);
     }
@@ -128,6 +141,14 @@ mod tests {
     fn control_characters_are_rejected_in_titles() {
         assert_eq!(title("a\u{7}b"), Err(TextError::ControlChar));
         assert_eq!(title("a\nb"), Err(TextError::ControlChar));
+    }
+
+    #[test]
+    fn invisible_characters_are_rejected() {
+        for bad in ["a\u{202E}b", "a\u{200B}b", "\u{FEFF}a", "a\u{2066}b"] {
+            assert_eq!(title(bad), Err(TextError::ControlChar), "{bad:?}");
+            assert_eq!(body(bad), Err(TextError::ControlChar), "{bad:?}");
+        }
     }
 
     #[test]

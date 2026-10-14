@@ -8,6 +8,9 @@ macro_rules! names {
             /// Every value, in display order.
             pub const ALL: [Self; [$(stringify!($variant)),+].len()] = [$(Self::$variant),+];
 
+            /// The machine names of [`Self::ALL`], as in JSON.
+            pub const NAMES: [&'static str; [$(stringify!($variant)),+].len()] = [$($name),+];
+
             /// The machine name, as in JSON (`snake_case`).
             pub const fn name(self) -> &'static str {
                 match self {
@@ -164,11 +167,44 @@ mod tests {
         assert_eq!(TaskStatus::ALL.len(), 5);
     }
 
-    #[test]
-    fn names_match_serde() {
-        for status in TaskStatus::ALL {
-            let json = serde_json::to_string(&status).unwrap();
-            assert_eq!(json, format!("\"{}\"", status.name()));
+    fn assert_names<T: serde::Serialize + Copy>(
+        all: &[T],
+        names: &[&str],
+        name: fn(T) -> &'static str,
+    ) {
+        assert_eq!(all.len(), names.len());
+        for (value, expected) in all.iter().zip(names) {
+            let json = serde_json::to_string(value).unwrap();
+            assert_eq!(json, format!("\"{expected}\""));
+            assert_eq!(name(*value), *expected);
         }
+    }
+
+    #[test]
+    fn names_match_serde_for_every_vocabulary() {
+        assert_names(&TaskStatus::ALL, &TaskStatus::NAMES, TaskStatus::name);
+        assert_names(
+            &ProjectStatus::ALL,
+            &ProjectStatus::NAMES,
+            ProjectStatus::name,
+        );
+        assert_names(&Priority::ALL, &Priority::NAMES, Priority::name);
+        assert_names(
+            &MilestoneStatus::ALL,
+            &MilestoneStatus::NAMES,
+            MilestoneStatus::name,
+        );
+        assert_names(
+            &DependencyKind::ALL,
+            &DependencyKind::NAMES,
+            DependencyKind::name,
+        );
+        assert_names(
+            &Classification::ALL,
+            &Classification::NAMES,
+            Classification::name,
+        );
+        assert_eq!(Priority::from_name("high"), Some(Priority::High));
+        assert_eq!(Priority::from_name("urgent"), None);
     }
 }

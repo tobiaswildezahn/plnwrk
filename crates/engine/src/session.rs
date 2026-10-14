@@ -77,6 +77,12 @@ impl Session {
         self.actor
     }
 
+    /// Direct write access for tests that simulate damaged or outside-edited data.
+    #[cfg(test)]
+    pub(crate) fn workspace_mut(&mut self) -> &mut Workspace {
+        &mut self.ws
+    }
+
     /// Whether `undo` would do something.
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()

@@ -7,6 +7,8 @@ use plnwrk_core::{
 };
 use serde::Serialize;
 
+use super::tasks::TaskIndex;
+
 /// A person as shown on cards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PersonRef {
@@ -49,10 +51,18 @@ pub fn effective_progress(task: &Task) -> u8 {
 
 /// Progress of a project over its leaf tasks; `None` if the project does not exist.
 pub fn progress(ws: &Workspace, project: ProjectId) -> Option<Progress> {
+    progress_with(ws, &TaskIndex::new(ws), project)
+}
+
+pub(crate) fn progress_with(
+    ws: &Workspace,
+    index: &TaskIndex<'_>,
+    project: ProjectId,
+) -> Option<Progress> {
     ws.project(project)?;
     let leaves: Vec<&Task> = ws
         .tasks_of(project)
-        .filter(|t| ws.children(t.id).next().is_none())
+        .filter(|t| index.is_leaf(t.id))
         .collect();
     let done = leaves
         .iter()
@@ -132,14 +142,16 @@ pub struct OverdueItem {
     pub days_late: i64,
 }
 
-/// Every unfinished task, project and milestone past its date, latest first. Templates and
-/// archived projects are left out.
+/// Every unfinished task, project and milestone past its date, latest first. Templates,
+/// archived and finished projects (with their tasks and milestones) are left out.
 pub fn overdue(ws: &Workspace, today: Date) -> Vec<OverdueItem> {
     let mut items = Vec::new();
-    for project in ws.projects().filter(|p| is_live(p)) {
+    for project in ws
+        .projects()
+        .filter(|p| is_live(p) && p.status != ProjectStatus::Done)
+    {
         if let Some(due) = project.due
             && due < today
-            && project.status != ProjectStatus::Done
         {
             items.push(OverdueItem {
                 entity: EntityKey::Project(project.id),
@@ -214,7 +226,7 @@ pub struct ProjectCard {
     pub classification: Classification,
 }
 
-fn card(ws: &Workspace, project: &Project, today: Date) -> ProjectCard {
+fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -> ProjectCard {
     let tasks: Vec<&Task> = ws.tasks_of(project.id).collect();
     let next_milestone = ws
         .milestones()
@@ -235,7 +247,7 @@ fn card(ws: &Workspace, project: &Project, today: Date) -> ProjectCard {
         owner: person_ref(ws, project.owner),
         due: project.due,
         days_left: project.due.map(|due| days_between(today, due)),
-        progress: progress(ws, project.id).unwrap_or(Progress {
+        progress: progress_with(ws, index, project.id).unwrap_or(Progress {
             tasks: 0,
             done: 0,
             percent: 0,
@@ -255,10 +267,11 @@ fn card(ws: &Workspace, project: &Project, today: Date) -> ProjectCard {
 
 /// All live projects and cases (no templates, nothing archived), soonest deadline first.
 pub fn overview(ws: &Workspace, today: Date) -> Vec<ProjectCard> {
+    let index = TaskIndex::new(ws);
     let mut cards: Vec<ProjectCard> = ws
         .projects()
         .filter(|p| is_live(p))
-        .map(|p| card(ws, p, today))
+        .map(|p| card(ws, &index, p, today))
         .collect();
     cards.sort_by(|a, b| match (a.due, b.due) {
         (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.title.cmp(&b.title)),
@@ -271,10 +284,11 @@ pub fn overview(ws: &Workspace, today: Date) -> Vec<ProjectCard> {
 
 /// All templates, by title.
 pub fn templates(ws: &Workspace, today: Date) -> Vec<ProjectCard> {
+    let index = TaskIndex::new(ws);
     let mut cards: Vec<ProjectCard> = ws
         .projects()
         .filter(|p| p.template)
-        .map(|p| card(ws, p, today))
+        .map(|p| card(ws, &index, p, today))
         .collect();
     cards.sort_by(|a, b| a.title.cmp(&b.title));
     cards

@@ -13,7 +13,7 @@ mod junk {
     use plnwrk_core::{EntityKind, FixedClock, SequentialIds, Workspace};
     use plnwrk_engine::fixture::sample;
     use plnwrk_engine::params::{ParamKind, ParamSpec};
-    use plnwrk_engine::{Origin, Session, registry};
+    use plnwrk_engine::{CommandError, Origin, Session, registry};
     use proptest::prelude::*;
     use proptest::test_runner::{Config, TestRunner};
     use serde_json::{Map, Value};
@@ -120,6 +120,7 @@ mod junk {
     }
 
     /// Ids of the sample workspace, by kind.
+    #[derive(Clone)]
     struct Pools {
         all: Vec<String>,
         by_kind: BTreeMap<EntityKind, Vec<String>>,
@@ -246,7 +247,13 @@ mod junk {
             let successes = Cell::new(0u32);
             let result = runner.run(&params(spec.params, &pools), |input| {
                 let mut session = fresh();
+                if spec.id == "redo" {
+                    session
+                        .run("undo", &serde_json::json!({}), Origin::Script)
+                        .unwrap();
+                }
                 let before = (session.workspace().clone(), session.log().len());
+                let stacks = (session.can_undo(), session.can_redo());
                 match session.run(spec.id, &input, Origin::Script) {
                     Ok(_) => {
                         successes.set(successes.get() + 1);
@@ -264,6 +271,7 @@ mod junk {
                             input
                         );
                         prop_assert_eq!(session.log().len(), before.1);
+                        prop_assert_eq!((session.can_undo(), session.can_redo()), stacks);
                     }
                 }
                 Ok(())
@@ -302,5 +310,87 @@ mod junk {
                 panic!("{}: {error}", spec.name);
             }
         }
+    }
+
+    /// Random sequences of commands, undo and redo, compared step by step with a model that
+    /// simply remembers every state: undo must return exactly to the previous state, redo to
+    /// the next one, failures must change nothing, and undoing everything at the end must give
+    /// back the start.
+    #[test]
+    fn random_sequences_match_a_snapshot_model() {
+        let pools = pools(fresh().workspace());
+        let specs = registry();
+        let undo = specs.iter().position(|s| s.id == "undo").unwrap();
+        let redo = specs.iter().position(|s| s.id == "redo").unwrap();
+        let mut choices: Vec<usize> = (0..specs.len()).collect();
+        choices.extend([undo, undo, undo, redo, redo, redo]);
+        let step = prop::sample::select(choices)
+            .prop_flat_map(move |i| params(specs[i].params, &pools).prop_map(move |p| (i, p)));
+        let mut runner = TestRunner::new(Config {
+            cases: 64,
+            failure_persistence: None,
+            ..Config::default()
+        });
+        let changes = Cell::new(0u32);
+        let result = runner.run(&prop::collection::vec(step, 1..40), |steps| {
+            let mut session = fresh();
+            let mut states: Vec<Workspace> = vec![session.workspace().clone()];
+            let mut position = 0usize;
+            for (i, input) in steps {
+                let id = specs[i].id;
+                if id == "undo" && position == 0 {
+                    continue; // would undo the sample itself, which the model does not track
+                }
+                let before = session.workspace().clone();
+                let result = session.run(id, &input, Origin::Script);
+                match (id, result) {
+                    ("undo", Ok(_)) => {
+                        position -= 1;
+                        prop_assert_eq!(session.workspace(), &states[position]);
+                    }
+                    ("undo" | "redo", Err(CommandError::BadParam { .. })) => {
+                        prop_assert_eq!(session.workspace(), &before);
+                    }
+                    ("undo", Err(e)) => prop_assert!(false, "undo failed with history left: {e}"),
+                    ("redo", Ok(_)) => {
+                        position += 1;
+                        prop_assert!(position < states.len(), "redo beyond the model");
+                        prop_assert_eq!(session.workspace(), &states[position]);
+                    }
+                    ("redo", Err(_)) => {
+                        prop_assert_eq!(position + 1, states.len(), "redo refused though possible");
+                        prop_assert_eq!(session.workspace(), &before);
+                    }
+                    (_, Ok(outcome)) => {
+                        if outcome.change.is_some() {
+                            changes.set(changes.get() + 1);
+                            states.truncate(position + 1);
+                            states.push(session.workspace().clone());
+                            position += 1;
+                        } else {
+                            prop_assert_eq!(session.workspace(), &before);
+                        }
+                    }
+                    (_, Err(_)) => prop_assert_eq!(session.workspace(), &before),
+                }
+                prop_assert_eq!(session.can_redo(), position + 1 < states.len());
+            }
+            while position > 0 {
+                session
+                    .run("undo", &serde_json::json!({}), Origin::Script)
+                    .unwrap();
+                position -= 1;
+                prop_assert_eq!(session.workspace(), &states[position]);
+            }
+            Ok(())
+        });
+        if let Err(error) = result {
+            panic!("{error}");
+        }
+        assert!(
+            changes.get() >= 50,
+            "sequences made only {} changes",
+            changes.get()
+        );
     }
 }

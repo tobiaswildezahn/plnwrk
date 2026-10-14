@@ -99,14 +99,42 @@ impl Workspace {
             .filter(move |task| task.project == project)
     }
 
-    /// The classification that applies to a task: its own or its project's, whichever is
-    /// higher.
-    pub fn effective_classification(&self, task: &Task) -> Classification {
-        let project = self
+    /// Number of tasks.
+    pub fn task_count(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// The classification a task gets from above: the highest of its project and all its
+    /// ancestor tasks (own level not included).
+    pub fn inherited_classification(&self, task: &Task) -> Classification {
+        let mut level = self
             .project(task.project)
             .map(|p| p.classification)
             .unwrap_or_default();
-        task.classification.map_or(project, |own| own.max(project))
+        let mut current = task.parent;
+        let mut steps = 0usize;
+        while let Some(id) = current {
+            let Some(parent) = self.task(id) else {
+                break;
+            };
+            if let Some(own) = parent.classification {
+                level = level.max(own);
+            }
+            steps += 1;
+            if steps > self.tasks.len() {
+                break;
+            }
+            current = parent.parent;
+        }
+        level
+    }
+
+    /// The classification that applies to a task: the highest of its own, its project's and
+    /// its ancestor tasks'.
+    pub fn effective_classification(&self, task: &Task) -> Classification {
+        let inherited = self.inherited_classification(task);
+        task.classification
+            .map_or(inherited, |own| own.max(inherited))
     }
 
     /// Any entity by key (cloned).
