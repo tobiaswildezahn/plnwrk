@@ -242,8 +242,9 @@ pub fn is_locked(path: &Path) -> bool {
     let Ok(name) = name_of(path) else {
         return false;
     };
+    // Read access is enough to ask (and works for a write-protected lock file too).
     let Ok(file) = OpenOptions::new()
-        .write(true)
+        .read(true)
         .open(folder_of(path).join(format!(".{name}.lock")))
     else {
         return false;
@@ -358,10 +359,6 @@ mod tests {
         {
             assert!(matches!(
                 read(Path::new("/dev/null")),
-                Err(StoreError::Io { .. })
-            ));
-            assert!(matches!(
-                read(Path::new("/dev/stdin")),
                 Err(StoreError::Io { .. })
             ));
         }

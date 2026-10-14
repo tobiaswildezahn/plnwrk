@@ -176,8 +176,8 @@ pub struct Changing {
 impl Changing {
     /// Locks and opens `path`, continuing the kept session if the file has not changed since.
     pub fn open(path: &Path, kept: &mut Kept) -> Result<Self, Refusal> {
-        // Looked at first, so nothing (not even a lock file) is left next to something that
-        // is not a file of its own.
+        // Everything is checked before the lock, so a refusal leaves nothing (not even a lock
+        // file) next to something that is not a plnwrk file we may change.
         let metadata = std::fs::metadata(path).map_err(|e| StoreError::Io {
             reason: e.to_string(),
         })?;
@@ -186,22 +186,34 @@ impl Changing {
                 reason: format!("not an ordinary file: {}", path.display()),
             }));
         }
-        if metadata.permissions().readonly() {
-            return Err(Refusal::ReadOnly);
+        // Can this user write it? (Not only "nobody may": group rights, the Finder's lock.)
+        if let Err(e) = std::fs::OpenOptions::new().write(true).open(path) {
+            return Err(if e.kind() == std::io::ErrorKind::PermissionDenied {
+                Refusal::ReadOnly
+            } else {
+                Refusal::Store(StoreError::Io {
+                    reason: e.to_string(),
+                })
+            });
         }
-        let lock = file::lock(path)?;
+        let known = kept.take(path);
         let bytes = file::read(path)?;
-        let opened = match kept.take(path) {
-            Some((known, session)) if known == bytes => Opened {
+        let continued = known.filter(|(known, _)| *known == bytes);
+        let opened = match continued {
+            Some((_, session)) => Opened {
                 session,
                 upgraded: false,
             },
-            _ => check(&bytes)?,
+            None => check(&bytes)?,
         };
+        let lock = file::lock(path)?;
+        // Changed between the check and the lock: checked again as it is now.
+        let now = file::read(path)?;
+        let opened = if now == bytes { opened } else { check(&now)? };
         Ok(Self {
             opened,
             path: path.to_path_buf(),
-            bytes,
+            bytes: now,
             _lock: lock,
         })
     }

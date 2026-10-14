@@ -70,8 +70,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Phase 6a – MCP-Server** (Plan `docs/plans/2026-10-14-phase-6a.md`): Claude Code bedient
-   plnwrk-Dateien; kein VS-NfD, keine verschlüsselten Dateien.
+0. **Phase 6a – MCP-Server** (Plan `docs/plans/2026-10-14-phase-6a.md`, Anleitung
+   `docs/mcp.md`): umgesetzt, Review und Nachreview eingearbeitet; PR offen, Merge nach Tobis
+   „ja, merge“. Danach: Tobi richtet den Server in Claude Code ein (`docs/mcp.md`) und probiert
+   ihn an einer Testdatei.
 1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,

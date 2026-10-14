@@ -423,7 +423,24 @@ fn write_protected_files_and_odd_paths_are_left_alone() {
         reason = "the test made it read-only"
     )]
     permissions.set_readonly(false);
-    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::set_permissions(&path, permissions.clone()).unwrap();
+    // Not writable for this user, though others may (group): refused too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o464)).unwrap();
+        let (reason, error) = tool(
+            "run_command",
+            json!({"file": s(&path), "command": "task.update",
+                   "params": {"task": first.to_string(), "title": "trotzdem"}}),
+        );
+        assert!(
+            error && reason.as_str().unwrap().contains("write-protected"),
+            "{reason}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
     // Neither reading nor a refused change leaves anything next to what is not a file.
     let lock_files = || {
         std::fs::read_dir(&dir)
@@ -442,11 +459,129 @@ fn write_protected_files_and_odd_paths_are_left_alone() {
         );
         assert!(error);
     }
+    // Refused changes of files that are not ours to change: no lock file either.
+    let other = dir.join("notizen.txt");
+    std::fs::write(&other, "kein plnwrk").unwrap();
+    let mut enc = session();
+    fixture::sample(&mut enc).unwrap();
+    let encrypted = dir.join("verschluesselt.plnwrk");
+    write(
+        &encrypted,
+        &enc,
+        &Protection::Passphrase(SecretString::from("Lagezentrum-2026".to_owned())),
+    );
+    for target in [&other, &encrypted] {
+        let (_, error) = tool("run_command", json!({"file": s(target), "command": "undo"}));
+        assert!(error);
+    }
     let (_, error) = tool("overview", json!({"file": s(&path)}));
     assert!(!error);
     assert_eq!(lock_files(), 0);
     let (reason, error) = tool("overview", json!({"file": "/dev/null"}));
     assert!(error, "{reason}");
+}
+
+#[test]
+fn dates_given_as_they_are_move_nothing() {
+    let (path, first, second) = sample("same-dates");
+    // The second already starts too early (as can happen with old data).
+    let mut s_ = open(&path);
+    s_.run(
+        "task.update",
+        &json!({"task": second.to_string(), "start": "2026-11-03"}),
+        Origin::User,
+    )
+    .unwrap();
+    write(&path, &s_, &Protection::None);
+    for params in [
+        json!({"task": first.to_string(), "title": "neu", "due": "2026-11-04"}),
+        json!({"task": first.to_string(), "start": "2026-11-02", "due": "2026-11-04"}),
+    ] {
+        let (answer, error) = tool(
+            "run_command",
+            json!({"file": s(&path), "command": "task.update", "params": params}),
+        );
+        assert!(!error, "{answer}");
+        assert_eq!(
+            answer["steps"].as_array().unwrap().last().unwrap()["moved_along"],
+            0
+        );
+        assert_eq!(
+            open(&path)
+                .workspace()
+                .task(second)
+                .unwrap()
+                .start
+                .unwrap()
+                .to_string(),
+            "2026-11-03"
+        );
+    }
+}
+
+#[test]
+fn a_push_too_big_is_refused_before_anything_runs() {
+    let path = folder("too-big").join("gross.plnwrk");
+    let mut s_ = session();
+    let sample = fixture::sample(&mut s_).unwrap();
+    let project = sample.project.to_string();
+    let mut create = |title: String| {
+        match s_
+            .run(
+                "task.create",
+                &json!({"project": project, "title": title, "start": "2026-11-05", "due": "2026-11-05"}),
+                Origin::User,
+            )
+            .unwrap()
+            .created
+            .first()
+        {
+            Some(plnwrk_core::EntityKey::Task(id)) => *id,
+            _ => panic!("no task"),
+        }
+    };
+    let first = create("Anfang".to_owned());
+    let after: Vec<TaskId> = (0..=plnwrk_engine::params::MOVES_MAX)
+        .map(|n| create(format!("Folge {n}")))
+        .collect();
+    for id in &after {
+        s_.run(
+            "dependency.add",
+            &json!({"from": first.to_string(), "to": id.to_string()}),
+            Origin::User,
+        )
+        .unwrap();
+    }
+    write(&path, &s_, &Protection::None);
+    let mut server = Server::new();
+    let call = |server: &mut Server, command: &str, params: Value| {
+        tool_on(
+            server,
+            "run_command",
+            json!({"file": s(&path), "command": command, "params": params}),
+        )
+    };
+    let (_, error) = call(
+        &mut server,
+        "task.update",
+        json!({"task": first.to_string(), "title": "Anfang (KI)"}),
+    );
+    assert!(!error);
+    let before = std::fs::read(&path).unwrap();
+    let (reason, error) = call(
+        &mut server,
+        "task.update",
+        json!({"task": first.to_string(), "due": "2026-11-20", "title": "zu viel"}),
+    );
+    assert!(
+        error && reason.as_str().unwrap().starts_with("Not changed"),
+        "{reason}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    // Nothing ran, so the step before can still be taken back.
+    let (answer, error) = call(&mut server, "undo", json!({}));
+    assert!(!error, "{answer}");
+    assert_eq!(open(&path).workspace().task(first).unwrap().title, "Anfang");
 }
 
 #[test]

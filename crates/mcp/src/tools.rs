@@ -193,7 +193,8 @@ fn run(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
         Ok(steps) => steps,
         Err(reason) => {
             // Refused as a whole: the session is as it was and keeps its undo steps. A
-            // half-done change (dates taken, other fields refused) is dropped unsaved.
+            // half-done change (in practice impossible: limits are checked first) is dropped
+            // unsaved.
             if file.opened.session.log().len() == logged {
                 file.keep(kept);
             }
@@ -224,10 +225,10 @@ fn step(session: &mut Session, command: &str, params: &Value) -> Answer {
     serde_json::to_value(outcome).map_err(|e| e.to_string())
 }
 
-/// `task.update` with new dates: whatever waits for the task moves along. Dates alone are one
-/// `task.reschedule` (one step). Together with other fields, the whole update runs first as it
-/// was asked (checked and taken as one, or refused as a whole), then the successors move in a
-/// second step.
+/// `task.update` with new dates: whatever waits for the task moves along, as in the app.
+/// Dates alone are one `task.reschedule` (one step). Together with other fields, the whole
+/// update runs first as it was asked (taken as one, or refused as a whole), then the
+/// successors move in a second step. Dates given as they are move nothing.
 fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, String> {
     let plain = |session: &mut Session, params: &Value| {
         step(session, "task.update", params).map(|outcome| vec![outcome])
@@ -245,33 +246,6 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
     let Some(current) = session.workspace().task(task).cloned() else {
         return plain(session, &params);
     };
-    let others = fields
-        .keys()
-        .any(|k| !["task", "start", "due"].contains(&k.as_str()));
-    if others {
-        let mut steps = plain(session, &params)?;
-        let Some(now) = session.workspace().task(task).cloned() else {
-            return Ok(steps);
-        };
-        let Some(along) = Reschedule::of(
-            session.workspace(),
-            task,
-            now.start,
-            now.due,
-            Calendar::hamburg(),
-        ) else {
-            return Ok(steps);
-        };
-        if along.along() > 0 {
-            too_many(&along)?;
-            let mut moved = step(session, "task.reschedule", &along.params(None))?;
-            if let Some(fields) = moved.as_object_mut() {
-                fields.insert("moved_along".to_owned(), Value::from(along.along()));
-            }
-            steps.push(moved);
-        }
-        return Ok(steps);
-    }
     // Dates that do not read are left to task.update, which says what is wrong.
     let start = match fields.get("start") {
         None => Ok(current.start),
@@ -286,24 +260,54 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
     let (Ok(start), Ok(due)) = (start, due) else {
         return plain(session, &params);
     };
-    let Some(reschedule) = Reschedule::of(
-        session.workspace(),
-        task,
-        start,
-        due.map(|(day, _)| day),
-        Calendar::hamburg(),
-    ) else {
+    let day = due.map(|(day, _)| day);
+    if start == current.start && day == current.due {
+        return plain(session, &params).map(|steps| with_along(steps, 0));
+    }
+    let Some(reschedule) =
+        Reschedule::of(session.workspace(), task, start, day, Calendar::hamburg())
+    else {
         return plain(session, &params);
     };
+    // Refused before anything runs.
     too_many(&reschedule)?;
-    let time = fields
-        .contains_key("due")
-        .then(|| due.and_then(|(_, time)| time));
-    let mut moved = step(session, "task.reschedule", &reschedule.params(time))?;
-    if let Some(fields) = moved.as_object_mut() {
-        fields.insert("moved_along".to_owned(), Value::from(reschedule.along()));
+    let others = fields
+        .keys()
+        .any(|k| !["task", "start", "due"].contains(&k.as_str()));
+    if !others {
+        let time = fields
+            .contains_key("due")
+            .then(|| due.and_then(|(_, time)| time));
+        let moved = step(session, "task.reschedule", &reschedule.params(time))?;
+        return Ok(with_along(vec![moved], reschedule.along()));
     }
-    Ok(vec![moved])
+    let mut steps = plain(session, &params)?;
+    // From the state as it is now (another field may matter, e.g. done or milestone).
+    let Some(now) = session.workspace().task(task).cloned() else {
+        return Ok(with_along(steps, 0));
+    };
+    let Some(after) = Reschedule::of(
+        session.workspace(),
+        task,
+        now.start,
+        now.due,
+        Calendar::hamburg(),
+    ) else {
+        return Ok(with_along(steps, 0));
+    };
+    if after.along() > 0 {
+        too_many(&after)?;
+        steps.push(step(session, "task.reschedule", &after.params(None))?);
+    }
+    Ok(with_along(steps, after.along()))
+}
+
+/// Notes on the last step how many other tasks moved along.
+fn with_along(mut steps: Vec<Value>, along: usize) -> Vec<Value> {
+    if let Some(last) = steps.last_mut().and_then(Value::as_object_mut) {
+        last.insert("moved_along".to_owned(), Value::from(along));
+    }
+    steps
 }
 
 /// Refuses a push larger than one command can take.
