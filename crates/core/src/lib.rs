@@ -4,8 +4,13 @@
 
 pub mod clock;
 pub mod ids;
+pub mod kinds;
+pub mod text;
 
 pub use clock::{Clock, FixedClock};
 pub use ids::{
     CommentId, DependencyId, IdSource, MilestoneId, PersonId, ProjectId, SequentialIds, TaskId,
+};
+pub use kinds::{
+    Classification, DependencyKind, MilestoneStatus, Priority, ProjectStatus, TaskStatus,
 };
