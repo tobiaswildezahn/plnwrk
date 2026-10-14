@@ -170,6 +170,45 @@ impl ProjectForm {
         Ok(Value::Object(map))
     }
 
+    /// Whether something is typed that differs from `project` (dates compared as dates, so the
+    /// notation of the language does not count). A wrong date counts as typed.
+    pub fn is_pending(&self, project: &Project) -> bool {
+        self.update_params(project.id) != Self::of(project).update_params(project.id)
+    }
+
+    /// Follows a change of the stored project (undo, archive) without losing what is typed:
+    /// fields the person has not touched take the new value.
+    pub fn rebase(&mut self, old: &Project, new: &Project) {
+        let before = Self::of(old);
+        let after = Self::of(new);
+        let keep = |mine: &mut String, before: String, after: String| {
+            if *mine == before {
+                *mine = after;
+            }
+        };
+        keep(&mut self.title, before.title, after.title);
+        keep(&mut self.kind, before.kind, after.kind);
+        keep(&mut self.reference, before.reference, after.reference);
+        if dates::parse(&self.start) == Ok(old.start) {
+            self.start = after.start;
+        }
+        if dates::parse_deadline(&self.due, &self.due_time)
+            == Ok(old.due.map(|d| (d, old.due_time)))
+        {
+            self.due = after.due;
+            self.due_time = after.due_time;
+        }
+        if self.owner == before.owner {
+            self.owner = after.owner;
+        }
+        if self.status == before.status {
+            self.status = after.status;
+        }
+        if self.template == before.template {
+            self.template = after.template;
+        }
+    }
+
     /// Parameters of `project.update` (empty fields clear).
     pub fn update_params(&self, project: ProjectId) -> Result<Value, String> {
         let mut map = self.fields()?;
@@ -484,6 +523,32 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    fn project(title: &str, due: Option<&str>) -> Project {
+        let mut doc = crate::OpenDoc::new();
+        doc.session
+            .run(
+                "project.create",
+                &json!({"title": title, "due": due}),
+                plnwrk_engine::Origin::User,
+            )
+            .unwrap();
+        doc.session.workspace().projects().next().unwrap().clone()
+    }
+
+    #[test]
+    fn a_project_form_keeps_what_is_typed_and_follows_the_rest() {
+        let old = project("Umzug", Some("2026-12-01"));
+        let mut new = old.clone();
+        new.title = "Umzug alt".to_owned();
+        new.due = None;
+        let mut form = ProjectForm::of(&old);
+        form.title = "Umzug NEU".to_owned();
+        assert!(form.is_pending(&old));
+        form.rebase(&old, &new);
+        assert_eq!(form.title, "Umzug NEU", "typed");
+        assert_eq!(form.due, "", "untouched: follows the undo");
+    }
+
     use super::*;
 
     #[test]

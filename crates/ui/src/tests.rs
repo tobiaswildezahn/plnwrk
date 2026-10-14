@@ -2119,7 +2119,10 @@ fn undo_after_switching_the_language_does_not_bring_a_date_back() {
     type_into(&mut harness, text::t().due, "01.12.2026", true);
     click(&mut harness, text::t().description);
     let due = |h: &Harness<'_, PlnwrkApp>| task_named(h.state(), "Bericht").unwrap().due;
-    assert_eq!(due(&harness).map(|d| d.to_string()).as_deref(), Some("2026-12-01"));
+    assert_eq!(
+        due(&harness).map(|d| d.to_string()).as_deref(),
+        Some("2026-12-01")
+    );
     to_english(&mut harness);
     // The untouched field now reads in English.
     assert_eq!(
@@ -2139,4 +2142,102 @@ fn undo_after_switching_the_language_does_not_bring_a_date_back() {
     assert!(!draft_pending, "nothing typed: the field follows the undo");
     click(&mut harness, text::EN.overview);
     assert_eq!(due(&harness), None, "and the old date is not written back");
+}
+
+#[test]
+fn a_half_edited_project_form_is_not_lost() {
+    let dir = scratch("project-form");
+    let host = Scripted {
+        save: vec![dir.join("lage.plnwrk")],
+        open: Vec::new(),
+    };
+    let mut app = PlnwrkApp::with_host(Box::new(host));
+    app.file(crate::state::FileAction::New);
+    let mut harness = harness(app);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Umzug", false);
+    click(&mut harness, text::t().create);
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().title, "Umzug NEU", false);
+    // The palette neither reopens the form nor archives behind it.
+    palette(&mut harness, "projekt bearbeiten");
+    assert_eq!(
+        harness
+            .state()
+            .state
+            .forms
+            .project
+            .as_ref()
+            .unwrap()
+            .1
+            .title,
+        "Umzug NEU"
+    );
+    let offered: Vec<String> =
+        crate::palette::entries(harness.state().doc(), &harness.state().state)
+            .into_iter()
+            .map(|e| e.label)
+            .collect();
+    assert!(!offered.iter().any(|l| l == text::t().archive_project));
+    assert!(!offered.iter().any(|l| l == text::t().edit_project));
+    harness.key_press(Key::Escape);
+    harness.run();
+    // Typed in the form, not applied: that is unsaved work, and saving takes it.
+    assert!(harness.state().has_unsaved_changes());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    let bytes = std::fs::read(dir.join("lage.plnwrk")).unwrap();
+    let saved = crate::OpenDoc::from_bytes(&bytes, None).unwrap();
+    assert!(
+        saved
+            .session
+            .workspace()
+            .projects()
+            .any(|p| p.title == "Umzug NEU")
+    );
+    assert!(!harness.state().has_unsaved_changes());
+}
+
+#[test]
+fn a_project_form_with_a_wrong_date_never_blocks_closing() {
+    let mut harness = with_project("Umzug");
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().start, "32.13.2026", false);
+    assert!(harness.state().has_unsaved_changes());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(
+        message.error && message.text.starts_with(text::t().not_taken),
+        "{message:?}"
+    );
+    assert!(harness.state().state.forms.project.is_none(), "put back");
+}
+
+#[test]
+fn an_unchanged_project_form_is_not_unsaved_work_in_either_language() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::t().new_task_hint, "x", true);
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().due, "01.12.2026", false);
+    click(&mut harness, text::t().apply);
+    open_project_form(&mut harness);
+    let dirty_before = harness.state().doc().unwrap().is_dirty();
+    assert_eq!(harness.state().has_unsaved_changes(), dirty_before);
+    assert!(harness.state().project_pending().is_none());
+    to_english(&mut harness);
+    assert!(
+        harness.state().project_pending().is_none(),
+        "01.12.2026 is 2026-12-01"
+    );
+}
+
+/// Opens the form of the shown project ("Bearbeiten" is also the menu; the button comes last).
+fn open_project_form(harness: &mut Harness<'_, PlnwrkApp>) {
+    harness
+        .get_all_by_label(text::t().edit)
+        .last()
+        .unwrap()
+        .click();
+    harness.run();
 }

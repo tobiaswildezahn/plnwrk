@@ -48,13 +48,14 @@ fn head(
     let today = now.date();
     let mut error = None;
     let mut cancel = false;
-    // Undo or another change while the form is open: start again from the stored project,
-    // so "Übernehmen" never writes back values that are no longer current.
-    if let Some((source, _)) = &state.forms.project
+    // Undo or another change while the form is open: untouched fields follow the stored
+    // project, so "Übernehmen" never writes back values that are no longer current.
+    if let Some((source, form)) = &mut state.forms.project
         && source.id == project.id
         && source != project
     {
-        state.forms.project = Some((project.clone(), ProjectForm::of(project)));
+        form.rebase(source, project);
+        *source = project.clone();
     }
     if let Some((editing, form)) = &mut state.forms.project
         && editing.id == project.id

@@ -231,11 +231,19 @@ fn actions(list: &mut List, doc: &OpenDoc, state: &State) {
         ] {
             list.add(name, here, None, &[], vec![Intent::Tab(tab)]);
         }
+        // While the project form is open, the view shows only the form (as the buttons do).
+        let editing = state
+            .forms
+            .project
+            .as_ref()
+            .is_some_and(|(p, _)| p.id == id);
         let focus = vec![Intent::Tab(Tab::List), Intent::FocusNewTask];
-        list.add(t.new_task, here, None, &["task.create"], focus);
-        let edit = vec![Intent::EditProject(id)];
-        list.add(t.edit_project, here, None, &["project.update"], edit);
-        if project.status != ProjectStatus::Archived {
+        if !editing {
+            list.add(t.new_task, here, None, &["task.create"], focus);
+            let edit = vec![Intent::EditProject(id)];
+            list.add(t.edit_project, here, None, &["project.update"], edit);
+        }
+        if !editing && project.status != ProjectStatus::Archived {
             let archive = vec![Intent::run(
                 "project.archive",
                 json!({"project": id.to_string()}),

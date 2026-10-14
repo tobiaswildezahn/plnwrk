@@ -223,7 +223,15 @@ impl PlnwrkApp {
                     .task
                     .as_ref()
                     .is_some_and(state::TaskDraft::is_pending)
-                || self.inline_pending().is_some())
+                || self.inline_pending().is_some()
+                || self.project_pending().is_some())
+    }
+
+    /// A project form with typed changes: the project and the form.
+    fn project_pending(&self) -> Option<(ProjectId, state::ProjectForm)> {
+        let (source, form) = self.state.forms.project.as_ref()?;
+        let project = self.doc.as_ref()?.session.workspace().project(source.id)?;
+        form.is_pending(project).then(|| (project.id, form.clone()))
     }
 
     /// A title typed in the list and not taken yet: the task and the new title.
@@ -249,10 +257,42 @@ impl PlnwrkApp {
             );
         }
         self.state.forms.inline = None;
-        let doc = self.doc.as_ref()?;
-        let mut draft = self.state.forms.task.take()?;
-        let task = doc.session.workspace().task(draft.source.id).cloned()?;
-        let mut warnings: Vec<String> = draft.drop_invalid_dates().into_iter().collect();
+        // A half-edited project form counts too: taken like "Übernehmen", or put back and named.
+        let mut project_warning = None;
+        if let Some((id, form)) = self.project_pending() {
+            match form.update_params(id) {
+                Ok(params) => {
+                    self.run(
+                        "project.update",
+                        &params,
+                        Then::Nothing,
+                        Some(Clear::ProjectEdit),
+                    );
+                    if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
+                        project_warning = Some(format!("{} {}", text::t().not_taken, message.text));
+                        self.state.forms.project = None;
+                    }
+                }
+                Err(reason) => {
+                    project_warning = Some(format!("{} {reason}", text::t().not_taken));
+                    self.state.forms.project = None;
+                }
+            }
+        }
+        if let Some(text) = &project_warning {
+            self.state.message = Some(Message::error(text.clone()));
+        }
+        let Some(doc) = self.doc.as_ref() else {
+            return project_warning;
+        };
+        let Some(mut draft) = self.state.forms.task.take() else {
+            return project_warning;
+        };
+        let Some(task) = doc.session.workspace().task(draft.source.id).cloned() else {
+            return project_warning;
+        };
+        let mut warnings: Vec<String> = project_warning.into_iter().collect();
+        warnings.extend(draft.drop_invalid_dates());
         let changes = draft.changes().unwrap_or_default();
         self.state.forms.task = Some(draft);
         if !changes.is_empty() {
@@ -460,10 +500,17 @@ impl PlnwrkApp {
             Intent::Tab(tab) => self.state.tab = tab,
             Intent::FocusNewTask => self.state.focus_new_task = true,
             Intent::EditProject(id) => {
-                if let Some(project) = self
-                    .doc
+                let open = self
+                    .state
+                    .forms
+                    .project
                     .as_ref()
-                    .and_then(|d| d.session.workspace().project(id))
+                    .is_some_and(|(p, _)| p.id == id);
+                if !open
+                    && let Some(project) = self
+                        .doc
+                        .as_ref()
+                        .and_then(|d| d.session.workspace().project(id))
                 {
                     self.state.forms.project =
                         Some((project.clone(), state::ProjectForm::of(project)));
