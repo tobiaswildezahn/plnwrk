@@ -156,6 +156,17 @@ fn broken_messages_get_json_rpc_errors() {
         INVALID_REQUEST
     );
     assert_eq!(
+        code(&mut server, r#"{"id":1.5,"method":"ping"}"#),
+        INVALID_REQUEST
+    );
+    assert_eq!(
+        code(
+            &mut server,
+            r#"{"id":123456789012345678901234567890,"method":"ping"}"#
+        ),
+        INVALID_REQUEST
+    );
+    assert_eq!(
         code(&mut server, r#"{"id":1,"method":"resources/list"}"#),
         METHOD_NOT_FOUND
     );
@@ -272,7 +283,8 @@ fn a_later_deadline_moves_what_waits_and_one_undo_takes_it_back() {
                "params": {"task": first.to_string(), "due": "2026-11-06T12:00", "title": "Leitstelle anbinden (verlängert)"}}),
     );
     assert!(!error, "{answer}");
-    assert_eq!(answer["steps"][0]["moved_along"], 1);
+    // Dates together with the title: first the update as asked, then the successor.
+    assert_eq!(answer["steps"][1]["moved_along"], 1);
     let stored = open(&path);
     let dates = |s: &Session, id: TaskId| {
         let t = s.workspace().task(id).unwrap();
@@ -334,6 +346,107 @@ fn a_later_deadline_moves_what_waits_and_one_undo_takes_it_back() {
     );
     assert!(error, "{answer}");
     assert!(open(&path).workspace().task(second).is_some());
+}
+
+#[test]
+fn new_dates_alone_are_one_step() {
+    let (path, first, second) = sample("dates-only");
+    let mut server = Server::new();
+    let call = |server: &mut Server, command: &str, params: Value| {
+        tool_on(
+            server,
+            "run_command",
+            json!({"file": s(&path), "command": command, "params": params}),
+        )
+    };
+    let (answer, error) = call(
+        &mut server,
+        "task.update",
+        json!({"task": first.to_string(), "start": "2026-11-03", "due": "2026-11-05"}),
+    );
+    assert!(!error, "{answer}");
+    assert_eq!(answer["steps"].as_array().unwrap().len(), 1);
+    assert_eq!(answer["steps"][0]["moved_along"], 1);
+    assert_eq!(
+        open(&path)
+            .workspace()
+            .task(second)
+            .unwrap()
+            .start
+            .unwrap()
+            .to_string(),
+        "2026-11-06"
+    );
+    // A refused change with dates and a wrong field: nothing taken, undo still there.
+    let before = std::fs::read(&path).unwrap();
+    let (_, error) = call(
+        &mut server,
+        "task.update",
+        json!({"task": first.to_string(), "due": "2026-11-20", "status": "bogus"}),
+    );
+    assert!(error);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let (answer, error) = call(&mut server, "undo", json!({}));
+    assert!(!error, "{answer}");
+    assert_eq!(
+        open(&path)
+            .workspace()
+            .task(second)
+            .unwrap()
+            .start
+            .unwrap()
+            .to_string(),
+        "2026-11-05"
+    );
+}
+
+#[test]
+fn write_protected_files_and_odd_paths_are_left_alone() {
+    let (path, first, _) = sample("protected");
+    let dir = path.parent().unwrap().to_path_buf();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions.clone()).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (reason, error) = tool(
+        "run_command",
+        json!({"file": s(&path), "command": "task.update",
+               "params": {"task": first.to_string(), "title": "trotzdem"}}),
+    );
+    assert!(
+        error && reason.as_str().unwrap().contains("write-protected"),
+        "{reason}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "the test made it read-only"
+    )]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    // Neither reading nor a refused change leaves anything next to what is not a file.
+    let lock_files = || {
+        std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".lock"))
+            .count()
+    };
+    for target in [dir.join("fehlt.plnwrk"), dir.join("unterordner")] {
+        let _ = std::fs::create_dir_all(dir.join("unterordner"));
+        let (_, error) = tool("overview", json!({"file": s(&target)}));
+        assert!(error);
+        let (_, error) = tool(
+            "run_command",
+            json!({"file": s(&target), "command": "undo"}),
+        );
+        assert!(error);
+    }
+    let (_, error) = tool("overview", json!({"file": s(&path)}));
+    assert!(!error);
+    assert_eq!(lock_files(), 0);
+    let (reason, error) = tool("overview", json!({"file": "/dev/null"}));
+    assert!(error, "{reason}");
 }
 
 #[test]

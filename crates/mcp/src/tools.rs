@@ -177,7 +177,7 @@ fn run(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
     let params = object(arguments, "params")?;
     // Refused before the file is even opened: nothing classified may enter it.
     if params::asks_for_classified(&params) {
-        return Err(Refusal::Classified.message());
+        return Err(Refusal::ClassifiedCommand.message());
     }
     let path = files::path(&text(arguments, "file")?).map_err(|r| r.message())?;
     let mut file = Changing::open(&path, kept).map_err(|r| r.message())?;
@@ -224,22 +224,54 @@ fn step(session: &mut Session, command: &str, params: &Value) -> Answer {
     serde_json::to_value(outcome).map_err(|e| e.to_string())
 }
 
-/// `task.update`: new dates go through `task.reschedule`, so that whatever waits for the task
-/// moves along (one step); the other fields follow in a second step.
+/// `task.update` with new dates: whatever waits for the task moves along. Dates alone are one
+/// `task.reschedule` (one step). Together with other fields, the whole update runs first as it
+/// was asked (checked and taken as one, or refused as a whole), then the successors move in a
+/// second step.
 fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, String> {
-    let Value::Object(mut fields) = params else {
-        return Ok(vec![step(session, "task.update", &params)?]);
+    let plain = |session: &mut Session, params: &Value| {
+        step(session, "task.update", params).map(|outcome| vec![outcome])
+    };
+    let Value::Object(fields) = &params else {
+        return plain(session, &params);
     };
     let has_dates = fields.contains_key("start") || fields.contains_key("due");
     let task = fields
         .get("task")
         .and_then(|v| params::id::<TaskId>("task", v).ok());
     let (Some(task), true) = (task, has_dates) else {
-        return Ok(vec![step(session, "task.update", &Value::Object(fields))?]);
+        return plain(session, &params);
     };
     let Some(current) = session.workspace().task(task).cloned() else {
-        return Ok(vec![step(session, "task.update", &Value::Object(fields))?]);
+        return plain(session, &params);
     };
+    let others = fields
+        .keys()
+        .any(|k| !["task", "start", "due"].contains(&k.as_str()));
+    if others {
+        let mut steps = plain(session, &params)?;
+        let Some(now) = session.workspace().task(task).cloned() else {
+            return Ok(steps);
+        };
+        let Some(along) = Reschedule::of(
+            session.workspace(),
+            task,
+            now.start,
+            now.due,
+            Calendar::hamburg(),
+        ) else {
+            return Ok(steps);
+        };
+        if along.along() > 0 {
+            too_many(&along)?;
+            let mut moved = step(session, "task.reschedule", &along.params(None))?;
+            if let Some(fields) = moved.as_object_mut() {
+                fields.insert("moved_along".to_owned(), Value::from(along.along()));
+            }
+            steps.push(moved);
+        }
+        return Ok(steps);
+    }
     // Dates that do not read are left to task.update, which says what is wrong.
     let start = match fields.get("start") {
         None => Ok(current.start),
@@ -252,7 +284,7 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         Some(value) => params::deadline("due", value).map(Some),
     };
     let (Ok(start), Ok(due)) = (start, due) else {
-        return Ok(vec![step(session, "task.update", &Value::Object(fields))?]);
+        return plain(session, &params);
     };
     let Some(reschedule) = Reschedule::of(
         session.workspace(),
@@ -261,25 +293,26 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         due.map(|(day, _)| day),
         Calendar::hamburg(),
     ) else {
-        return Ok(vec![step(session, "task.update", &Value::Object(fields))?]);
+        return plain(session, &params);
     };
+    too_many(&reschedule)?;
+    let time = fields
+        .contains_key("due")
+        .then(|| due.and_then(|(_, time)| time));
+    let mut moved = step(session, "task.reschedule", &reschedule.params(time))?;
+    if let Some(fields) = moved.as_object_mut() {
+        fields.insert("moved_along".to_owned(), Value::from(reschedule.along()));
+    }
+    Ok(vec![moved])
+}
+
+/// Refuses a push larger than one command can take.
+fn too_many(reschedule: &Reschedule) -> Result<(), String> {
     if reschedule.moves.len() > MOVES_MAX {
         return Err(format!(
             "Not changed: {} tasks wait for this one and would have to move, more than one step can take ({MOVES_MAX}). Remove dependencies or move them in parts.",
             reschedule.along()
         ));
     }
-    let time = fields
-        .contains_key("due")
-        .then(|| due.and_then(|(_, time)| time));
-    let mut steps = vec![step(session, "task.reschedule", &reschedule.params(time))?];
-    fields.remove("start");
-    fields.remove("due");
-    if fields.len() > 1 {
-        steps.push(step(session, "task.update", &Value::Object(fields))?);
-    }
-    if let Some(first) = steps.first_mut().and_then(Value::as_object_mut) {
-        first.insert("moved_along".to_owned(), Value::from(reschedule.along()));
-    }
-    Ok(steps)
+    Ok(())
 }

@@ -21,10 +21,25 @@ fn io(error: std::io::Error) -> StoreError {
     }
 }
 
-/// Reads a whole file, at most [`MAX_FILE_BYTES`].
+/// An error unless `path` is an ordinary file (not a folder, pipe or device).
+fn ordinary(metadata: &fs::Metadata, path: &Path) -> Result<(), StoreError> {
+    if metadata.is_file() {
+        Ok(())
+    } else {
+        Err(StoreError::Io {
+            reason: format!("not an ordinary file: {}", path.display()),
+        })
+    }
+}
+
+/// Reads a whole file, at most [`MAX_FILE_BYTES`]. Only ordinary files: looked at before
+/// opening, so a named pipe or a device is never opened (that could wait forever).
 pub fn read(path: &Path) -> Result<Vec<u8>, StoreError> {
+    ordinary(&fs::metadata(path).map_err(io)?, path)?;
     let file = File::open(path).map_err(io)?;
-    if file.metadata().map_err(io)?.len() > MAX_FILE_BYTES {
+    let metadata = file.metadata().map_err(io)?;
+    ordinary(&metadata, path)?;
+    if metadata.len() > MAX_FILE_BYTES {
         return Err(StoreError::TooLarge {
             limit: MAX_FILE_BYTES,
         });
@@ -221,6 +236,21 @@ pub fn lock(path: &Path) -> Result<Lock, StoreError> {
     }
 }
 
+/// Whether another plnwrk program holds the lock of `path` right now. Creates nothing: without
+/// a lock file, nobody holds it.
+pub fn is_locked(path: &Path) -> bool {
+    let Ok(name) = name_of(path) else {
+        return false;
+    };
+    let Ok(file) = OpenOptions::new()
+        .write(true)
+        .open(folder_of(path).join(format!(".{name}.lock")))
+    else {
+        return false;
+    };
+    matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,13 +350,36 @@ mod tests {
     }
 
     #[test]
+    fn only_ordinary_files_are_read() {
+        let dir = scratch("ordinary");
+        assert!(matches!(read(&dir), Err(StoreError::Io { .. })));
+        // A device (like a named pipe, it could wait forever or never end).
+        #[cfg(unix)]
+        {
+            assert!(matches!(
+                read(Path::new("/dev/null")),
+                Err(StoreError::Io { .. })
+            ));
+            assert!(matches!(
+                read(Path::new("/dev/stdin")),
+                Err(StoreError::Io { .. })
+            ));
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn a_second_lock_is_refused_until_the_first_is_released() {
         let dir = scratch("lock");
         let path = dir.join("a.plnwrk");
+        assert!(!is_locked(&path));
+        assert!(entries(&dir).is_empty(), "asking creates no lock file");
         let first = lock(&path).unwrap();
+        assert!(is_locked(&path));
         assert!(matches!(lock(&path), Err(StoreError::InUse { .. })));
         drop(first);
-        assert!(lock(&path).is_ok());
+        let again = lock(&path);
+        assert!(again.is_ok(), "{again:?}");
         fs::remove_dir_all(dir).unwrap();
     }
 

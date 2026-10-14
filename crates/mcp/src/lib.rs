@@ -16,8 +16,9 @@ use serde_json::{Map, Value, json};
 /// Protocol versions understood, newest first.
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// Longest message read (32 MiB); anything longer is answered with an error and skipped.
-pub const MAX_LINE: usize = 32 * 1024 * 1024;
+/// Longest message read (4 MiB; a parsed message takes many times that in memory); anything
+/// longer is answered with an error and skipped.
+pub const MAX_LINE: usize = 4 * 1024 * 1024;
 
 /// What the model is told when it connects.
 const INSTRUCTIONS: &str = "plnwrk manages projects and cases (Vorgänge) with tasks, deadlines, \
@@ -26,8 +27,9 @@ its absolute path. Start with overview to get project ids, then query (e.g. task
 project, task, history) for more. To change something, find the command with search_commands \
 and call run_command; each change is saved at once, is an undo step and is marked as made by an \
 AI. Dates are YYYY-MM-DD, deadlines optionally YYYY-MM-DDTHH:MM. Changing a task's start or due \
-moves the tasks that wait for it later as needed (Hamburg working days). \"undo\" takes back \
-your own last step in this conversation (not one made elsewhere, e.g. in the app). Files \
+moves the tasks that wait for it later as needed (Hamburg working days); together with other \
+fields that is two undo steps. \"undo\" takes back your own last step, as long as the file was \
+not changed elsewhere since (never a change made in the app). Files \
 classified VS-NfD and encrypted files are never opened.";
 
 /// JSON-RPC error codes.
@@ -92,11 +94,12 @@ impl Server {
         };
         // A notification (no id): nothing to answer, whatever it is.
         let id = id?;
-        if !(id.is_string() || id.is_number()) {
+        // Whole numbers only: a float would not come back as the same id.
+        if !(id.is_string() || id.is_i64() || id.is_u64()) {
             return Some(failure(
                 &Value::Null,
                 INVALID_REQUEST,
-                "id must be a string or a number",
+                "id must be a string or a whole number",
             ));
         }
         let params = match message.get("params") {

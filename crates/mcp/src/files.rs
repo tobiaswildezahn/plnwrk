@@ -3,7 +3,7 @@
 //! (decision 2026-10-14, docs/plans/2026-10-14-phase-6a.md). Every check runs before anything
 //! is read out or run.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use plnwrk_core::Classification;
@@ -18,6 +18,10 @@ pub enum Refusal {
     Path(String),
     /// Classified VS-NfD or higher, now or in its history.
     Classified,
+    /// A command would classify something VS-NfD or higher.
+    ClassifiedCommand,
+    /// Protected against writing by its owner.
+    ReadOnly,
     /// Encrypted with a passphrase.
     Encrypted,
     /// Another plnwrk (the app) has it open for changes.
@@ -34,6 +38,12 @@ impl Refusal {
             Self::Classified => "This file is classified VS-NfD (or was at some point in its \
                 history). plnwrk never hands classified content to an AI: work on it in the \
                 plnwrk app."
+                .to_owned(),
+            Self::ClassifiedCommand => "Nothing can be classified VS-NfD over MCP: classified \
+                content never goes through an AI. Do it in the plnwrk app."
+                .to_owned(),
+            Self::ReadOnly => "This file is write-protected. plnwrk does not change it over \
+                MCP; remove the protection in the Finder first if it should be changed."
                 .to_owned(),
             Self::Encrypted => "This file is encrypted with a passphrase. plnwrk does not open \
                 encrypted files over MCP: work on it in the plnwrk app."
@@ -116,11 +126,14 @@ fn check(bytes: &[u8]) -> Result<Opened, Refusal> {
 }
 
 /// Opens a file to read. Returns whether another plnwrk has it open (then what is read is the
-/// state last saved there).
+/// state last saved there). Leaves nothing behind.
 pub fn read(path: &Path) -> Result<(Opened, bool), Refusal> {
-    let open_elsewhere = matches!(file::lock(path), Err(StoreError::InUse { .. }));
-    Ok((load(path)?, open_elsewhere))
+    let opened = load(path)?;
+    Ok((opened, file::is_locked(path)))
 }
+
+/// Files whose session is kept at most (the oldest is let go first).
+const KEPT_FILES: usize = 16;
 
 /// The sessions of files changed in this conversation, with the bytes last read or written.
 /// While a file on disk is still exactly that, the next change continues the same session, so
@@ -129,6 +142,26 @@ pub fn read(path: &Path) -> Result<(Opened, bool), Refusal> {
 #[derive(Default)]
 pub struct Kept {
     files: BTreeMap<PathBuf, (Vec<u8>, Session)>,
+    /// Paths in the order they were kept, oldest first.
+    order: VecDeque<PathBuf>,
+}
+
+impl Kept {
+    fn take(&mut self, path: &Path) -> Option<(Vec<u8>, Session)> {
+        self.order.retain(|p| p != path);
+        self.files.remove(path)
+    }
+
+    fn put(&mut self, path: PathBuf, bytes: Vec<u8>, session: Session) {
+        self.take(&path);
+        self.order.push_back(path.clone());
+        self.files.insert(path, (bytes, session));
+        while self.order.len() > KEPT_FILES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.files.remove(&oldest);
+            }
+        }
+    }
 }
 
 /// A file opened for a change: held against other plnwrk programs until it is dropped.
@@ -143,9 +176,22 @@ pub struct Changing {
 impl Changing {
     /// Locks and opens `path`, continuing the kept session if the file has not changed since.
     pub fn open(path: &Path, kept: &mut Kept) -> Result<Self, Refusal> {
+        // Looked at first, so nothing (not even a lock file) is left next to something that
+        // is not a file of its own.
+        let metadata = std::fs::metadata(path).map_err(|e| StoreError::Io {
+            reason: e.to_string(),
+        })?;
+        if !metadata.is_file() {
+            return Err(Refusal::Store(StoreError::Io {
+                reason: format!("not an ordinary file: {}", path.display()),
+            }));
+        }
+        if metadata.permissions().readonly() {
+            return Err(Refusal::ReadOnly);
+        }
         let lock = file::lock(path)?;
         let bytes = file::read(path)?;
-        let opened = match kept.files.remove(path) {
+        let opened = match kept.take(path) {
             Some((known, session)) if known == bytes => Opened {
                 session,
                 upgraded: false,
@@ -170,13 +216,12 @@ impl Changing {
         }
         let bytes = plnwrk_store::save(&doc, &Protection::None)?;
         file::write_atomic(&self.path, &bytes)?;
-        kept.files.insert(self.path, (bytes, self.opened.session));
+        kept.put(self.path, bytes, self.opened.session);
         Ok(())
     }
 
     /// Nothing changed: keeps the session for the next call.
     pub fn keep(self, kept: &mut Kept) {
-        kept.files
-            .insert(self.path, (self.bytes, self.opened.session));
+        kept.put(self.path, self.bytes, self.opened.session);
     }
 }
