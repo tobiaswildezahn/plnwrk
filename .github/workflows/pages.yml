@@ -1,0 +1,44 @@
+name: pages
+
+# Publishes the browser version on GitHub Pages. Started by hand only (Actions → pages → Run
+# workflow): publishing makes the app reachable under a public address. The app sends no data
+# anywhere; files stay on the computer (upload/download). Needs Pages enabled in the
+# repository settings with "GitHub Actions" as source. docs/plans/2026-10-14-phase-4.md.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.21.14
+      - name: trunk build
+        working-directory: apps/plnwrk-web
+        # Served below https://<owner>.github.io/<repository>/.
+        run: trunk build --release --locked --public-url "/${{ github.event.repository.name }}/"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/plnwrk-web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

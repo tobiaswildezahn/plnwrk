@@ -2,6 +2,9 @@
 //!
 //! Build and serve with `trunk serve apps/plnwrk-web/index.html`.
 
+#[cfg(target_arch = "wasm32")]
+mod host;
+
 /// Id of the canvas element in `index.html`.
 #[cfg(target_arch = "wasm32")]
 const CANVAS_ID: &str = "plnwrk_canvas";
@@ -27,10 +30,8 @@ fn main() {
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(|cc| {
-                    Ok(Box::new(plnwrk_ui::PlnwrkApp::new(
-                        cc,
-                        Box::new(plnwrk_ui::NoDialogs),
-                    )))
+                    let host = host::WebHost::new(cc.egui_ctx.clone());
+                    Ok(Box::new(plnwrk_ui::PlnwrkApp::new(cc, Box::new(host))))
                 }),
             )
             .await;

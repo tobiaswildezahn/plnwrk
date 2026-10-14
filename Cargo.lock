@@ -3349,6 +3349,7 @@ name = "plnwrk-web"
 version = "0.0.0"
 dependencies = [
  "eframe",
+ "js-sys",
  "log",
  "plnwrk-ui",
  "wasm-bindgen",
