@@ -171,6 +171,21 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     );
                 }
             }
+            if doc.is_some() {
+                match &state.recovery {
+                    Some(crate::autosave::Written::At(time)) => {
+                        ui.weak(format!("{} {time}", text::RECOVERY_SAVED))
+                            .on_hover_text(text::RECOVERED);
+                    }
+                    Some(crate::autosave::Written::Failed(_)) => {
+                        ui.label(
+                            RichText::new(text::RECOVERY_FAILED.trim_end_matches(':'))
+                                .color(ui.visuals().error_fg_color),
+                        );
+                    }
+                    None => {}
+                }
+            }
             if let Some(message) = &state.message {
                 ui.separator();
                 let color = if message.error {

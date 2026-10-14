@@ -1164,7 +1164,7 @@ fn the_calendar_opens_at_the_month_of_its_value_again() {
     };
     open_due_calendar(&mut harness);
     assert!(harness.query_by_label("März 2027").is_some());
-    click(&mut harness, "⏵");
+    click(&mut harness, text::NEXT_MONTH);
     assert!(harness.query_by_label("April 2027").is_some());
     harness.key_press(Key::Escape);
     harness.run();
@@ -1424,4 +1424,78 @@ fn symbol_buttons_have_spoken_names() {
     for symbol in ["📅", "🕑", "🗑", "🗙", "+"] {
         assert!(harness.query_by_label(symbol).is_none(), "{symbol}");
     }
+}
+
+#[test]
+fn a_recovered_copy_that_is_only_looked_at_is_kept() {
+    let dir = scratch("autosave-keep");
+    let recovery = dir.join("Notkopien");
+    let mut crashed = PlnwrkApp::default();
+    crashed.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
+    let mut crashed = harness(crashed);
+    click(&mut crashed, text::OPEN_SAMPLE);
+    let copy = crashed.state_mut().emergency_save().unwrap();
+    drop(crashed);
+
+    let mut app = PlnwrkApp::default();
+    app.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
+    app.state.recovered = crate::doc::recovery_copies(&recovery);
+    let mut harness = harness(app);
+    click(&mut harness, &copy.file_name().unwrap().to_string_lossy());
+    // Close and discard: the only remaining version must not be deleted.
+    open_file_menu(&mut harness);
+    click(&mut harness, text::CLOSE_FILE);
+    click(&mut harness, text::DISCARD);
+    assert!(harness.state().doc().is_none());
+    assert!(copy.exists(), "kept for later");
+}
+
+#[test]
+fn a_title_typed_in_the_list_is_saved_with_the_file() {
+    let (mut harness, path) = saved_sample_with_task("inline-save", "Einbau Wache 11");
+    double_click(&mut harness, "Einbau Wache 11");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run();
+    harness
+        .get_by(|n| n.role() == egui::accesskit::Role::TextInput && n.is_focused())
+        .type_text("Einbau Wache 12");
+    harness.run();
+    assert!(harness.state().has_unsaved_changes(), "typed counts");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(!harness.state().has_unsaved_changes());
+    drop(harness);
+    let stored = reopen(&path);
+    assert!(
+        stored
+            .session
+            .workspace()
+            .tasks()
+            .any(|t| t.title == "Einbau Wache 12")
+    );
+}
+
+#[test]
+fn closing_or_replacing_a_workspace_removes_its_copy() {
+    let dir = scratch("autosave-replace");
+    let mut app = PlnwrkApp::default();
+    app.set_autosave(Some(dir.clone()), false, 0.0);
+    let mut harness = harness(app);
+    click(&mut harness, text::OPEN_SAMPLE);
+    harness.run();
+    assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
+    // Another file instead (changes discarded): the first copy goes.
+    open_file_menu(&mut harness);
+    click(&mut harness, text::NEW_FILE);
+    click(&mut harness, text::DISCARD);
+    assert!(crate::doc::recovery_copies(&dir).is_empty());
+    click(&mut harness, text::NEW_PROJECT);
+    type_into(&mut harness, text::TITLE, "Neu", false);
+    click(&mut harness, text::CREATE);
+    harness.run();
+    assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
+    open_file_menu(&mut harness);
+    click(&mut harness, text::CLOSE_FILE);
+    click(&mut harness, text::DISCARD);
+    assert!(crate::doc::recovery_copies(&dir).is_empty());
 }

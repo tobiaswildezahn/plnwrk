@@ -2,6 +2,10 @@
 //! after a change, so a crash or a power cut loses at most that minute. One copy per opened
 //! workspace in the recovery folder; deleted once the file is saved or deliberately dropped.
 //! Never written into the file itself.
+//!
+//! It runs from `eframe::App::logic`, which is called even while the window is minimised or
+//! covered, and measures time with a real clock there (egui's frame time stands still while the
+//! window is hidden). Tests drive it with egui time instead.
 
 use std::path::PathBuf;
 
@@ -10,6 +14,15 @@ use crate::doc::OpenDoc;
 /// Seconds between a change and its recovery copy.
 pub const INTERVAL: f64 = 60.0;
 
+/// What the last write did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Written {
+    /// The copy is up to date (local time of day, `HH:MM`).
+    At(String),
+    /// It could not be written; why.
+    Failed(String),
+}
+
 /// The autosave of the app.
 #[derive(Debug, Default)]
 pub struct Autosave {
@@ -17,27 +30,43 @@ pub struct Autosave {
     folder: Option<PathBuf>,
     /// Write in a background thread (the app) or right away (tests).
     background: bool,
+    /// Measure time with a real clock (the app) instead of egui time (tests).
+    #[cfg(not(target_arch = "wasm32"))]
+    started: Option<std::time::Instant>,
     /// Seconds to wait after a change.
     interval: f64,
     /// The copy of the open workspace, once written (or the recovered file it came from).
     copy: Option<PathBuf>,
+    /// The copy is a recovered file that was opened: it is only removed once saved elsewhere.
+    adopted: bool,
     /// The state (log length) the copy holds.
     written: Option<usize>,
-    /// When the first change not yet in the copy was seen (egui time, seconds).
+    /// When the first change not yet in the copy was seen (seconds).
     since: Option<f64>,
-    /// A copy being written.
+    /// The outcome of the last write, for the status bar.
+    last: Option<Written>,
+    /// A copy being written: its result and the state it holds.
     #[cfg(not(target_arch = "wasm32"))]
-    worker: Option<std::thread::JoinHandle<()>>,
+    worker: Option<(std::thread::JoinHandle<Result<(), String>>, usize)>,
 }
 
 impl Autosave {
-    /// An autosave into `folder`.
+    /// An autosave into `folder`, timed by egui (for tests).
     pub fn new(folder: Option<PathBuf>, background: bool, interval: f64) -> Self {
         Self {
             folder,
             background,
             interval,
             ..Self::default()
+        }
+    }
+
+    /// The autosave of the desktop app: background thread, real clock.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn for_app(folder: PathBuf) -> Self {
+        Self {
+            started: Some(std::time::Instant::now()),
+            ..Self::new(Some(folder), true, INTERVAL)
         }
     }
 
@@ -52,29 +81,39 @@ impl Autosave {
         self.copy.as_deref()
     }
 
+    /// What the last write did, for the status bar.
+    pub fn last(&self) -> Option<&Written> {
+        self.last.as_ref()
+    }
+
     /// Takes over an existing copy (a recovered file that was opened): later autosaves replace
-    /// it, saving deletes it.
+    /// it, saving elsewhere deletes it, dropping the work keeps it.
     pub fn adopt(&mut self, copy: PathBuf) {
         self.finish();
         self.copy = Some(copy);
+        self.adopted = true;
         self.written = None;
         self.since = None;
+        self.last = None;
     }
 
-    /// Called every frame: writes a copy when changes have waited long enough. Returns how long
-    /// until it should be called again (for a repaint), if a copy is due.
-    pub fn tick(&mut self, doc: Option<&OpenDoc>, now: f64) -> Option<f64> {
-        #[cfg(not(target_arch = "wasm32"))]
-        if self
-            .worker
-            .as_ref()
-            .is_some_and(std::thread::JoinHandle::is_finished)
-        {
-            self.finish();
-        }
+    /// Called regularly: writes a copy when changes have waited long enough. `egui_time` is
+    /// used unless a real clock runs. Returns how long until it should be called again, if a
+    /// copy is due.
+    pub fn tick(&mut self, doc: Option<&OpenDoc>, egui_time: f64) -> Option<f64> {
+        let now = self.now(egui_time);
+        self.reap();
         let doc = doc?;
         let folder = self.folder.clone()?;
-        if !doc.is_dirty() || self.written == Some(doc.log_len()) {
+        if !doc.is_dirty() {
+            // Back at the saved state (e.g. undone): an own copy is no longer needed.
+            if self.copy.is_some() && !self.adopted {
+                self.discard();
+            }
+            self.since = None;
+            return None;
+        }
+        if self.written == Some(doc.log_len()) {
             self.since = None;
             return None;
         }
@@ -88,36 +127,98 @@ impl Autosave {
             return Some(1.0);
         }
         self.write(doc, &folder);
+        // After a failure, try again an interval later (not every frame).
+        if matches!(self.last, Some(Written::Failed(_))) {
+            self.since = Some(now);
+            return Some(self.interval);
+        }
         None
     }
 
-    /// Writes the copy now and waits for it (when the app ends without asking).
+    /// Writes the copy now and waits for it (when the app ends without asking). The copy, if it
+    /// was really written.
     pub fn write_now(&mut self, doc: &OpenDoc) -> Option<PathBuf> {
         let folder = self.folder.clone()?;
         self.finish();
         let background = std::mem::replace(&mut self.background, false);
         self.write(doc, &folder);
         self.background = background;
-        self.copy.clone()
+        match self.last {
+            Some(Written::At(_)) => self.copy.clone(),
+            _ => None,
+        }
     }
 
-    /// The workspace was saved or deliberately dropped: the copy goes.
+    /// The work was deliberately dropped (closed, discarded, replaced): the copy goes – unless
+    /// it is a recovered file, which stays until its content is saved somewhere.
     pub fn discard(&mut self) {
         self.finish();
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(copy) = self.copy.take() {
+        if let Some(copy) = self.copy.take()
+            && !self.adopted
+        {
             let _ = std::fs::remove_file(copy);
         }
-        self.copy = None;
-        self.written = None;
-        self.since = None;
+        self.reset();
     }
 
-    /// Waits for a copy being written.
+    /// The work was saved: the copy goes, a recovered one too.
+    pub fn saved(&mut self) {
+        self.adopted = false;
+        self.discard();
+    }
+
+    fn reset(&mut self) {
+        self.copy = None;
+        self.adopted = false;
+        self.written = None;
+        self.since = None;
+        self.last = None;
+    }
+
+    fn now(&self, egui_time: f64) -> f64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(started) = self.started {
+            return started.elapsed().as_secs_f64();
+        }
+        egui_time
+    }
+
+    /// Takes in the result of a finished background write.
+    fn reap(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self
+            .worker
+            .as_ref()
+            .is_some_and(|(worker, _)| worker.is_finished())
+        {
+            self.finish();
+        }
+    }
+
+    /// Waits for a copy being written and takes in its result.
     fn finish(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        if let Some((worker, state)) = self.worker.take() {
+            let result = worker
+                .join()
+                .unwrap_or_else(|_| Err("the writer stopped".to_owned()));
+            self.record(result, state);
+        }
+    }
+
+    fn record(&mut self, result: Result<(), String>, state: usize) {
+        match result {
+            Ok(()) => {
+                self.written = Some(state);
+                self.last = Some(Written::At(
+                    jiff::Zoned::now().strftime("%H:%M").to_string(),
+                ));
+            }
+            Err(reason) => {
+                self.written = None;
+                self.last = Some(Written::Failed(reason));
+            }
         }
     }
 
@@ -130,22 +231,25 @@ impl Autosave {
         let (data, protection) = doc.snapshot();
         let folder = folder.to_path_buf();
         let target = path.clone();
-        let job = move || {
+        let job = move || -> Result<(), String> {
             // Saving encrypts (about a second) – that is why it runs apart from the window.
-            if std::fs::create_dir_all(&folder).is_ok()
-                && let Ok(bytes) = plnwrk_store::save(&data, &protection)
-            {
-                let _ = plnwrk_store::file::write_atomic(&target, &bytes);
-            }
+            std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+            let bytes =
+                plnwrk_store::save(&data, &protection).map_err(|e| crate::text::store_error(&e))?;
+            plnwrk_store::file::write_atomic(&target, &bytes)
+                .map_err(|e| crate::text::store_error(&e))
         };
-        if self.background {
-            self.worker = Some(std::thread::spawn(job));
-        } else {
-            job();
-        }
         self.copy = Some(path);
-        self.written = Some(doc.log_len());
         self.since = None;
+        let state = doc.log_len();
+        if self.background {
+            // Counted as written while it runs, so it is not started twice for the same state.
+            self.written = Some(state);
+            self.worker = Some((std::thread::spawn(job), state));
+        } else {
+            let result = job();
+            self.record(result, state);
+        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -182,6 +286,7 @@ mod tests {
         assert_eq!(autosave.tick(Some(&doc), 69.0), Some(1.0));
         assert!(autosave.copy().is_none());
         assert_eq!(autosave.tick(Some(&doc), 70.0), None);
+        assert!(matches!(autosave.last(), Some(Written::At(_))));
         let copy = autosave.copy().unwrap().to_path_buf();
         let reopened = OpenDoc::open(&copy, None).unwrap();
         assert!(reopened.session.workspace().people().any(|p| p.name == "A"));
@@ -206,17 +311,73 @@ mod tests {
     }
 
     #[test]
-    fn background_copies_are_complete_before_discard_returns() {
+    fn a_running_background_copy_is_waited_for_before_it_is_removed() {
         let dir = scratch("background");
         let mut autosave = Autosave::new(Some(dir.clone()), true, 0.0);
+        let mut doc = OpenDoc::new();
+        // Encrypted: writing takes about a second, long enough to race with the removal.
+        doc.set_protection(plnwrk_store::Protection::Passphrase(
+            plnwrk_store::SecretString::from("richtig-lange-passphrase".to_owned()),
+        ));
+        change(&mut doc, "A");
+        autosave.tick(Some(&doc), 0.0);
+        let copy = autosave.copy().unwrap().to_path_buf();
+        autosave.discard();
+        // Had the thread been left running, it would write the copy after the removal.
+        std::thread::sleep(std::time::Duration::from_millis(2_500));
+        assert!(!copy.exists());
+        assert!(crate::doc::recovery_copies(&dir).is_empty());
+    }
+
+    #[test]
+    fn a_failed_copy_is_reported_and_retried_later() {
+        let dir = scratch("failed");
+        let mut autosave = Autosave::new(Some(dir.clone()), false, INTERVAL);
+        let mut doc = OpenDoc::new();
+        change(&mut doc, "A");
+        // VS-NfD may only be written encrypted; this workspace has no passphrase.
+        let created = doc
+            .session
+            .run(
+                "project.create",
+                &json!({"title": "Geheim", "classification": "vs_nfd"}),
+                Origin::User,
+            )
+            .unwrap();
+        assert!(!created.created.is_empty());
+        autosave.tick(Some(&doc), 0.0);
+        assert_eq!(
+            autosave.tick(Some(&doc), 60.0),
+            Some(INTERVAL),
+            "retry later"
+        );
+        assert!(matches!(autosave.last(), Some(Written::Failed(_))));
+        assert!(autosave.write_now(&doc).is_none(), "no copy claimed");
+        assert!(crate::doc::recovery_copies(&dir).is_empty());
+    }
+
+    #[test]
+    fn back_at_the_saved_state_the_copy_goes_but_a_recovered_one_stays() {
+        let dir = scratch("undone");
+        let mut autosave = Autosave::new(Some(dir.clone()), false, 0.0);
         let mut doc = OpenDoc::new();
         change(&mut doc, "A");
         autosave.tick(Some(&doc), 0.0);
         let copy = autosave.copy().unwrap().to_path_buf();
-        // Saving the file now must not leave a copy written later by the thread.
+        assert!(copy.exists());
+        let clean = OpenDoc::new();
+        autosave.tick(Some(&clean), 1.0);
+        assert!(!copy.exists(), "nothing unsaved any more");
+        // A recovered copy that is dropped stays for later; saved elsewhere, it goes.
+        std::fs::create_dir_all(&dir).unwrap();
+        let recovered = dir.join("alt.plnwrk");
+        std::fs::write(&recovered, b"x").unwrap();
+        autosave.adopt(recovered.clone());
         autosave.discard();
-        assert!(!copy.exists());
-        assert!(crate::doc::recovery_copies(&dir).is_empty());
+        assert!(recovered.exists());
+        autosave.adopt(recovered.clone());
+        autosave.saved();
+        assert!(!recovered.exists());
     }
 
     #[test]

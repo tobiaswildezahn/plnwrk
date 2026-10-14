@@ -73,7 +73,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
     let mut choice = None;
     let mut next = shown;
     ui.horizontal(|ui| {
-        if ui.small_button("⏴").on_hover_text("Vormonat").clicked() {
+        if super::icon_button(ui, "⏴", text::PREVIOUS_MONTH).clicked() {
             next = month_start(shown, -1);
         }
         let name = MONTHS
@@ -81,7 +81,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
             .copied()
             .unwrap_or_default();
         ui.strong(format!("{name} {}", shown.year()));
-        if ui.small_button("⏵").on_hover_text("Folgemonat").clicked() {
+        if super::icon_button(ui, "⏵", text::NEXT_MONTH).clicked() {
             next = month_start(shown, 1);
         }
     });

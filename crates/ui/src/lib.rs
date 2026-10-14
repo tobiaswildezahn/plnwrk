@@ -154,7 +154,7 @@ impl PlnwrkApp {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(folder) = doc::recovery_folder() {
             app.state.recovered = doc::recovery_copies(&folder);
-            app.autosave = autosave::Autosave::new(Some(folder), true, autosave::INTERVAL);
+            app.autosave = autosave::Autosave::for_app(folder);
         }
         app
     }
@@ -185,7 +185,16 @@ impl PlnwrkApp {
                     .forms
                     .task
                     .as_ref()
-                    .is_some_and(state::TaskDraft::is_pending))
+                    .is_some_and(state::TaskDraft::is_pending)
+                || self.inline_pending().is_some())
+    }
+
+    /// A title typed in the list and not taken yet: the task and the new title.
+    fn inline_pending(&self) -> Option<(TaskId, String)> {
+        let (id, text) = self.state.forms.inline.as_ref()?;
+        let task = self.doc.as_ref()?.session.workspace().task(*id)?;
+        let text = text.trim();
+        (!text.is_empty() && text != task.title).then(|| (*id, text.to_owned()))
     }
 
     /// Stores what is typed in the detail panel but not committed yet (the field still has the
@@ -193,6 +202,16 @@ impl PlnwrkApp {
     /// to the stored value and named in a message, so saving and closing always work.
     /// Returns the warning about what was put back, if anything.
     fn flush_draft(&mut self) -> Option<String> {
+        // A title being renamed in the list counts like any typed text.
+        if let Some((id, title)) = self.inline_pending() {
+            self.run(
+                "task.update",
+                &serde_json::json!({"task": id.to_string(), "title": title}),
+                Then::Nothing,
+                Some(Clear::Inline),
+            );
+        }
+        self.state.forms.inline = None;
         let doc = self.doc.as_ref()?;
         let mut draft = self.state.forms.task.take()?;
         let task = doc.session.workspace().task(draft.source.id).cloned()?;
@@ -282,11 +301,26 @@ impl PlnwrkApp {
         for intent in intents {
             self.apply(intent);
         }
-        let now = ui.input(|i| i.time);
-        if let Some(wait) = self.autosave.tick(self.doc.as_ref(), now) {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.1)));
+        self.autosave_tick(ui.ctx());
+    }
+
+    /// Lets the autosave write when due, and wakes the app up again when the next copy is due –
+    /// also while the window is hidden (`eframe::App::logic`).
+    fn autosave_tick(&mut self, ctx: &egui::Context) {
+        let before = self.autosave.last().cloned();
+        if let Some(wait) = self.autosave.tick(self.doc.as_ref(), ctx.input(|i| i.time)) {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.1)));
         }
+        let after = self.autosave.last().cloned();
+        if after != before
+            && let Some(autosave::Written::Failed(reason)) = &after
+        {
+            self.state.message = Some(Message::error(format!(
+                "{} {reason}",
+                text::RECOVERY_FAILED
+            )));
+        }
+        self.state.recovery = after;
     }
 
     /// Drops the selection or view of things that no longer exist (deleted, undone).
@@ -359,14 +393,10 @@ impl PlnwrkApp {
                 );
             }
             Intent::Unprotect => {
+                // VS-NfD stays encrypted: saving without protection is refused by the store,
+                // and the old protection is put back.
                 self.state.close_dialog();
-                if self.doc.as_ref().is_some_and(OpenDoc::classified) {
-                    self.state.message = Some(Message::error(text::store_error(
-                        &StoreError::ClassifiedUnencrypted,
-                    )));
-                } else {
-                    self.change_protection(plnwrk_store::Protection::None, text::UNPROTECTED);
-                }
+                self.change_protection(plnwrk_store::Protection::None, text::UNPROTECTED);
             }
         }
     }
@@ -451,11 +481,15 @@ impl PlnwrkApp {
 
     /// Saves with a new protection; if that fails or is cancelled, the old one stays.
     fn change_protection(&mut self, protection: plnwrk_store::Protection, done: &str) {
-        self.flush_draft();
+        let warning = self.flush_draft();
         let Some(doc) = &mut self.doc else { return };
         let old = doc.set_protection(protection);
         if self.save(false) {
-            self.state.message = Some(Message::info(done));
+            // A typed date that was not taken is the more important news.
+            self.state.message = Some(match warning {
+                Some(warning) => Message::error(warning),
+                None => Message::info(done),
+            });
         } else {
             if let Some(doc) = &mut self.doc {
                 doc.restore_protection(old);
@@ -554,7 +588,7 @@ impl PlnwrkApp {
                 if let Some(path) = doc.path() {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
-                self.autosave.discard();
+                self.autosave.saved();
                 self.state.message = Some(Message::info(text::SAVED));
                 true
             }
@@ -603,6 +637,11 @@ impl eframe::App for PlnwrkApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         #[cfg(not(target_arch = "wasm32"))]
         self.emergency_save();
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Called also while the window is minimised or covered, when `ui` is not.
+        self.autosave_tick(ctx);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

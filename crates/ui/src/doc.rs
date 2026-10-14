@@ -36,7 +36,8 @@ fn recovery_key() -> String {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
-    format!("{stamp} {n}")
+    // The process id keeps two plnwrk windows opened in the same second apart.
+    format!("{stamp} {}-{n}", std::process::id())
 }
 
 fn session(doc: Document) -> Session {
@@ -117,12 +118,6 @@ impl OpenDoc {
     pub fn restore_protection(&mut self, protection: Protection) {
         self.protection = protection;
         self.protection_changed = false;
-    }
-
-    /// Whether the data must stay encrypted (VS-NfD now or anywhere in its history).
-    pub fn classified(&self) -> bool {
-        plnwrk_store::classification_of(&Document::from_session(&self.session))
-            >= plnwrk_core::Classification::VsNfd
     }
 
     /// The name to show: the file name without extension, or "Unbenannt".
@@ -242,8 +237,8 @@ pub fn recovery_copies(folder: &Path) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "plnwrk"))
         .collect();
-    copies.sort();
-    copies.reverse();
+    // Newest first.
+    copies.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
     copies
 }
 

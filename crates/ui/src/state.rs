@@ -389,6 +389,8 @@ pub struct State {
     pub quitting: bool,
     /// Counts opened dialogs, so each one can focus its first field once.
     pub dialog_serial: u64,
+    /// How the recovery copy stands, for the status bar.
+    pub recovery: Option<crate::autosave::Written>,
 }
 
 impl State {

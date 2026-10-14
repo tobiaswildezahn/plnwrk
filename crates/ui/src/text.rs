@@ -84,7 +84,7 @@ pub const NEW_PERSON: &str = "+ Person";
 pub const I_AM: &str = "Ich arbeite als";
 
 pub const PASSPHRASE: &str = "Passphrase";
-pub const PASSPHRASE_AGAIN: &str = "Wiederholen";
+pub const PASSPHRASE_AGAIN: &str = "Passphrase wiederholen";
 pub const PROTECT: &str = "Mit Passphrase schützen…";
 pub const PROTECT_BUTTON: &str = "Schützen";
 pub const PROTECT_HINT: &str = "Mindestens 12 Zeichen. Ohne Passphrase ist die Datei nicht mehr zu öffnen – sie lässt sich nicht zurücksetzen.";
@@ -102,6 +102,10 @@ pub const UNSAVED_QUESTION: &str = "Die Änderungen sind noch nicht gespeichert.
 pub const DISCARD: &str = "Verwerfen";
 pub const SAVED: &str = "Gespeichert.";
 pub const ALREADY_OPEN: &str = "Diese Datei ist bereits geöffnet.";
+pub const RECOVERY_FAILED: &str = "Wiederherstellungskopie nicht möglich:";
+pub const RECOVERY_SAVED: &str = "Wiederherstellungskopie";
+pub const PREVIOUS_MONTH: &str = "Vormonat";
+pub const NEXT_MONTH: &str = "Folgemonat";
 pub const RECOVERED_OPENED: &str =
     "Wiederhergestellt. Bitte mit „Speichern unter…“ an ihren Platz speichern.";
 pub const NOT_SAVED: &str = "• ungespeichert";

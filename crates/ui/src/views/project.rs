@@ -293,7 +293,8 @@ fn list(
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         cancel = true;
                     } else if field.lost_focus() {
-                        if text.trim() == task.title {
+                        // Unchanged or emptied: like Escape.
+                        if text.trim() == task.title || text.trim().is_empty() {
                             cancel = true;
                         } else {
                             out.push(Intent::Run {
