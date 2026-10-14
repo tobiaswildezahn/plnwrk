@@ -234,7 +234,7 @@ impl PlnwrkApp {
         let project = self.doc.as_ref()?.session.workspace().project(source.id)?;
         let mut form = form.clone();
         form.rebase(source, project);
-        form.is_pending(project).then(|| (project.id, form))
+        form.is_pending(project).then_some((project.id, form))
     }
 
     /// Brings an open project form up to date with the stored project (undo, archive …) –
