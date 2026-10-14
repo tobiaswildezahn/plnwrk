@@ -245,6 +245,24 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     }
                 });
             }
+            Dialog::DeleteCopy(path) => {
+                ui.heading(format!("{}?", text::DELETE_COPY));
+                ui.label(
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                );
+                ui.label(text::DELETE_COPY_QUESTION);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(text::DELETE).clicked() {
+                        out.push(Intent::DeleteCopy(path.clone()));
+                    }
+                    if ui.button(text::CANCEL).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
             Dialog::DeleteTask(task) => {
                 ui.heading(text::DELETE_TASK);
                 let title = doc

@@ -33,9 +33,9 @@ use state::{Dialog, FileAction, Message, State, Tab, View};
 /// Name shown in the window title and the app header.
 pub const APP_NAME: &str = "plnwrk";
 
-/// Whether two folders are the same place on disk.
-#[cfg(not(target_arch = "wasm32"))]
-fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
+/// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
+/// `/private/var` on macOS).
+fn same_place(a: &std::path::Path, b: &std::path::Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
@@ -102,6 +102,8 @@ pub(crate) enum Intent {
     Protect(SecretString),
     /// Remove the protection (and save).
     Unprotect,
+    /// Delete a recovery copy for good.
+    DeleteCopy(PathBuf),
 }
 
 impl Intent {
@@ -312,8 +314,10 @@ impl PlnwrkApp {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.1)));
         }
         let after = self.autosave.last().cloned();
+        // Said once when it starts failing, without hiding another error that is shown.
         if after != before
             && let Some(autosave::Written::Failed(reason)) = &after
+            && self.state.message.as_ref().is_none_or(|m| !m.error)
         {
             self.state.message = Some(Message::error(format!(
                 "{} {reason}",
@@ -392,6 +396,13 @@ impl PlnwrkApp {
                     text::PROTECTED,
                 );
             }
+            Intent::DeleteCopy(path) => {
+                self.state.close_dialog();
+                #[cfg(not(target_arch = "wasm32"))]
+                self.delete_copy(&path);
+                #[cfg(target_arch = "wasm32")]
+                let _ = path;
+            }
             Intent::Unprotect => {
                 // VS-NfD stays encrypted: saving without protection is refused by the store,
                 // and the old protection is put back.
@@ -463,19 +474,46 @@ impl PlnwrkApp {
                 self.save(true);
             }
             FileAction::Close => {
-                self.autosave.discard();
+                self.drop_copy();
                 self.doc = None;
                 self.state.reset_views();
             }
             FileAction::Quit => {
                 // Saved or discarded on purpose: no recovery copy is needed.
-                self.autosave.discard();
+                self.drop_copy();
                 self.state.quitting = true;
             }
         }
         // "Gespeichert." must not hide that a typed date was not taken.
         if let Some(warning) = warning {
             self.state.message = Some(Message::error(warning));
+        }
+    }
+
+    /// The open work is dropped on purpose: its copy goes; a recovered copy is offered again.
+    fn drop_copy(&mut self) {
+        if let Some(kept) = self.autosave.discard() {
+            self.state.recovered.retain(|p| !same_place(p, &kept));
+            self.state.recovered.insert(0, kept);
+        }
+    }
+
+    /// Deletes a recovery copy for good (asked first). Only files in the recovery folder.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn delete_copy(&mut self, path: &std::path::Path) {
+        let inside = self
+            .autosave
+            .folder()
+            .is_some_and(|folder| path.parent().is_some_and(|p| same_place(p, folder)));
+        if inside {
+            match std::fs::remove_file(path) {
+                Ok(()) => self.state.recovered.retain(|p| !same_place(p, path)),
+                Err(e) => {
+                    self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
+                        reason: e.to_string(),
+                    })));
+                }
+            }
         }
     }
 
@@ -501,7 +539,7 @@ impl PlnwrkApp {
     }
 
     fn replace(&mut self, doc: OpenDoc) {
-        self.autosave.discard();
+        self.drop_copy();
         self.state.message = doc.upgraded.then(|| Message::info(text::UPGRADED));
         self.doc = Some(doc);
         self.state.reset_views();
@@ -526,7 +564,7 @@ impl PlnwrkApp {
                 let recovered = self
                     .autosave
                     .folder()
-                    .is_some_and(|folder| path.parent().is_some_and(|p| same_folder(p, folder)));
+                    .is_some_and(|folder| path.parent().is_some_and(|p| same_place(p, folder)));
                 let copy = if recovered {
                     doc.detach_as_untitled()
                 } else {
@@ -537,7 +575,7 @@ impl PlnwrkApp {
                 }
                 self.replace(doc);
                 if let Some(copy) = copy {
-                    self.state.recovered.retain(|p| p != &copy);
+                    self.state.recovered.retain(|p| !same_place(p, &copy));
                     self.autosave.adopt(copy);
                     self.state.message = Some(Message::info(text::RECOVERED_OPENED));
                 }

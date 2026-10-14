@@ -175,13 +175,14 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                 match &state.recovery {
                     Some(crate::autosave::Written::At(time)) => {
                         ui.weak(format!("{} {time}", text::RECOVERY_SAVED))
-                            .on_hover_text(text::RECOVERED);
+                            .on_hover_text(text::RECOVERY_SAVED_HINT);
                     }
-                    Some(crate::autosave::Written::Failed(_)) => {
+                    Some(crate::autosave::Written::Failed(reason)) => {
                         ui.label(
                             RichText::new(text::RECOVERY_FAILED.trim_end_matches(':'))
                                 .color(ui.visuals().error_fg_color),
-                        );
+                        )
+                        .on_hover_text(reason);
                     }
                     None => {}
                 }
@@ -226,13 +227,18 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
-                if ui
-                    .link(name)
-                    .on_hover_text(path.display().to_string())
-                    .clicked()
-                {
-                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
-                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .link(name)
+                        .on_hover_text(path.display().to_string())
+                        .clicked()
+                    {
+                        out.push(Intent::File(FileAction::OpenPath(path.clone())));
+                    }
+                    if icon_button(ui, "🗑", text::DELETE_COPY).clicked() {
+                        out.push(Intent::Open(Dialog::DeleteCopy(path.clone())));
+                    }
+                });
             }
         }
         if !state.recent.is_empty() {

@@ -76,6 +76,8 @@ pub enum Dialog {
     Protect { first: String, second: String },
     /// Confirm removing the protection.
     Unprotect,
+    /// Confirm deleting a recovery copy.
+    DeleteCopy(PathBuf),
 }
 
 /// A line in the status bar.

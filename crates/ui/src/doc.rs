@@ -238,7 +238,9 @@ pub fn recovery_copies(folder: &Path) -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "plnwrk"))
         .collect();
     // Newest first.
-    copies.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
+    copies.sort_by_cached_key(|p| {
+        std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok())
+    });
     copies
 }
 

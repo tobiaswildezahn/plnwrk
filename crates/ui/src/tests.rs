@@ -1448,6 +1448,14 @@ fn a_recovered_copy_that_is_only_looked_at_is_kept() {
     click(&mut harness, text::DISCARD);
     assert!(harness.state().doc().is_none());
     assert!(copy.exists(), "kept for later");
+    // … and offered again right away, where it can also be deleted (after a question).
+    let name = copy.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(harness.query_by_label(&name).is_some());
+    click(&mut harness, text::DELETE_COPY);
+    assert!(copy.exists(), "asks first");
+    click(&mut harness, text::DELETE);
+    assert!(!copy.exists());
+    assert!(harness.query_by_label(&name).is_none());
 }
 
 #[test]

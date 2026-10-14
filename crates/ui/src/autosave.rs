@@ -47,7 +47,7 @@ pub struct Autosave {
     last: Option<Written>,
     /// A copy being written: its result and the state it holds.
     #[cfg(not(target_arch = "wasm32"))]
-    worker: Option<(std::thread::JoinHandle<Result<(), String>>, usize)>,
+    worker: Option<(std::thread::JoinHandle<Result<String, String>>, usize)>,
 }
 
 impl Autosave {
@@ -108,7 +108,7 @@ impl Autosave {
         if !doc.is_dirty() {
             // Back at the saved state (e.g. undone): an own copy is no longer needed.
             if self.copy.is_some() && !self.adopted {
-                self.discard();
+                let _ = self.discard();
             }
             self.since = None;
             return None;
@@ -132,6 +132,11 @@ impl Autosave {
             self.since = Some(now);
             return Some(self.interval);
         }
+        // A background write: come back soon to take in its result (also while hidden).
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.worker.is_some() {
+            return Some(1.0);
+        }
         None
     }
 
@@ -150,22 +155,29 @@ impl Autosave {
     }
 
     /// The work was deliberately dropped (closed, discarded, replaced): the copy goes – unless
-    /// it is a recovered file, which stays until its content is saved somewhere.
-    pub fn discard(&mut self) {
+    /// it is a recovered file, which stays until its content is saved somewhere. Returns such a
+    /// kept copy, so it can be offered again.
+    pub fn discard(&mut self) -> Option<PathBuf> {
         self.finish();
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(copy) = self.copy.take()
-            && !self.adopted
-        {
-            let _ = std::fs::remove_file(copy);
-        }
+        let kept = match self.copy.take() {
+            Some(copy) if self.adopted => Some(copy),
+            Some(copy) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                let _ = std::fs::remove_file(copy);
+                #[cfg(target_arch = "wasm32")]
+                let _ = copy;
+                None
+            }
+            None => None,
+        };
         self.reset();
+        kept
     }
 
     /// The work was saved: the copy goes, a recovered one too.
     pub fn saved(&mut self) {
         self.adopted = false;
-        self.discard();
+        let _ = self.discard();
     }
 
     fn reset(&mut self) {
@@ -202,18 +214,17 @@ impl Autosave {
         if let Some((worker, state)) = self.worker.take() {
             let result = worker
                 .join()
-                .unwrap_or_else(|_| Err("the writer stopped".to_owned()));
+                .unwrap_or_else(|_| Err(crate::text::RECOVERY_WRITER_STOPPED.to_owned()));
             self.record(result, state);
         }
     }
 
-    fn record(&mut self, result: Result<(), String>, state: usize) {
+    /// Takes in a write: the time it was written (`HH:MM`) or why it failed.
+    fn record(&mut self, result: Result<String, String>, state: usize) {
         match result {
-            Ok(()) => {
+            Ok(at) => {
                 self.written = Some(state);
-                self.last = Some(Written::At(
-                    jiff::Zoned::now().strftime("%H:%M").to_string(),
-                ));
+                self.last = Some(Written::At(at));
             }
             Err(reason) => {
                 self.written = None;
@@ -231,13 +242,17 @@ impl Autosave {
         let (data, protection) = doc.snapshot();
         let folder = folder.to_path_buf();
         let target = path.clone();
-        let job = move || -> Result<(), String> {
+        let job = move || -> Result<String, String> {
             // Saving encrypts (about a second) – that is why it runs apart from the window.
-            std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-            let bytes =
-                plnwrk_store::save(&data, &protection).map_err(|e| crate::text::store_error(&e))?;
-            plnwrk_store::file::write_atomic(&target, &bytes)
-                .map_err(|e| crate::text::store_error(&e))
+            let failed = |e: plnwrk_store::StoreError| crate::text::store_error(&e);
+            std::fs::create_dir_all(&folder).map_err(|e| {
+                failed(plnwrk_store::StoreError::Io {
+                    reason: e.to_string(),
+                })
+            })?;
+            let bytes = plnwrk_store::save(&data, &protection).map_err(failed)?;
+            plnwrk_store::file::write_atomic(&target, &bytes).map_err(failed)?;
+            Ok(jiff::Zoned::now().strftime("%H:%M").to_string())
         };
         self.copy = Some(path);
         self.since = None;
@@ -305,7 +320,7 @@ mod tests {
         assert!(reopened.session.workspace().people().any(|p| p.name == "B"));
         drop(reopened);
         assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
-        autosave.discard();
+        assert_eq!(autosave.discard(), None);
         assert!(!copy.exists());
         assert!(crate::doc::recovery_copies(&dir).is_empty());
     }
@@ -322,7 +337,7 @@ mod tests {
         change(&mut doc, "A");
         autosave.tick(Some(&doc), 0.0);
         let copy = autosave.copy().unwrap().to_path_buf();
-        autosave.discard();
+        assert_eq!(autosave.discard(), None);
         // Had the thread been left running, it would write the copy after the removal.
         std::thread::sleep(std::time::Duration::from_millis(2_500));
         assert!(!copy.exists());
@@ -353,6 +368,20 @@ mod tests {
         );
         assert!(matches!(autosave.last(), Some(Written::Failed(_))));
         assert!(autosave.write_now(&doc).is_none(), "no copy claimed");
+        // In the background as well: the result is taken in a second later, not left waiting.
+        let mut background = Autosave::new(Some(dir.clone()), true, 0.0);
+        assert_eq!(
+            background.tick(Some(&doc), 0.0),
+            Some(1.0),
+            "come back for the result"
+        );
+        let mut waited = 0;
+        while !matches!(background.last(), Some(Written::Failed(_))) && waited < 50 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            background.tick(Some(&doc), 1.0);
+            waited += 1;
+        }
+        assert!(matches!(background.last(), Some(Written::Failed(_))));
         assert!(crate::doc::recovery_copies(&dir).is_empty());
     }
 
@@ -373,7 +402,7 @@ mod tests {
         let recovered = dir.join("alt.plnwrk");
         std::fs::write(&recovered, b"x").unwrap();
         autosave.adopt(recovered.clone());
-        autosave.discard();
+        assert_eq!(autosave.discard(), Some(recovered.clone()), "offered again");
         assert!(recovered.exists());
         autosave.adopt(recovered.clone());
         autosave.saved();

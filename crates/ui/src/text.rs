@@ -104,6 +104,12 @@ pub const SAVED: &str = "Gespeichert.";
 pub const ALREADY_OPEN: &str = "Diese Datei ist bereits geöffnet.";
 pub const RECOVERY_FAILED: &str = "Wiederherstellungskopie nicht möglich:";
 pub const RECOVERY_SAVED: &str = "Wiederherstellungskopie";
+pub const RECOVERY_SAVED_HINT: &str =
+    "Automatisch gesichert. Nach einem Absturz steht sie beim nächsten Start auf der Startseite.";
+pub const RECOVERY_WRITER_STOPPED: &str = "Das Schreiben wurde unterbrochen.";
+pub const DELETE_COPY: &str = "Kopie löschen";
+pub const DELETE_COPY_QUESTION: &str =
+    "Die Wiederherstellungskopie wird endgültig gelöscht. Ihr Inhalt ist dann verloren.";
 pub const PREVIOUS_MONTH: &str = "Vormonat";
 pub const NEXT_MONTH: &str = "Folgemonat";
 pub const RECOVERED_OPENED: &str =
