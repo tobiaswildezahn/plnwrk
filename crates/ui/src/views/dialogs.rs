@@ -321,6 +321,9 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
     }
 }
 
+/// How many palette results are shown at most.
+const MAX_SHOWN: usize = 100;
+
 /// The command palette: a search field over a list; arrows choose, Enter or a click runs.
 fn palette(
     ui: &mut egui::Ui,
@@ -349,7 +352,7 @@ fn palette(
     if field.changed() {
         *selected = 0;
     }
-    let last = found.len().saturating_sub(1);
+    let last = found.len().min(MAX_SHOWN).saturating_sub(1);
     if down {
         *selected = (*selected + 1).min(last);
     }
@@ -369,7 +372,8 @@ fn palette(
             if found.is_empty() {
                 ui.weak(text::t().palette_empty);
             }
-            for (index, entry) in found.iter().enumerate() {
+            // Only the best ones are laid out: thousands of tasks must not slow down typing.
+            for (index, entry) in found.iter().enumerate().take(MAX_SHOWN) {
                 ui.horizontal(|ui| {
                     let response = ui.selectable_label(index == *selected, &entry.label);
                     if index == *selected && (up || down) {
@@ -385,6 +389,9 @@ fn palette(
                         });
                     }
                 });
+            }
+            if found.len() > MAX_SHOWN {
+                ui.weak(text::t().more_results);
             }
         });
     if let Some(entry) = chosen.and_then(|index| found.into_iter().nth(index)) {

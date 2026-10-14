@@ -1976,16 +1976,28 @@ fn arrows_choose_and_escape_closes_without_doing_anything() {
     harness.run();
     let field = text::t().palette.trim_end_matches('…').to_owned();
     type_into(&mut harness, &field, "vorlage", false);
-    // "Vorlagen" first (the name starts with it), then "Aus Vorlage anlegen" – and nothing
-    // more: the choice stops at both ends.
-    for key in [Key::ArrowUp, Key::ArrowDown, Key::ArrowDown, Key::ArrowDown] {
-        harness.key_press(key);
+    // "Vorlagen" first (the name starts with it), then "Aus Vorlage anlegen"; the choice
+    // stops at both ends.
+    let app = harness.state();
+    let count =
+        crate::palette::search(crate::palette::entries(app.doc(), &app.state), "vorlage").len();
+    assert!(count >= 2);
+    for _ in 0..count + 2 {
+        harness.key_press(Key::ArrowDown);
         harness.run();
     }
-    assert!(matches!(
-        harness.state().state.dialog,
-        Some(crate::state::Dialog::Palette { selected: 1, .. })
-    ));
+    let selected = |h: &Harness<'_, PlnwrkApp>| match &h.state().state.dialog {
+        Some(crate::state::Dialog::Palette { selected, .. }) => *selected,
+        _ => usize::MAX,
+    };
+    assert_eq!(selected(&harness), count - 1, "stops at the last");
+    for _ in 0..count + 2 {
+        harness.key_press(Key::ArrowUp);
+        harness.run();
+    }
+    assert_eq!(selected(&harness), 0, "stops at the first");
+    harness.key_press(Key::ArrowDown);
+    harness.run();
     harness.key_press(Key::Enter);
     harness.run();
     assert!(matches!(
@@ -2063,6 +2075,18 @@ fn every_command_can_be_reached_from_the_palette_or_has_its_place() {
         .iter()
         .map(|(id, _)| *id)
         .collect();
+    // What an entry claims is at least what it runs.
+    for entry in crate::palette::entries(app.doc(), &app.state) {
+        for intent in &entry.intents {
+            if let crate::Intent::Run { command, .. } = intent {
+                assert!(
+                    entry.commands.contains(command),
+                    "{} runs {command} without naming it",
+                    entry.label
+                );
+            }
+        }
+    }
     for spec in plnwrk_engine::registry() {
         assert!(
             reached.contains(spec.id) || elsewhere.contains(spec.id),
@@ -2240,4 +2264,34 @@ fn open_project_form(harness: &mut Harness<'_, PlnwrkApp>) {
         .unwrap()
         .click();
     harness.run();
+}
+
+#[test]
+fn the_palette_shows_a_limited_number_of_results_and_skips_archived_projects() {
+    let mut harness = with_project("Lage");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    for n in 0..120 {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": format!("Punkt {n}")}),
+        ));
+    }
+    harness.run();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    harness.run();
+    let field = text::t().palette.trim_end_matches('…').to_owned();
+    type_into(&mut harness, &field, "punkt", false);
+    assert!(harness.query_by_label(text::t().more_results).is_some());
+    harness.key_press(Key::Escape);
+    harness.run();
+    palette(&mut harness, "projekt archivieren");
+    let offered: Vec<String> =
+        crate::palette::entries(harness.state().doc(), &harness.state().state)
+            .into_iter()
+            .map(|e| e.label)
+            .collect();
+    assert!(
+        !offered.iter().any(|l| l.starts_with("Punkt")),
+        "archived: its tasks are not offered"
+    );
 }

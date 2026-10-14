@@ -291,7 +291,17 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
-                ui.horizontal(|ui| {
+                // Sized to its content, so the centred page centres the line too.
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let width = ui
+                    .painter()
+                    .layout_no_wrap(name.clone(), font, egui::Color32::PLACEHOLDER)
+                    .size()
+                    .x
+                    + 40.0;
+                let size = egui::vec2(width, ui.spacing().interact_size.y);
+                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                ui.allocate_ui_with_layout(size, layout, |ui| {
                     if ui
                         .link(name)
                         .on_hover_text(path.display().to_string())
@@ -440,6 +450,7 @@ fn enter_field(ui: &mut egui::Ui, value: &mut String, hint: &str, width: f32, fo
     );
     if focus {
         response.request_focus();
+        response.scroll_to_me(None);
     }
     let entered = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
     if entered {

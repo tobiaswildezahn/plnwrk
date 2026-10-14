@@ -20,7 +20,8 @@ pub struct Entry {
     pub detail: String,
     /// Its keyboard shortcut, if it has one.
     pub shortcut: Option<egui::KeyboardShortcut>,
-    /// Commands of the register it leads to; their ids can be searched too.
+    /// Commands of the register it runs, or whose place (form, view) it opens; their ids can be
+    /// searched too. A test checks that every command it runs is named here.
     pub commands: &'static [&'static str],
     /// What happens when it is chosen.
     pub intents: Vec<Intent>,
@@ -282,12 +283,18 @@ fn places(list: &mut List, doc: &OpenDoc) {
                 .into_iter()
                 .map(|c| (c.id, c.title, c.reference)),
         );
+    let mut offered = std::collections::HashSet::new();
     for (id, title, reference) in cards {
         let label = match reference {
             Some(reference) => format!("{title} · {reference}"),
             None => title,
         };
-        let detail = format!("{} · {}", t.go_to, t.projects);
+        let kind = match ws.project(id) {
+            Some(project) if project.template => t.templates,
+            _ => t.projects,
+        };
+        let detail = format!("{} · {kind}", t.go_to);
+        offered.insert(id);
         list.add(
             label,
             detail,
@@ -296,8 +303,9 @@ fn places(list: &mut List, doc: &OpenDoc) {
             vec![Intent::Go(View::Project(id))],
         );
     }
+    // Tasks of the projects offered (not of archived ones, which the sidebar hides too).
     for task in ws.tasks() {
-        let Some(project) = ws.project(task.project) else {
+        let Some(project) = ws.project(task.project).filter(|p| offered.contains(&p.id)) else {
             continue;
         };
         let detail = format!("{} · {}", t.go_to, project.title);

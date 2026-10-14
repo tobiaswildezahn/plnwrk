@@ -229,6 +229,10 @@ pub struct Texts {
     pub new_task: &'static str,
     pub edit_project: &'static str,
     pub archive_project: &'static str,
+    pub upgrade_failed: &'static str,
+    pub no_file_chosen: &'static str,
+    pub not_a_file_name: &'static str,
+    pub more_results: &'static str,
     /// Suggestions for the kind of a project.
     pub kinds: [&'static str; 2],
     /// Names of the months, January first.
@@ -386,6 +390,10 @@ pub static DE: Texts = Texts {
     new_task: "Neue Aufgabe",
     edit_project: "Projekt bearbeiten",
     archive_project: "Projekt archivieren",
+    upgrade_failed: "Umstellung auf das neue Format fehlgeschlagen:",
+    no_file_chosen: "Noch keine Datei gewählt.",
+    not_a_file_name: "Das ist kein Dateiname:",
+    more_results: "… weitere Treffer: Suche genauer eingeben.",
     kinds: ["Projekt", "Vorgang"],
     months: [
         "Januar",
@@ -553,6 +561,10 @@ pub static EN: Texts = Texts {
     new_task: "New task",
     edit_project: "Edit project",
     archive_project: "Archive project",
+    upgrade_failed: "Converting to the new format failed:",
+    no_file_chosen: "No file chosen yet.",
+    not_a_file_name: "This is not a file name:",
+    more_results: "… more results: narrow the search.",
     kinds: ["Project", "Case"],
     months: [
         "January",
@@ -869,44 +881,113 @@ pub fn store_error(error: &StoreError) -> String {
 mod tests {
     use super::*;
 
-    /// String literals of a Rust source, outside comments and before its test module.
+    /// String literals of a Rust source, outside comments and before its test module: plain,
+    /// raw (`r#"…"#`) and continued over lines (`\` at the end of a line).
     fn literals(source: &str) -> Vec<String> {
         let code = source
             .split("#[cfg(test)]\nmod tests")
             .next()
             .unwrap_or_default();
+        let chars: Vec<char> = code.chars().collect();
+        let at = |i: usize| chars.get(i).copied();
         let mut found = Vec::new();
-        for line in code.lines() {
-            let mut chars = line.chars().peekable();
-            let mut current: Option<String> = None;
-            let mut escaped = false;
-            while let Some(c) = chars.next() {
-                match &mut current {
-                    Some(text) => {
-                        if escaped {
-                            escaped = false;
-                            text.push(c);
-                        } else if c == '\\' {
-                            escaped = true;
-                        } else if c == '"' {
-                            found.push(std::mem::take(text));
-                            current = None;
-                        } else {
-                            text.push(c);
-                        }
+        let mut i = 0;
+        while let Some(c) = at(i) {
+            match c {
+                '/' if at(i + 1) == Some('/') => {
+                    while at(i).is_some_and(|c| c != '\n') {
+                        i += 1;
                     }
-                    None if c == '/' && chars.peek() == Some(&'/') => break,
-                    None if c == '\'' => {
-                        // A char literal like '"' must not start a string.
-                        let rest: String = chars.clone().take(3).collect();
-                        if rest.starts_with("\"'") || rest.starts_with("\\\"") {
-                            chars.nth(1);
-                        }
-                    }
-                    None if c == '"' => current = Some(String::new()),
-                    None => {}
                 }
+                '/' if at(i + 1) == Some('*') => {
+                    let mut depth = 0usize;
+                    loop {
+                        match (at(i), at(i + 1)) {
+                            (Some('/'), Some('*')) => {
+                                depth += 1;
+                                i += 2;
+                            }
+                            (Some('*'), Some('/')) => {
+                                depth -= 1;
+                                i += 2;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            (Some(_), _) => i += 1,
+                            (None, _) => break,
+                        }
+                    }
+                    continue;
+                }
+                'r' if !at(i.wrapping_sub(1)).is_some_and(|p| p.is_alphanumeric() || p == '_')
+                    && matches!(at(i + 1), Some('"' | '#')) =>
+                {
+                    let mut hashes = 0;
+                    let mut j = i + 1;
+                    while at(j) == Some('#') {
+                        hashes += 1;
+                        j += 1;
+                    }
+                    if at(j) != Some('"') {
+                        i += 1;
+                        continue;
+                    }
+                    j += 1;
+                    let mut text = String::new();
+                    while let Some(c) = at(j) {
+                        if c == '"' && (1..=hashes).all(|k| at(j + k) == Some('#')) {
+                            break;
+                        }
+                        text.push(c);
+                        j += 1;
+                    }
+                    found.push(text);
+                    i = j + 1 + hashes;
+                    continue;
+                }
+                '"' => {
+                    let mut text = String::new();
+                    i += 1;
+                    while let Some(c) = at(i) {
+                        match c {
+                            '\\' if at(i + 1) == Some('\n') => {
+                                // Continued on the next line: its leading spaces do not count.
+                                i += 2;
+                                while at(i).is_some_and(char::is_whitespace) {
+                                    i += 1;
+                                }
+                                continue;
+                            }
+                            '\\' => {
+                                if let Some(next) = at(i + 1) {
+                                    text.push(next);
+                                }
+                                i += 2;
+                                continue;
+                            }
+                            '"' => break,
+                            c => text.push(c),
+                        }
+                        i += 1;
+                    }
+                    found.push(text);
+                }
+                '\'' => {
+                    // A char literal ('"', '\'') must not start a string; a lifetime has no
+                    // closing quote.
+                    if at(i + 1) == Some('\\') {
+                        i += 2;
+                        while at(i).is_some_and(|c| c != '\'') {
+                            i += 1;
+                        }
+                    } else if at(i + 2) == Some('\'') {
+                        i += 2;
+                    }
+                }
+                _ => {}
             }
+            i += 1;
         }
         found
     }
@@ -919,33 +1000,22 @@ mod tests {
         "Notkopien",
     ];
 
+    /// Whether a text looks German: German letters or quotes, or a word only German uses. The
+    /// words are taken from the German texts themselves, so new texts widen the net.
     fn looks_german(text: &str) -> bool {
-        text.chars().any(|c| "äöüÄÖÜß„“".contains(c))
-            || text.split(|c: char| !c.is_alphanumeric()).any(|w| {
-                [
-                    "Bitte",
-                    "nicht",
-                    "und",
-                    "ist",
-                    "Datei",
-                    "Aufgabe",
-                    "Projekt",
-                    "Vorgang",
-                    "Frist",
-                    "Uhr",
-                    "Tag",
-                    "Tagen",
-                    "angelegt",
-                    "geändert",
-                    "Teil",
-                    "Vorlage",
-                    "offen",
-                    "von",
-                    "erledigt",
-                    "JJJJ",
-                ]
-                .contains(&w)
-            })
+        if text.chars().any(|c| "äöüÄÖÜß„“".contains(c)) {
+            return true;
+        }
+        let english = format!("{EN:?}");
+        let english: std::collections::HashSet<&str> =
+            english.split(|c: char| !c.is_alphanumeric()).collect();
+        let german = format!("{DE:?}");
+        let german: std::collections::HashSet<&str> = german
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.chars().count() >= 3 && !english.contains(w))
+            .collect();
+        text.split(|c: char| !c.is_alphanumeric())
+            .any(|w| german.contains(w))
     }
 
     #[test]
@@ -975,6 +1045,21 @@ mod tests {
             german.is_empty(),
             "German texts outside text.rs: {german:#?}"
         );
+    }
+
+    #[test]
+    fn the_literal_scanner_sees_continued_and_raw_strings() {
+        let source = "let a = \"Erste Zeile \\\n        nicht übernommen\";\n\
+                      /* \"im Kommentar\" */ let b = r#\"Bitte \"x\" jetzt\"#;\n\
+                      fn f<'a>(x: &'a str) -> &'a str { \"Frist\" }";
+        assert_eq!(
+            literals(source),
+            vec!["Erste Zeile nicht übernommen", "Bitte \"x\" jetzt", "Frist"]
+        );
+        assert!(looks_german("Speichern"));
+        assert!(looks_german("Abbrechen"));
+        assert!(!looks_german("Save"));
+        assert!(!looks_german("task.update"));
     }
 
     #[test]
@@ -1009,12 +1094,27 @@ mod tests {
                 .collect()
         };
         let english: std::collections::HashMap<_, _> = fields(&en).into_iter().collect();
+        // Every text field of the struct (from the source) must have been compared, so a
+        // change of the Debug format cannot make this test check nothing.
+        let declared: std::collections::BTreeSet<String> = include_str!("text.rs")
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("pub "))
+            .filter_map(|rest| rest.strip_suffix(": &'static str,"))
+            .map(str::to_owned)
+            .collect();
+        let mut compared = std::collections::BTreeSet::new();
         for (key, german) in fields(&de) {
-            if same.contains(&key.as_str()) || german.starts_with('[') {
+            if !declared.contains(&key) {
+                continue; // a piece of a value that contains ", "
+            }
+            compared.insert(key.clone());
+            if same.contains(&key.as_str()) {
                 continue;
             }
             assert_ne!(english.get(&key), Some(&german), "{key} is not translated");
         }
+        assert!(declared.len() > 100, "the fields were found");
+        assert_eq!(compared, declared, "every text was compared");
     }
 
     #[test]
