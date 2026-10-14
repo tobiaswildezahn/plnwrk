@@ -105,6 +105,8 @@ pub enum Dialog {
     DeleteCopy(PathBuf),
     /// Browser: confirm deleting the recovery copy under this key (and its name).
     DeleteStoredCopy { key: String, name: String },
+    /// Browser: confirm deleting every recovery copy offered.
+    DeleteAllStoredCopies,
     /// The command palette: what is typed and the highlighted line.
     Palette { query: String, selected: usize },
 }

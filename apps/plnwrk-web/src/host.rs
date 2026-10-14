@@ -29,14 +29,31 @@ fn local_storage() -> Result<web_sys::Storage, String> {
         .ok_or_else(|| "no local storage".to_owned())
 }
 
+/// Every key and value of the browser's local storage.
+fn all_stored() -> Vec<(String, String)> {
+    let Ok(storage) = local_storage() else {
+        return Vec::new();
+    };
+    let count = storage.length().unwrap_or(0);
+    (0..count)
+        .filter_map(|i| storage.key(i).ok().flatten())
+        .filter_map(|key| {
+            let value = storage.get_item(&key).ok().flatten()?;
+            Some((key, value))
+        })
+        .collect()
+}
+
 /// The id of this tab: kept in the tab's own session storage, so it survives a reload (and
-/// the tab finds its own recovery copies), but every other tab has its own.
+/// the tab finds its own recovery copies), but every other tab has its own – also a
+/// duplicated tab, which inherits the session storage (see `plnwrk_ui::keep_tab_id_now`).
 fn tab_id() -> String {
     const KEY: &str = "plnwrk.tab";
     let storage = web_sys::window().and_then(|w| w.session_storage().ok().flatten());
     if let Some(id) = storage
         .as_ref()
         .and_then(|s| s.get_item(KEY).ok().flatten())
+        && plnwrk_ui::keep_tab_id_now(&all_stored(), &id)
     {
         return id;
     }
@@ -80,12 +97,61 @@ impl WebHost {
         }
         // Lives as long as the page.
         on_leave.forget();
+        let tab = tab_id();
+        Self::watch_page(&tab);
         Self {
             ctx,
             upload: Rc::new(RefCell::new(None)),
-            tab: tab_id(),
+            tab,
             leave,
         }
+    }
+
+    /// Keeps this tab's sign of life right when the page changes: gone when the page goes
+    /// (reload, close), marked "hidden" when the tab goes to the background (where the browser
+    /// slows it down and it cannot say it is open).
+    fn watch_page(tab: &str) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let key = format!("{}{tab}", plnwrk_ui::LIVE);
+        let gone_key = key.clone();
+        // The page going hides it too ("visibilitychange" comes after "pagehide"): it must not
+        // write its sign of life back then. A page restored from the back/forward cache lives
+        // again.
+        let leaving = Rc::new(Cell::new(false));
+        let gone = Rc::clone(&leaving);
+        let on_gone = Closure::<dyn FnMut()>::new(move || {
+            gone.set(true);
+            if let Ok(storage) = local_storage() {
+                let _ = storage.remove_item(&gone_key);
+            }
+        });
+        let back = Rc::clone(&leaving);
+        let on_back = Closure::<dyn FnMut()>::new(move || back.set(false));
+        let on_hidden = Closure::<dyn FnMut()>::new(move || {
+            let hidden = document().is_ok_and(|d| d.hidden());
+            if hidden
+                && !leaving.get()
+                && let Ok(storage) = local_storage()
+            {
+                let _ = storage.set_item(&key, &plnwrk_ui::live_now(true));
+            }
+        });
+        let _ =
+            window.add_event_listener_with_callback("pagehide", on_gone.as_ref().unchecked_ref());
+        let _ =
+            window.add_event_listener_with_callback("pageshow", on_back.as_ref().unchecked_ref());
+        if let Ok(document) = document() {
+            let _ = document.add_event_listener_with_callback(
+                "visibilitychange",
+                on_hidden.as_ref().unchecked_ref(),
+            );
+        }
+        // Live as long as the page.
+        on_gone.forget();
+        on_back.forget();
+        on_hidden.forget();
     }
 
     fn ask_for_file(&self) -> Result<(), String> {
@@ -195,16 +261,10 @@ impl Host for WebHost {
     }
 
     fn stored(&mut self) -> Vec<(String, String)> {
-        let Ok(storage) = local_storage() else {
-            return Vec::new();
-        };
-        let count = storage.length().unwrap_or(0);
-        (0..count)
-            .filter_map(|i| storage.key(i).ok().flatten())
-            .filter_map(|key| {
-                let value = storage.get_item(&key).ok().flatten()?;
-                Some((key, value))
-            })
-            .collect()
+        all_stored()
+    }
+
+    fn hidden(&self) -> bool {
+        document().is_ok_and(|d| d.hidden())
     }
 }

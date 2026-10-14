@@ -67,6 +67,11 @@ pub trait Host {
     fn tab(&mut self) -> String {
         String::new()
     }
+
+    /// Browser: whether the tab is in the background (the browser slows it down).
+    fn hidden(&self) -> bool {
+        false
+    }
 }
 
 /// No dialogs: every request is cancelled.
@@ -112,6 +117,8 @@ pub struct BrowserLog {
     pub upload: Option<Result<Upload, String>>,
     /// The id of this tab.
     pub tab: String,
+    /// The tab is in the background.
+    pub hidden: bool,
     /// Every download, oldest first.
     pub downloads: Vec<Upload>,
     /// Downloads fail with this reason.
@@ -153,6 +160,10 @@ impl Host for TestBrowser {
 
     fn tab(&mut self) -> String {
         self.0.borrow().tab.clone()
+    }
+
+    fn hidden(&self) -> bool {
+        self.0.borrow().hidden
     }
 
     fn download(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {

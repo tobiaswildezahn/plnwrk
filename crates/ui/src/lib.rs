@@ -28,6 +28,7 @@ use plnwrk_engine::Origin;
 use plnwrk_store::{SecretString, StoreError};
 use serde_json::Value;
 
+pub use browser_copy::{LIVE, keep_tab_id_now, live_now};
 pub use doc::OpenDoc;
 pub use host::{Host, NoDialogs, Upload};
 use state::{Dialog, FileAction, FileSource, Message, State, Tab, View};
@@ -134,6 +135,8 @@ pub(crate) enum Intent {
     OpenStoredCopy(String),
     /// Browser: delete the recovery copy under this key for good.
     DeleteStoredCopy(String),
+    /// Browser: delete every recovery copy offered for good.
+    DeleteAllStoredCopies,
     /// Use this language for the interface.
     Language(text::Language),
     /// Use this theme.
@@ -629,6 +632,21 @@ impl PlnwrkApp {
                 );
             }
             Intent::OpenStoredCopy(key) => self.open_stored_copy(key),
+            Intent::DeleteAllStoredCopies => {
+                self.state.close_dialog();
+                let keys: Vec<String> = self
+                    .state
+                    .stored_copies
+                    .iter()
+                    .map(|c| c.key.clone())
+                    .collect();
+                for key in keys {
+                    if let Err(reason) = self.host.store(&key, None) {
+                        self.state.message = Some(Message::error(reason));
+                    }
+                }
+                self.refresh_stored_copies();
+            }
             Intent::DeleteStoredCopy(key) => {
                 self.state.close_dialog();
                 if let Err(reason) = self.host.store(&key, None) {

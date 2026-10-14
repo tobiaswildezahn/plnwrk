@@ -315,6 +315,12 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                     }));
                 }
             }
+            // On a shared computer: nothing of one's work stays behind.
+            if state.stored_copies.len() > 1
+                && ui.small_button(text::t().delete_all_copies).clicked()
+            {
+                out.push(Intent::Open(Dialog::DeleteAllStoredCopies));
+            }
         }
         if !state.recovered.is_empty() {
             ui.add_space(16.0);

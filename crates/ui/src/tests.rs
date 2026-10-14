@@ -2999,3 +2999,70 @@ fn protecting_in_the_browser_leaves_no_plain_copy() {
     assert!(plnwrk_store::peek(&download.bytes).unwrap().encrypted);
     assert!(stored_copies(&browser).is_empty(), "the plain copy is gone");
 }
+
+#[test]
+fn a_tab_in_the_background_keeps_its_copy_to_itself() {
+    let browser = crate::host::TestBrowser::default();
+    browser.0.borrow_mut().tab = "tab-a".to_owned();
+    let mut harness = reload(&browser);
+    click(&mut harness, text::t().open_sample);
+    // Tab A goes to the background and says so.
+    browser.0.borrow_mut().hidden = true;
+    let now = harness.ctx.input(|i| i.time);
+    harness
+        .state_mut()
+        .autosave_at(now + crate::browser_copy::HEARTBEAT + 0.1);
+    let live = format!("{}tab-a", crate::browser_copy::LIVE);
+    let value = browser.0.borrow().storage.get(&live).cloned().unwrap();
+    assert!(value.ends_with("hidden"), "{value}");
+    // Ten minutes later (the browser slowed tab A down): tab B still leaves it alone.
+    let seen = jiff::Timestamp::now().as_second() - 600;
+    browser
+        .0
+        .borrow_mut()
+        .storage
+        .insert(live, format!("{seen} hidden"));
+    let other = crate::host::TestBrowser(std::rc::Rc::clone(&browser.0));
+    let tab_b = harness_in_tab(&other, "tab-b");
+    assert!(tab_b.state().state.stored_copies.is_empty());
+}
+
+/// Another tab on the same browser storage.
+fn harness_in_tab(browser: &crate::host::TestBrowser, tab: &str) -> Harness<'static, PlnwrkApp> {
+    browser.0.borrow_mut().tab = tab.to_owned();
+    reload(browser)
+}
+
+#[test]
+fn a_failed_rewrite_at_download_keeps_the_older_copy() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().open_sample);
+    assert_eq!(stored_copies(&browser).len(), 1);
+    browser.0.borrow_mut().store_fails = Some("Speicher voll".to_owned());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    harness.run();
+    assert_eq!(
+        stored_copies(&browser).len(),
+        1,
+        "the download may not have arrived"
+    );
+}
+
+#[test]
+fn all_offered_copies_can_be_deleted_at_once() {
+    let browser = crate::host::TestBrowser::default();
+    copy_of_another_tab(&browser, "alt-1", false);
+    copy_of_another_tab(&browser, "alt-2", true);
+    let mut harness = reload(&browser);
+    assert_eq!(harness.state().state.stored_copies.len(), 2);
+    click(&mut harness, text::t().delete_all_copies);
+    assert!(
+        harness
+            .query_by_label(text::t().delete_all_copies_question)
+            .is_some()
+    );
+    click(&mut harness, text::t().delete);
+    assert!(stored_copies(&browser).is_empty());
+    assert!(harness.state().state.stored_copies.is_empty());
+}

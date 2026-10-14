@@ -30,6 +30,9 @@ pub const LIVE: &str = "plnwrk.live.";
 pub const HEARTBEAT: f64 = 5.0;
 /// A tab not heard of for this many seconds is gone.
 const GONE_AFTER: i64 = 20;
+/// A tab in the background is slowed down or frozen by the browser and cannot say it is open;
+/// it said "hidden" when it went there and counts as open this long.
+const HIDDEN_FOR: i64 = 12 * 3600;
 /// Downloaded copies are kept this long, in case the download did not really happen.
 pub const KEEP_DOWNLOADED_DAYS: i64 = 7;
 /// Seconds to wait after a write failed (e.g. the storage is full).
@@ -80,6 +83,49 @@ pub fn decode(key: &str, value: &str) -> Option<StoredCopy> {
     })
 }
 
+/// A sign of life as stored: the time in seconds, and whether the tab is in the background.
+pub fn live_value(now: Timestamp, hidden: bool) -> String {
+    let seen = now.as_second();
+    if hidden {
+        format!("{seen} hidden")
+    } else {
+        seen.to_string()
+    }
+}
+
+/// Whether a stored sign of life says that its tab is open at `now`.
+pub fn still_open(value: &str, now: Timestamp) -> bool {
+    let mut parts = value.split_whitespace();
+    let Some(seen) = parts.next().and_then(|s| s.parse::<i64>().ok()) else {
+        return false;
+    };
+    let limit = if parts.next() == Some("hidden") {
+        HIDDEN_FOR
+    } else {
+        GONE_AFTER
+    };
+    now.as_second() - seen < limit
+}
+
+/// [`live_value`] now.
+pub fn live_now(hidden: bool) -> String {
+    live_value(Timestamp::now(), hidden)
+}
+
+/// [`keep_tab_id`] now.
+pub fn keep_tab_id_now(stored: &[(String, String)], id: &str) -> bool {
+    keep_tab_id(stored, id, Timestamp::now())
+}
+
+/// Whether a page may use the tab id it found in its tab's session storage. A tab removes its
+/// sign of life when its page goes (reload, close); a fresh one under the same id means the
+/// tab was duplicated (which copies the session storage), and the copy needs an id of its own.
+pub fn keep_tab_id(stored: &[(String, String)], id: &str, now: Timestamp) -> bool {
+    !stored
+        .iter()
+        .any(|(key, value)| key.strip_prefix(LIVE) == Some(id) && still_open(value, now))
+}
+
 /// The copies to offer to this tab, newest first: not those of other tabs that are open, and
 /// not those downloaded long ago (which are removed). `now` is the current time.
 pub fn offered(host: &mut dyn Host, tab: &str, now: Timestamp) -> Vec<StoredCopy> {
@@ -89,17 +135,18 @@ pub fn offered(host: &mut dyn Host, tab: &str, now: Timestamp) -> Vec<StoredCopy
             && stored
                 .iter()
                 .find(|(key, _)| key.strip_prefix(LIVE) == Some(other))
-                .and_then(|(_, seen)| seen.parse::<i64>().ok())
-                .is_some_and(|seen| now.as_second() - seen < GONE_AFTER)
+                .is_some_and(|(_, value)| still_open(value, now))
     };
     let mut copies = Vec::new();
     for (key, value) in &stored {
         if let Some(stale) = key.strip_prefix(LIVE) {
-            // Signs of life of tabs closed a day ago are of no use any more.
+            // Signs of life of tabs gone a day ago are of no use any more.
             let old = value
-                .parse::<i64>()
-                .is_ok_and(|seen| now.as_second() - seen > 86_400);
-            if old && stale != tab {
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<i64>().ok())
+                .is_none_or(|seen| now.as_second() - seen > 86_400);
+            if old && !still_open(value, now) && stale != tab {
                 let _ = host.store(key, None);
             }
             continue;
@@ -227,9 +274,10 @@ impl BrowserCopy {
         self.key.as_ref()?;
         let due = self.heartbeat + HEARTBEAT;
         if time >= due {
+            let hidden = host.hidden();
             let _ = host.store(
                 &format!("{LIVE}{tab}"),
-                Some(&Timestamp::now().as_second().to_string()),
+                Some(&live_value(Timestamp::now(), hidden)),
             );
             self.heartbeat = time;
             return Some(HEARTBEAT);
@@ -280,7 +328,12 @@ impl BrowserCopy {
                 self.downloaded = true;
                 self.adopted = false;
             }
-            Err(reason) => self.last = Some(Written::Failed(reason)),
+            Err(reason) => {
+                // The older copy stays, also once the work counts as saved: the download may
+                // not have happened.
+                self.downloaded = true;
+                self.last = Some(Written::Failed(reason));
+            }
         }
     }
 
@@ -300,6 +353,41 @@ impl BrowserCopy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signs_of_life_last_longer_for_tabs_in_the_background() {
+        let now = Timestamp::now();
+        let ago = |seconds: i64| {
+            now.checked_sub(jiff::SignedDuration::from_secs(seconds))
+                .unwrap()
+        };
+        assert!(still_open(&live_value(ago(5), false), now));
+        assert!(!still_open(&live_value(ago(30), false), now));
+        assert!(
+            still_open(&live_value(ago(3600), true), now),
+            "hidden an hour"
+        );
+        assert!(!still_open(&live_value(ago(13 * 3600), true), now));
+        assert!(!still_open("", now));
+        assert!(!still_open("gestern", now));
+    }
+
+    #[test]
+    fn a_duplicated_tab_takes_a_new_id_a_reloaded_one_keeps_its_own() {
+        let now = Timestamp::now();
+        let live = |value: String| vec![(format!("{LIVE}tab-a"), value)];
+        // The original page is open (or hidden): the page with the same id is a duplicate.
+        assert!(!keep_tab_id(&live(live_value(now, false)), "tab-a", now));
+        assert!(!keep_tab_id(&live(live_value(now, true)), "tab-a", now));
+        // Reloaded: the page removed its sign when it went.
+        assert!(keep_tab_id(&[], "tab-a", now));
+        // Crashed long ago: its old sign does not count.
+        let old = now
+            .checked_sub(jiff::SignedDuration::from_secs(60))
+            .unwrap();
+        assert!(keep_tab_id(&live(live_value(old, false)), "tab-a", now));
+        assert!(keep_tab_id(&live(live_value(now, false)), "tab-b", now));
+    }
 
     #[test]
     fn a_copy_reads_back_and_rubbish_is_no_copy() {

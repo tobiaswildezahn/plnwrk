@@ -242,6 +242,8 @@ pub struct Texts {
     pub browser_copy_hint: &'static str,
     pub copy_downloaded: &'static str,
     pub upload_failed: &'static str,
+    pub delete_all_copies: &'static str,
+    pub delete_all_copies_question: &'static str,
     /// Suggestions for the kind of a project.
     pub kinds: [&'static str; 2],
     /// Names of the months, January first.
@@ -412,6 +414,8 @@ pub static DE: Texts = Texts {
     browser_copy_hint: "Zwischenstand im Browser-Speicher. Nach einem Neuladen steht er auf der Startseite.",
     copy_downloaded: "heruntergeladen",
     upload_failed: "Die Datei ließ sich nicht lesen:",
+    delete_all_copies: "Alle Zwischenstände löschen",
+    delete_all_copies_question: "Alle hier angebotenen Zwischenstände werden endgültig aus diesem Browser gelöscht. Ihr Inhalt ist dann verloren.",
     kinds: ["Projekt", "Vorgang"],
     months: [
         "Januar",
@@ -592,6 +596,8 @@ pub static EN: Texts = Texts {
     browser_copy_hint: "Interim copy in the browser's storage. After a reload it is offered on the start page.",
     copy_downloaded: "downloaded",
     upload_failed: "The file could not be read:",
+    delete_all_copies: "Delete all interim copies",
+    delete_all_copies_question: "All interim copies offered here are deleted from this browser for good. Their content is then lost.",
     kinds: ["Project", "Case"],
     months: [
         "January",
