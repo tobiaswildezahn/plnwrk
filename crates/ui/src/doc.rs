@@ -22,6 +22,8 @@ pub struct OpenDoc {
     pub upgraded: bool,
     /// The name to show without a file (e.g. a recovered copy).
     title: Option<String>,
+    /// The protection was changed and not saved yet.
+    protection_changed: bool,
     /// Tells the recovery copy of this workspace apart from others (when it was opened).
     recovery_key: String,
     /// Keeps other plnwrk processes off the file while it is open.
@@ -50,6 +52,7 @@ impl OpenDoc {
             saved,
             upgraded: false,
             title: None,
+            protection_changed: false,
             recovery_key: recovery_key(),
             #[cfg(not(target_arch = "wasm32"))]
             _lock: None,
@@ -100,7 +103,26 @@ impl OpenDoc {
 
     /// Whether there are changes since it was last saved or opened.
     pub fn is_dirty(&self) -> bool {
-        self.session.log().len() != self.saved
+        self.session.log().len() != self.saved || self.protection_changed
+    }
+
+    /// Protects the file with a passphrase from the next save on (`None`: no protection).
+    /// Returns the protection it had, to put back if saving fails.
+    pub fn set_protection(&mut self, protection: Protection) -> Protection {
+        self.protection_changed = true;
+        std::mem::replace(&mut self.protection, protection)
+    }
+
+    /// Puts back a protection after saving with a new one failed.
+    pub fn restore_protection(&mut self, protection: Protection) {
+        self.protection = protection;
+        self.protection_changed = false;
+    }
+
+    /// Whether the data must stay encrypted (VS-NfD now or anywhere in its history).
+    pub fn classified(&self) -> bool {
+        plnwrk_store::classification_of(&Document::from_session(&self.session))
+            >= plnwrk_core::Classification::VsNfd
     }
 
     /// The name to show: the file name without extension, or "Unbenannt".
@@ -168,6 +190,7 @@ impl OpenDoc {
         let bytes = self.to_bytes()?;
         plnwrk_store::file::write_atomic(&path, &bytes)?;
         self.saved = self.session.log().len();
+        self.protection_changed = false;
         Ok(())
     }
 
@@ -184,6 +207,7 @@ impl OpenDoc {
         self.path = Some(path);
         self._lock = Some(lock);
         self.saved = self.session.log().len();
+        self.protection_changed = false;
         Ok(())
     }
 }

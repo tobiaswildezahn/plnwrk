@@ -98,6 +98,10 @@ pub(crate) enum Intent {
     Discard(FileAction),
     /// Set who is working.
     Actor(Option<PersonId>),
+    /// Protect the file with this passphrase (and save).
+    Protect(SecretString),
+    /// Remove the protection (and save).
+    Unprotect,
 }
 
 impl Intent {
@@ -347,6 +351,23 @@ impl PlnwrkApp {
                     doc.session.set_actor(person);
                 }
             }
+            Intent::Protect(secret) => {
+                self.state.close_dialog();
+                self.change_protection(
+                    plnwrk_store::Protection::Passphrase(secret),
+                    text::PROTECTED,
+                );
+            }
+            Intent::Unprotect => {
+                self.state.close_dialog();
+                if self.doc.as_ref().is_some_and(OpenDoc::classified) {
+                    self.state.message = Some(Message::error(text::store_error(
+                        &StoreError::ClassifiedUnencrypted,
+                    )));
+                } else {
+                    self.change_protection(plnwrk_store::Protection::None, text::UNPROTECTED);
+                }
+            }
         }
     }
 
@@ -425,6 +446,23 @@ impl PlnwrkApp {
         // "Gespeichert." must not hide that a typed date was not taken.
         if let Some(warning) = warning {
             self.state.message = Some(Message::error(warning));
+        }
+    }
+
+    /// Saves with a new protection; if that fails or is cancelled, the old one stays.
+    fn change_protection(&mut self, protection: plnwrk_store::Protection, done: &str) {
+        self.flush_draft();
+        let Some(doc) = &mut self.doc else { return };
+        let old = doc.set_protection(protection);
+        if self.save(false) {
+            self.state.message = Some(Message::info(done));
+        } else {
+            if let Some(doc) = &mut self.doc {
+                doc.restore_protection(old);
+            }
+            if self.state.message.as_ref().is_none_or(|m| !m.error) {
+                self.state.message = Some(Message::info(text::PROTECTION_UNCHANGED));
+            }
         }
     }
 

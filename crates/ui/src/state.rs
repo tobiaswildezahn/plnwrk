@@ -72,6 +72,10 @@ pub enum Dialog {
     Unsaved(FileAction),
     /// Confirm deleting a task.
     DeleteTask(TaskId),
+    /// Protect the file with a passphrase (typed twice).
+    Protect { first: String, second: String },
+    /// Confirm removing the protection.
+    Unprotect,
 }
 
 /// A line in the status bar.
@@ -406,8 +410,13 @@ impl State {
 
     /// Closes the dialog; a typed passphrase is wiped from memory.
     pub fn close_dialog(&mut self) {
-        if let Some(Dialog::Passphrase { text, .. }) = &mut self.dialog {
-            text.zeroize();
+        match &mut self.dialog {
+            Some(Dialog::Passphrase { text, .. }) => text.zeroize(),
+            Some(Dialog::Protect { first, second }) => {
+                first.zeroize();
+                second.zeroize();
+            }
+            _ => {}
         }
         self.dialog = None;
     }

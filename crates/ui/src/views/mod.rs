@@ -101,6 +101,18 @@ fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, out: &mut Vec<Intent>) {
                     if ui.button(text::SAVE_AS).clicked() {
                         out.push(Intent::File(FileAction::SaveAs));
                     }
+                    ui.separator();
+                    let encrypted = doc.is_some_and(OpenDoc::encrypted);
+                    if !encrypted && ui.button(text::PROTECT).clicked() {
+                        out.push(Intent::Open(Dialog::Protect {
+                            first: String::new(),
+                            second: String::new(),
+                        }));
+                    }
+                    if encrypted && ui.button(text::UNPROTECT).clicked() {
+                        out.push(Intent::Open(Dialog::Unprotect));
+                    }
+                    ui.separator();
                     if ui.button(text::CLOSE_FILE).clicked() {
                         out.push(Intent::File(FileAction::Close));
                     }

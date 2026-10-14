@@ -1259,3 +1259,101 @@ fn a_title_is_renamed_right_in_the_list() {
     assert!(task_named(harness.state(), "Kisten packen sofort").is_none());
     assert!(harness.state().state.forms.inline.is_none());
 }
+
+fn open_file_menu(harness: &mut Harness<'_, PlnwrkApp>) {
+    harness.get_by_label(text::FILE_MENU).click();
+    harness.run();
+}
+
+fn type_password(harness: &mut Harness<'_, PlnwrkApp>, nth: usize, text: &str) {
+    let field = harness
+        .get_all_by_role(egui::accesskit::Role::PasswordInput)
+        .nth(nth)
+        .unwrap();
+    field.focus();
+    field.type_text(text);
+    harness.run();
+}
+
+#[test]
+fn a_file_is_protected_and_unprotected_from_the_menu() {
+    let (mut harness, path) = saved_sample_with_task("protect", "Einbau Wache 11");
+    open_file_menu(&mut harness);
+    click(&mut harness, text::PROTECT);
+    // Too short, then different: refused, nothing written.
+    type_password(&mut harness, 0, "kurz");
+    type_password(&mut harness, 1, "kurz");
+    click(&mut harness, text::PROTECT_BUTTON);
+    assert_eq!(harness.state().state.message.clone().unwrap().text, text::PASSPHRASE_TOO_SHORT);
+    assert!(!plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+    harness.state_mut().state.close_dialog();
+    open_file_menu(&mut harness);
+    click(&mut harness, text::PROTECT);
+    type_password(&mut harness, 0, "richtig-lange-passphrase");
+    type_password(&mut harness, 1, "richtig-lange-passphrasE");
+    click(&mut harness, text::PROTECT_BUTTON);
+    assert_eq!(harness.state().state.message.clone().unwrap().text, text::PASSPHRASES_DIFFER);
+    harness.state_mut().state.close_dialog();
+    // Right: saved encrypted at once.
+    open_file_menu(&mut harness);
+    click(&mut harness, text::PROTECT);
+    type_password(&mut harness, 0, "richtig-lange-passphrase");
+    type_password(&mut harness, 1, "richtig-lange-passphrase");
+    click(&mut harness, text::PROTECT_BUTTON);
+    let app = harness.state();
+    assert_eq!(app.state.message.clone().unwrap().text, text::PROTECTED);
+    assert!(app.doc().unwrap().encrypted() && !app.has_unsaved_changes());
+    assert!(plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+    // And off again.
+    open_file_menu(&mut harness);
+    click(&mut harness, text::UNPROTECT);
+    click(&mut harness, text::UNPROTECT_BUTTON);
+    assert_eq!(harness.state().state.message.clone().unwrap().text, text::UNPROTECTED);
+    assert!(!plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+}
+
+#[test]
+fn classified_files_keep_their_protection() {
+    let (mut harness, path) = saved_sample_with_task("classified", "Einbau Wache 11");
+    open_file_menu(&mut harness);
+    click(&mut harness, text::PROTECT);
+    type_password(&mut harness, 0, "richtig-lange-passphrase");
+    type_password(&mut harness, 1, "richtig-lange-passphrase");
+    click(&mut harness, text::PROTECT_BUTTON);
+    let id = projects(harness.state()).first().unwrap().id;
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "project.update",
+            &serde_json::json!({"project": id.to_string(), "classification": "vs_nfd"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    open_file_menu(&mut harness);
+    click(&mut harness, text::UNPROTECT);
+    click(&mut harness, text::UNPROTECT_BUTTON);
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(message.error, "{message:?}");
+    assert!(harness.state().doc().unwrap().encrypted());
+    assert!(plnwrk_store::peek(&std::fs::read(&path).unwrap()).unwrap().encrypted);
+}
+
+#[test]
+fn protecting_an_unsaved_workspace_needs_a_place_or_changes_nothing() {
+    let mut harness = harness_with_sample();
+    open_file_menu(&mut harness);
+    click(&mut harness, text::PROTECT);
+    type_password(&mut harness, 0, "richtig-lange-passphrase");
+    type_password(&mut harness, 1, "richtig-lange-passphrase");
+    click(&mut harness, text::PROTECT_BUTTON);
+    // No dialogs in this test: the save dialog is cancelled.
+    let app = harness.state();
+    assert_eq!(app.state.message.clone().unwrap().text, text::PROTECTION_UNCHANGED);
+    assert!(!app.doc().unwrap().encrypted());
+}

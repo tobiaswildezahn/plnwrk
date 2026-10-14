@@ -8,6 +8,15 @@
 use age::secrecy::{ExposeSecret, SecretString};
 use unicode_normalization::UnicodeNormalization;
 
+/// Shortest passphrase accepted when a file is protected, counted after Unicode normalisation
+/// (as it is used).
+pub const MIN_PASSPHRASE_CHARS: usize = 12;
+
+/// Whether a new passphrase is long enough.
+pub fn passphrase_long_enough(passphrase: &str) -> bool {
+    passphrase.nfc().count() >= MIN_PASSPHRASE_CHARS
+}
+
 use crate::StoreError;
 
 /// The scrypt work factor every file is written with: 2^18 rounds, 256 MiB of memory per guess.
