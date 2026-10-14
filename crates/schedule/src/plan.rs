@@ -164,7 +164,8 @@ impl Plan {
 
     /// The working days `item` lies on, if it has dates: from the first working day at or
     /// after its start to the last at or before its end. A task lying wholly on days off counts
-    /// as the working day before its end. A milestone keeps its date.
+    /// as the working day before its end – or, with only a start, the one after its start. A
+    /// milestone keeps its date.
     fn placed(&self, item: &Item) -> Option<(Date, Date)> {
         let (start, end) = item.span()?;
         if item.milestone {
@@ -174,6 +175,8 @@ impl Plan {
         let (first, last) = (cal.next_working(start), cal.previous_working(end));
         Some(if first <= last {
             (first, last)
+        } else if item.due.is_none() {
+            (first, first)
         } else {
             (last, last)
         })
@@ -1119,6 +1122,22 @@ mod tests {
     }
 
     #[test]
+    fn a_task_with_only_a_start_on_a_day_off_starts_the_working_day_after() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-16"),
+                Item {
+                    due: None,
+                    ..task(2, "2026-10-17", "2026-10-17")
+                },
+            ],
+            vec![fs(1, 2)],
+        );
+        assert!(p.analyse().warnings.is_empty());
+        assert_eq!(p.push(moved(1, "2026-10-12", "2026-10-16")), vec![]);
+    }
+
+    #[test]
     fn a_task_wholly_on_days_off_is_the_working_day_before() {
         // Only a deadline, on Saturday 17th: it stands for Friday 16th.
         let saturday = Item {
@@ -1185,6 +1204,20 @@ mod tests {
                             3 => Item {
                                 done: true,
                                 ..open(n)
+                            },
+                            4 => Item {
+                                id: id(n),
+                                start: Some(start),
+                                due: None,
+                                milestone: false,
+                                done: false,
+                            },
+                            5 => Item {
+                                id: id(n),
+                                start: None,
+                                due: Some(end),
+                                milestone: false,
+                                done: false,
                             },
                             1 => Item {
                                 id: id(n),

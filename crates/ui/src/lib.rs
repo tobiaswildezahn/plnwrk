@@ -396,8 +396,13 @@ impl PlnwrkApp {
                 );
             }
             if taken && !params.is_empty() {
+                // "N moved along" stays in view after the second command.
+                let moved_along = self.state.message.take();
                 params.insert("task".to_owned(), Value::String(task.id.to_string()));
                 taken = self.run("task.update", &Value::Object(params), Then::Nothing, None);
+                if taken {
+                    self.state.message = moved_along;
+                }
             }
             let stored = self
                 .doc

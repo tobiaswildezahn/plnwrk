@@ -221,7 +221,11 @@ impl Calendar {
             if weekday(day) {
                 n = n.saturating_add(1);
             }
-            day = plus(day, 1);
+            let next = plus(day, 1);
+            if next == day {
+                break;
+            }
+            day = next;
         }
         for year in start.year()..=end.year() {
             for holiday in self.holidays(year) {
@@ -344,6 +348,15 @@ mod tests {
             "{:?}",
             start.elapsed()
         );
+    }
+
+    #[test]
+    fn the_last_days_of_the_calendar_count_once() {
+        let hh = Calendar::hamburg();
+        // 9999-12-31 is a Friday.
+        assert_eq!(hh.count(d("9999-12-29"), Date::MAX), 3);
+        assert_eq!(hh.add(Date::MAX, -1), d("9999-12-30"));
+        assert_eq!(hh.between(d("9999-12-27"), Date::MAX), 4);
     }
 
     #[test]

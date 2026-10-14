@@ -3334,6 +3334,32 @@ fn bars_hidden_under_the_titles_cannot_be_taken() {
 }
 
 #[test]
+fn saving_a_date_and_a_text_together_keeps_the_moved_along_message() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, "Ausschreibung");
+    type_into(&mut harness, text::t().due, "16.10.2026", false);
+    harness
+        .state_mut()
+        .state
+        .forms
+        .task
+        .as_mut()
+        .unwrap()
+        .description = "Angebote".to_owned();
+    assert!(harness.state_mut().flush_draft().is_none());
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    assert_eq!(ws.task(first).unwrap().description, "Angebote");
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::moved_along(1)
+    );
+}
+
+#[test]
 fn a_refused_typed_date_is_put_back_and_named() {
     let (mut harness, first, _) = two_dated_tasks();
     click(&mut harness, "Ausschreibung");
