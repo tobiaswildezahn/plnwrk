@@ -197,6 +197,32 @@ mod junk {
             )
             .prop_map(|v| Value::from(v.into_iter().map(Value::from).collect::<Vec<_>>()))
             .boxed(),
+            ParamKind::Moves => {
+                let tasks = pools
+                    .by_kind
+                    .get(&EntityKind::Task)
+                    .cloned()
+                    .unwrap_or_else(|| pools.all.clone());
+                let day = prop_oneof![
+                    3 => prop::sample::select(vec!["2026-10-12", "2026-10-20", "2026-12-31"])
+                        .prop_map(Value::from),
+                    1 => Just(Value::Null),
+                    1 => Just(Value::from("2026-02-30")),
+                ];
+                prop::collection::vec(
+                    (prop::sample::select(tasks), day.clone(), day),
+                    0..4,
+                )
+                .prop_map(|moves| {
+                    Value::from(
+                        moves
+                            .into_iter()
+                            .map(|(task, start, due)| serde_json::json!({"task": task, "start": start, "due": due}))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .boxed()
+            }
         }
     }
 

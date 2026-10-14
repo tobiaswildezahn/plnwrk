@@ -41,6 +41,8 @@ pub enum ParamKind {
     Bool,
     /// A list of labels (tags).
     Labels,
+    /// New dates for several tasks: `[{"task": id, "start": day|null, "due": day|null}]`.
+    Moves,
 }
 
 /// One parameter of a command or query.
@@ -121,6 +123,21 @@ impl ParamSpec {
                 "type": "array",
                 "items": {"type": "string", "maxLength": text::LABEL_MAX},
                 "maxItems": text::TAGS_MAX,
+            }),
+            ParamKind::Moves => json!({
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MOVES_MAX,
+                "items": {
+                    "type": "object",
+                    "required": ["task", "start", "due"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "task": {"type": "string", "x-entity": EntityKind::Task},
+                        "start": {"type": ["string", "null"], "format": "date"},
+                        "due": {"type": ["string", "null"], "format": "date"},
+                    },
+                },
             }),
         };
         if let Some(object) = schema.as_object_mut() {
@@ -297,6 +314,68 @@ pub fn labels(name: &str, value: &Value) -> Result<Vec<String>, CommandError> {
         .map(|item| string(name, item).map(str::to_owned))
         .collect::<Result<Vec<_>, _>>()?;
     text::tags(&strings).map_err(|e| CommandError::bad(name, e.to_string()))
+}
+
+/// How many tasks one move may give new dates.
+pub const MOVES_MAX: usize = 1000;
+
+/// New dates for one task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DateMove {
+    pub task: plnwrk_core::TaskId,
+    pub start: Option<Date>,
+    pub due: Option<Date>,
+}
+
+/// Parses `[{"task": id, "start": day|null, "due": day|null}]`: at least one, each task once,
+/// both dates given (`null` clears).
+pub fn moves(name: &str, value: &Value) -> Result<Vec<DateMove>, CommandError> {
+    let items = value
+        .as_array()
+        .ok_or_else(|| CommandError::bad(name, "must be a list of moves"))?;
+    if items.is_empty() || items.len() > MOVES_MAX {
+        return Err(CommandError::bad(name, "needs 1 to 1000 moves"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    items
+        .iter()
+        .map(|item| {
+            let fields = item
+                .as_object()
+                .ok_or_else(|| CommandError::bad(name, "each move must be an object"))?;
+            if fields
+                .keys()
+                .any(|k| !["task", "start", "due"].contains(&k.as_str()))
+            {
+                return Err(CommandError::bad(
+                    name,
+                    "a move has task, start and due only",
+                ));
+            }
+            let field = |key: &str| {
+                fields
+                    .get(key)
+                    .ok_or_else(|| CommandError::bad(name, format!("a move needs {key}")))
+            };
+            let task: plnwrk_core::TaskId = id(name, field("task")?)?;
+            if !seen.insert(task) {
+                return Err(CommandError::bad(name, "a task may move only once"));
+            }
+            let day = |key: &str| -> Result<Option<Date>, CommandError> {
+                let value = field(key)?;
+                if value.is_null() {
+                    Ok(None)
+                } else {
+                    date(name, value).map(Some)
+                }
+            };
+            Ok(DateMove {
+                task,
+                start: day("start")?,
+                due: day("due")?,
+            })
+        })
+        .collect()
 }
 
 /// Parses a calendar day `YYYY-MM-DD`.

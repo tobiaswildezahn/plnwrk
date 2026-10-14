@@ -59,6 +59,7 @@ static REGISTRY: &[CommandSpec] = &[
     commands::task::REPARENT,
     commands::task::ASSIGN,
     commands::task::SET_STATUS,
+    commands::task::RESCHEDULE,
     commands::task::SET_PROGRESS,
     commands::task::DELETE,
     commands::dependency::ADD,
