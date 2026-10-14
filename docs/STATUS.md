@@ -1,7 +1,7 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14, nach dem
-> Umsetzung von Phase 3b-3** (PR offen). Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Merge von Phase 3b-3** – Phase 3 (Desktop-UI) ist komplett. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -19,7 +19,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Details, Vorlagen, Personen) | **fertig**, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
 | 3b-1 Datumsauswahl, Fristen mit Uhrzeit, Meilensteine = Aufgaben (Format 2) | **fertig** | [#5](https://github.com/tobiaswildezahn/plnwrk/pull/5) |
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
-| 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **umgesetzt**, Review + Nachreview, PR offen | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
+| 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
 | 6 KI (MCP, Assistent) | offen | – |
@@ -32,7 +32,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–3b-2 (Merge `a542f95`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–3b-3 (Merge `3d6fbde`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
@@ -69,15 +69,14 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-1. **Tobi testet 3b-2**: Etwas ändern, plnwrk minimieren, nach 2 min hart beenden
-   (Aktivitätsanzeige → Sofort beenden) → beim Neustart steht die Kopie unter „Wiederherstellen“.
-   Das ist der eine Ablauf, der nur aus dem eframe-Quelltext belegt ist (Autosave aus
-   `App::logic`). Außerdem: eine Datei aus dem MVP-Test öffnen (Umstellung auf Format 2).
-2. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
-   Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10).
-3. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
-   Dunkel. Besonders: Ist im Dunkelmodus alles lesbar (VS-NfD-Kennzeichnung, Überfällig-Rot,
-   Board)? Das prüfen die Tests nicht.
+1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
+   Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
+2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
+   Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der
+   echten App geprüft; offen ist Tobis Urteil, ob die Palette im Alltag trägt.
+3. **Autosave in der echten App**: am 2026-10-14 belegt, dass eine Kopie im Hintergrund entstand
+   und nach dem Beenden der Instanz (SIGTERM) auf der Startseite angeboten wurde. Noch nicht
+   gezielt geprüft: minimiert + „Sofort beenden“ in der Aktivitätsanzeige.
 4. Danach **Phase 4 (Web)** – vorher Entscheidung 4.1. Alternativ 4.6 (KI früher).
 5. Optional: `cargo xtask mutants` (5.1).
 
@@ -100,6 +99,9 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 5. Offene technische Punkte
 
 ### 5.1 Vorgeschlagen, noch nicht beauftragt
+- **`.gitattributes`** mit `* text=auto eol=lf`: Windows checkt sonst CRLF aus (der Text-Wächter
+  schlug deshalb nur in der Windows-CI an; seit 3b-3 normalisiert er selbst).
+- **`cargo xtask push`**: pusht nur nach grüner Schranke im selben Lauf.
 - **Sprache aus dem System** übernehmen (heute Standard Deutsch, Umschalten im Menü).
 - **`cargo xtask mutants`** (cargo-mutants, nicht blockierend) für `store`, `engine`, `ui`.
 - **Prüfschritt „ignorierte Testdateien“** in `cargo xtask ci` (die v1-Fixtures fehlten einmal
