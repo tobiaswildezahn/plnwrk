@@ -1,0 +1,15 @@
+[package]
+name = "plnwrk-schedule"
+description = "Scheduling for plnwrk: dependencies, critical path, calendars."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+plnwrk-core.workspace = true
+
+[lints]
+workspace = true

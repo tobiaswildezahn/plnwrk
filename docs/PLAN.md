@@ -331,7 +331,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | Datum | Eintrag |
 | --- | --- |
 | 2026-10-14 | Plan erstellt. Lösung C gewählt (Einzelnutzer, Team vorbereitet). Rust noch nicht installiert. |
-| 2026-10-14 | Name **plnwrk** (statt plnwrk: Stabsarbeit ist Option, nicht Zweck). Projekt und Vorgang sind **ein** Modell (`Project` mit `reference`, `kind`, `due`, Vorlagen); keine zweite Struktur. |
+| 2026-10-14 | Name **plnwrk** (statt Stabsplan: Stabsarbeit ist Option, nicht Zweck). Projekt und Vorgang sind **ein** Modell (`Project` mit `reference`, `kind`, `due`, Vorlagen); keine zweite Struktur. |
 
 | Phase | Status |
 | --- | --- |
