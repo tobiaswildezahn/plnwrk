@@ -17,7 +17,7 @@ expression: "snapshot_value(&s, \"templates\", json!({}))"
       "time": "12:00:00",
       "title": "Abgabe Senatskanzlei"
     },
-    "open_tasks": 5,
+    "open_tasks": 4,
     "overdue_tasks": 0,
     "owner": null,
     "progress": {

@@ -40,8 +40,9 @@ mod queries {
             ["SKA 23/1234 Sirenenwarnung", "Digitalfunk Umrüstung Wachen"]
         );
         let project = cards.iter().find(|c| c.id == ids.project).unwrap();
-        // The missed milestone is a task now and counts as overdue too.
-        assert_eq!(project.overdue_tasks, 2);
+        // Milestones are reported on their own, not as overdue work.
+        assert_eq!(project.overdue_tasks, 1);
+        assert_eq!(project.open_tasks, 4);
         assert_eq!(project.days_left, Some(62));
         let next = project.next_milestone.as_ref().unwrap();
         assert_eq!(
@@ -448,6 +449,23 @@ mod deadline_times {
         assert!(is_past(day, two, at("14:01")));
         assert!(!is_past(day, None, at("23:59")));
         assert!(is_past(day, None, "2026-10-15T00:00".parse().unwrap()));
+    }
+
+    #[test]
+    fn on_one_day_a_time_comes_before_the_whole_day() {
+        use plnwrk_engine::query::deadline_order;
+        let day: jiff::civil::Date = "2026-10-14".parse().unwrap();
+        let next: jiff::civil::Date = "2026-10-15".parse().unwrap();
+        let ten = Some("10:00".parse().unwrap());
+        let mut order = [
+            ("none", None, None),
+            ("next", Some(next), None),
+            ("whole day", Some(day), None),
+            ("ten", Some(day), ten),
+        ];
+        order.sort_by_key(|o| deadline_order(o.1, o.2));
+        let names: Vec<&str> = order.iter().map(|o| o.0).collect();
+        assert_eq!(names, ["ten", "whole day", "next", "none"]);
     }
 
     #[test]

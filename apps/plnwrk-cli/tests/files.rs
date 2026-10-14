@@ -437,4 +437,44 @@ mod files {
             false
         );
     }
+
+    fn v1_copy(dir: &Dir) -> PathBuf {
+        let file = dir.file();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/store/tests/fixtures/v1-sample.plnwrk");
+        std::fs::copy(&fixture, &file).unwrap();
+        file
+    }
+
+    #[test]
+    fn queries_and_exports_of_a_version_1_file_keep_its_milestones() {
+        let dir = Dir::new("v1-read");
+        let file = v1_copy(&dir);
+        let overview = ok(&["query", s(&file), "overview"], None);
+        assert!(
+            overview
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|card| !card["next_milestone"].is_null())
+        );
+        let markdown = cli(&["export", s(&file), "--format", "markdown"], None);
+        assert!(String::from_utf8_lossy(&markdown.stdout).contains("### Meilensteine"));
+        // Reading never writes.
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 1);
+    }
+
+    #[test]
+    fn undo_cannot_reach_past_the_upgrade_and_an_explicit_upgrade_saves() {
+        let dir = Dir::new("v1-undo");
+        let file = v1_copy(&dir);
+        let before = std::fs::read(&file).unwrap();
+        fails(&["run", s(&file), "undo"], None);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "file untouched");
+        let result = ok(&["run", s(&file), "workspace.upgrade"], None);
+        assert_eq!(result["upgraded"], true);
+        assert_eq!(result["saved"], true);
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 2);
+        ok(&["verify", s(&file)], None);
+    }
 }

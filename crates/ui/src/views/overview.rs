@@ -22,7 +22,7 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
         }
         ui.horizontal_wrapped(|ui| {
             for card in &cards {
-                project_card(ui, card, out, None);
+                project_card(ui, card, now, out, None);
             }
         });
         ui.add_space(16.0);
@@ -34,7 +34,7 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
         for item in overdue {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(text::days_left(-item.days_late))
+                    RichText::new(text::deadline_state(item.due, item.due_time, now).0)
                         .color(ui.visuals().error_fg_color),
                 );
                 let project = ws
@@ -61,6 +61,7 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
 fn project_card(
     ui: &mut egui::Ui,
     card: &ProjectCard,
+    now: jiff::civil::DateTime,
     out: &mut Vec<Intent>,
     action: Option<(&str, Intent)>,
 ) {
@@ -89,14 +90,14 @@ fn project_card(
                         .color(ui.visuals().error_fg_color),
                 );
             }
-            if let (Some(due), Some(days)) = (card.due, card.days_left) {
+            if let Some(due) = card.due {
+                let (state, past) = text::deadline_state(due, card.due_time, now);
                 let line = format!(
-                    "{} {} · {}",
+                    "{} {} · {state}",
                     text::DUE,
-                    dates::format(due),
-                    text::days_left(days)
+                    dates::format_deadline(due, card.due_time),
                 );
-                if days < 0 {
+                if past {
                     ui.label(RichText::new(line).color(ui.visuals().error_fg_color));
                 } else {
                     ui.label(line);
@@ -159,6 +160,7 @@ pub fn templates(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
                 project_card(
                     ui,
                     card,
+                    now,
                     out,
                     Some((
                         text::FROM_TEMPLATE,

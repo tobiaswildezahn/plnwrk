@@ -158,12 +158,16 @@ pub fn date_input(
                 .id(id.with("calendar"))
                 .close_behavior(PopupCloseBehavior::CloseOnClickOutside);
             let popup_id = popup.get_id();
-            if let Some(inner) = popup.show(|ui| calendar(ui, id, current, today))
-                && let Some(choice) = inner.inner
-            {
-                *value = dates::format_opt(choice);
-                picked = true;
-                Popup::close_id(ui.ctx(), popup_id);
+            match popup.show(|ui| calendar(ui, id, current, today)) {
+                Some(inner) => {
+                    if let Some(choice) = inner.inner {
+                        *value = dates::format_opt(choice);
+                        picked = true;
+                        Popup::close_id(ui.ctx(), popup_id);
+                    }
+                }
+                // Closed: next time it opens at the month of the value again.
+                None => ui.ctx().data_mut(|d| d.remove::<Date>(id.with("month"))),
             }
             field
         })
@@ -188,6 +192,10 @@ pub fn deadline_input(
 ) -> DateInput {
     ui.horizontal(|ui| {
         let mut input = date_input(ui, salt, day, today, label);
+        if input.picked && day.is_empty() {
+            // "Leeren" clears the whole deadline, time included.
+            time.clear();
+        }
         let open_id = Id::new("time-open").with(salt);
         let open = with_time
             || !time.trim().is_empty()

@@ -155,6 +155,26 @@ pub fn days_left(days: i64) -> String {
     }
 }
 
+/// How a deadline stands at `now`, for people, and whether it has passed: "in 3 Tagen",
+/// "heute bis 14:00 Uhr", "seit 14:00 Uhr überfällig", "seit 2 Tagen überfällig".
+pub fn deadline_state(
+    due: jiff::civil::Date,
+    time: Option<jiff::civil::Time>,
+    now: jiff::civil::DateTime,
+) -> (String, bool) {
+    let past = plnwrk_engine::query::is_past(due, time, now);
+    let days = now
+        .date()
+        .until(due)
+        .map_or(0, |span| i64::from(span.get_days()));
+    let text = match (time, days, past) {
+        (Some(time), 0, true) => format!("seit {} Uhr überfällig", crate::dates::format_time(time)),
+        (Some(time), 0, false) => format!("heute bis {} Uhr", crate::dates::format_time(time)),
+        _ => days_left(days),
+    };
+    (text, past)
+}
+
 /// A refused command, for people.
 pub fn command_error(error: &CommandError) -> String {
     match error {
@@ -215,6 +235,29 @@ mod tests {
         assert_eq!(days_left(5), "in 5 Tagen");
         assert_eq!(days_left(-1), "seit 1 Tag überfällig");
         assert_eq!(days_left(-3), "seit 3 Tagen überfällig");
+    }
+
+    #[test]
+    fn deadlines_with_a_time_read_naturally() {
+        let day: jiff::civil::Date = "2026-10-14".parse().unwrap();
+        let noon = Some("12:00".parse().unwrap());
+        let at = |t: &str| format!("2026-10-14T{t}").parse().unwrap();
+        assert_eq!(
+            deadline_state(day, noon, at("11:00")),
+            ("heute bis 12:00 Uhr".to_owned(), false)
+        );
+        assert_eq!(
+            deadline_state(day, noon, at("15:00")),
+            ("seit 12:00 Uhr überfällig".to_owned(), true)
+        );
+        assert_eq!(
+            deadline_state(day, None, at("23:00")),
+            ("heute fällig".to_owned(), false)
+        );
+        assert_eq!(
+            deadline_state(day, None, "2026-10-16T08:00".parse().unwrap()),
+            ("seit 2 Tagen überfällig".to_owned(), true)
+        );
     }
 
     #[test]

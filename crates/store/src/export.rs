@@ -227,12 +227,9 @@ pub fn markdown(doc: &Document) -> String {
         let all = tasks(ws, project);
         let mut milestones: Vec<&Task> = all.iter().copied().filter(|t| t.milestone).collect();
         milestones.sort_by(|a, b| {
-            (a.due.is_none(), a.due, a.due_time, &a.title).cmp(&(
-                b.due.is_none(),
-                b.due,
-                b.due_time,
-                &b.title,
-            ))
+            plnwrk_engine::query::deadline_order(a.due, a.due_time)
+                .cmp(&plnwrk_engine::query::deadline_order(b.due, b.due_time))
+                .then(a.title.cmp(&b.title))
         });
         if !milestones.is_empty() {
             out.push_str("\n### Meilensteine\n\n");

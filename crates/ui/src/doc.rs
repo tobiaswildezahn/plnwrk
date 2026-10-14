@@ -62,21 +62,15 @@ impl OpenDoc {
             _ => Protection::None,
         };
         let saved = opened.document.log.len();
-        let mut doc = Self::with(session(opened.document), None, protection, saved);
-        // Milestones of format version 1 become milestone tasks right away: one change in the
-        // log, so the file counts as changed until it is saved.
-        if doc.session.workspace().milestones().next().is_some() {
-            doc.session
-                .run(
-                    "workspace.upgrade",
-                    &serde_json::json!({}),
-                    plnwrk_engine::Origin::Script,
-                )
-                .map_err(|e| StoreError::Corrupt {
-                    reason: format!("upgrade: {e}"),
-                })?;
-            doc.upgraded = true;
-        }
+        let (session, upgraded) = opened
+            .document
+            .open_session(Box::new(SystemClock), Box::new(RandomIds::default()))
+            .map_err(|e| StoreError::Corrupt {
+                reason: format!("upgrade: {e}"),
+            })?;
+        // A conversion is a change in the log: the file counts as changed until saved.
+        let mut doc = Self::with(session, None, protection, saved);
+        doc.upgraded = upgraded;
         Ok(doc)
     }
 

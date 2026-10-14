@@ -17,7 +17,7 @@ expression: "snapshot_value(&s, \"overview\", json!({}))"
       "time": "12:00:00",
       "title": "Abgabe Senatskanzlei"
     },
-    "open_tasks": 4,
+    "open_tasks": 3,
     "overdue_tasks": 0,
     "owner": {
       "id": "00000000000000000000000002",
@@ -47,8 +47,8 @@ expression: "snapshot_value(&s, \"overview\", json!({}))"
       "time": null,
       "title": "Zuschlag erteilt"
     },
-    "open_tasks": 6,
-    "overdue_tasks": 2,
+    "open_tasks": 4,
+    "overdue_tasks": 1,
     "owner": {
       "id": "00000000000000000000000001",
       "initials": "TW",

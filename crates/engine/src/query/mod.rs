@@ -13,9 +13,9 @@ use serde_json::Value;
 
 pub use history::{Action, FieldChange, HistoryEntry, history};
 pub use overview::{
-    MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, deadlines_count,
-    effective_progress, is_past, milestone_ref, milestone_state, milestone_state_in, overdue,
-    overview, progress, task_overdue, templates,
+    MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, deadline_order,
+    deadlines_count, effective_progress, is_past, milestone_ref, milestone_state,
+    milestone_state_in, overdue, overview, progress, task_overdue, templates,
 };
 pub use tasks::{
     Board, Column, TaskCard, TaskGroup, TaskGroupRows, TaskIndex, TaskQuery, TaskSort, board, card,
@@ -215,8 +215,8 @@ fn q_project(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
         .map(|m| milestone_ref(project, m, now))
         .collect();
     milestones.sort_by(|a, b| {
-        (a.date.is_none(), a.date, a.time)
-            .cmp(&(b.date.is_none(), b.date, b.time))
+        deadline_order(a.date, a.time)
+            .cmp(&deadline_order(b.date, b.time))
             .then(a.title.cmp(&b.title))
     });
     let mut top: Vec<&Task> = index

@@ -961,8 +961,16 @@ fn a_task_becomes_a_milestone_but_not_a_subtask() {
     assert!(task_named(harness.state(), "Übergabe").unwrap().milestone);
     // The list marks it.
     assert!(harness.query_by_label("♦ Übergabe").is_some());
-    // A subtask cannot be one: the box is off.
+    // A subtask cannot be one: the box is off (not only refused by the engine).
     click(&mut harness, "Kartons");
+    assert!(
+        harness
+            .query_by(|n| n.role() == egui::accesskit::Role::CheckBox
+                && n.label().as_deref() == Some(text::MILESTONE)
+                && n.is_disabled())
+            .is_some(),
+        "disabled for subtasks"
+    );
     harness
         .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::MILESTONE)
         .click();
@@ -1000,4 +1008,66 @@ fn a_version_1_file_opens_upgraded_and_counts_as_changed() {
     let ws = app.doc().unwrap().session.workspace();
     assert_eq!(ws.milestones().count(), 0);
     assert_eq!(ws.tasks().filter(|t| t.milestone).count(), 4);
+}
+
+#[test]
+fn clearing_a_deadline_in_the_calendar_clears_its_time_too() {
+    let mut harness = with_project("SKA 23/9");
+    let id = projects(harness.state()).first().unwrap().id;
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "project.update",
+            &serde_json::json!({"project": id.to_string(), "reference": "23/9"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    type_into(&mut harness, text::NEW_TASK_HINT, "Antwort", true);
+    click(&mut harness, "Antwort");
+    type_into(&mut harness, text::DUE, "20.11.2026", false);
+    type_into(&mut harness, text::TIME_HINT, "12:00", true);
+    assert!(
+        task_named(harness.state(), "Antwort")
+            .unwrap()
+            .due_time
+            .is_some()
+    );
+    // Start and deadline each have a calendar button; the deadline's is the second.
+    harness.get_all_by_label("📅").nth(1).unwrap().click();
+    harness.run();
+    click(&mut harness, text::CLEAR);
+    let task = task_named(harness.state(), "Antwort").unwrap();
+    assert_eq!((task.due, task.due_time), (None, None));
+    assert!(
+        harness.state().state.message.is_none(),
+        "no complaint about a lone time"
+    );
+}
+
+#[test]
+fn the_calendar_opens_at_the_month_of_its_value_again() {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::NEW_FILE);
+    click(&mut harness, text::NEW_PROJECT);
+    type_into(&mut harness, text::DUE, "15.03.2027", false);
+    let open_due_calendar = |harness: &mut Harness<'static, PlnwrkApp>| {
+        harness.get_all_by_label("📅").nth(1).unwrap().click();
+        harness.run();
+    };
+    open_due_calendar(&mut harness);
+    assert!(harness.query_by_label("März 2027").is_some());
+    click(&mut harness, "⏵");
+    assert!(harness.query_by_label("April 2027").is_some());
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(harness.query_by_label("April 2027").is_none(), "closed");
+    open_due_calendar(&mut harness);
+    assert!(
+        harness.query_by_label("März 2027").is_some(),
+        "back at the value's month"
+    );
 }

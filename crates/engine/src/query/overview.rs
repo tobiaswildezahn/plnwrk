@@ -108,6 +108,12 @@ pub fn is_past(due: Date, time: Option<Time>, now: DateTime) -> bool {
     }
 }
 
+/// Order of deadlines: earlier first; on the same day a time comes before "the whole day";
+/// without a deadline last.
+pub fn deadline_order(due: Option<Date>, time: Option<Time>) -> impl Ord {
+    (due.is_none(), due, time.is_none(), time)
+}
+
 /// A milestone (a task marked as such) is reached when done, missed when its deadline passed.
 pub fn milestone_state(task: &Task, now: DateTime) -> MilestoneState {
     if task.status == TaskStatus::Done {
@@ -277,7 +283,7 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, now: DateTime)
         .milestones_of(project.id)
         .iter()
         .filter(|m| m.status != TaskStatus::Done)
-        .min_by_key(|m| (m.due.is_none(), m.due, m.due_time))
+        .min_by_key(|m| deadline_order(m.due, m.due_time))
         .map(|m| milestone_ref(project, m, now));
     ProjectCard {
         id: project.id,
@@ -294,13 +300,14 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, now: DateTime)
             done: 0,
             percent: 0,
         }),
+        // Milestones are counted on their own (`next_milestone`), not as work.
         open_tasks: tasks
             .iter()
-            .filter(|t| t.status != TaskStatus::Done)
+            .filter(|t| !t.milestone && t.status != TaskStatus::Done)
             .count(),
         overdue_tasks: tasks
             .iter()
-            .filter(|t| task_overdue(Some(project), t, now))
+            .filter(|t| !t.milestone && task_overdue(Some(project), t, now))
             .count(),
         next_milestone,
         classification: project.classification,

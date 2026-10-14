@@ -171,14 +171,13 @@ fn head(
     ui.weak(line.join(" · "));
     ui.horizontal(|ui| {
         if let Some(due) = project.due {
-            let days = (due - today).get_days();
+            let (state, past) = text::deadline_state(due, project.due_time, now);
             let text = format!(
-                "{} {} · {}",
+                "{} {} · {state}",
                 text::DUE,
-                dates::format(due),
-                text::days_left(i64::from(days))
+                dates::format_deadline(due, project.due_time),
             );
-            if days < 0 && query::deadlines_count(project) {
+            if past && query::deadlines_count(project) {
                 ui.label(RichText::new(text).color(ui.visuals().error_fg_color));
             } else {
                 ui.label(text);
@@ -357,12 +356,9 @@ fn milestones(
     let now = doc.session.clock().now_local();
     let mut all: Vec<&Task> = ws.tasks_of(project.id).filter(|t| t.milestone).collect();
     all.sort_by(|a, b| {
-        (a.due.is_none(), a.due, a.due_time, &a.title).cmp(&(
-            b.due.is_none(),
-            b.due,
-            b.due_time,
-            &b.title,
-        ))
+        plnwrk_engine::query::deadline_order(a.due, a.due_time)
+            .cmp(&plnwrk_engine::query::deadline_order(b.due, b.due_time))
+            .then(a.title.cmp(&b.title))
     });
     if all.is_empty() {
         ui.weak(text::NO_MILESTONES);
@@ -422,7 +418,7 @@ fn milestones(
         );
         date::deadline_input(
             ui,
-            "new-milestone",
+            ("new-milestone", project.id),
             &mut state.forms.milestone_date,
             &mut state.forms.milestone_time,
             now.date(),

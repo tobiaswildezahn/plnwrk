@@ -428,7 +428,7 @@ fn undo_reverts_repeated_writes_to_one_entity_in_reverse_order() {
 }
 
 #[test]
-fn upgrade_turns_old_milestones_into_milestone_tasks_and_undo_brings_them_back() {
+fn upgrade_turns_old_milestones_into_milestone_tasks_and_cannot_be_undone() {
     use plnwrk_core::{Milestone, MilestoneId, MilestoneStatus, ProjectId};
     let mut s = session();
     let created = s
@@ -480,8 +480,56 @@ fn upgrade_turns_old_milestones_into_milestone_tasks_and_undo_brings_them_back()
         "placed at the end"
     );
     assert!(ws.check().is_empty());
-    // One change; undo restores exactly the old state.
-    s.run("undo", &json!({}), Origin::User).unwrap();
-    assert_eq!(s.workspace(), &before);
+    // One change, and a barrier: neither it nor anything before it can be undone.
+    assert!(!s.can_undo());
+    let error = s.run("undo", &json!({}), Origin::User).unwrap_err();
+    assert!(matches!(error, CommandError::Disabled { .. }), "{error}");
+    assert_ne!(s.workspace(), &before);
+    assert!(!s.upgrade().unwrap(), "nothing left to convert");
     let _ = ProjectId::from_ulid(ulid::Ulid(0));
+}
+
+#[test]
+fn templates_with_old_milestones_give_cases_milestone_tasks() {
+    use plnwrk_core::{Milestone, MilestoneId, MilestoneStatus};
+    let mut s = session();
+    let created = s
+        .run(
+            "project.create",
+            &json!({"title": "Vorlage", "template": true, "start": "2026-01-01"}),
+            Origin::User,
+        )
+        .unwrap()
+        .created;
+    let Some(plnwrk_core::EntityKey::Project(template)) = created.first().copied() else {
+        panic!("{created:?}");
+    };
+    s.workspace_mut().put(Entity::Milestone(Milestone {
+        id: MilestoneId::from_ulid(ulid::Ulid(8000)),
+        project: template,
+        title: "Abgabe".into(),
+        date: "2026-01-08".parse().unwrap(),
+        status: MilestoneStatus::Reached,
+    }));
+    let created = s
+        .run(
+            "project.instantiate",
+            &json!({"template": template.to_string(), "title": "Fall", "start": "2026-11-02"}),
+            Origin::User,
+        )
+        .unwrap()
+        .created;
+    let Some(plnwrk_core::EntityKey::Project(case)) = created.first().copied() else {
+        panic!("{created:?}");
+    };
+    let ws = s.workspace();
+    assert!(ws.milestones().all(|m| m.project != case));
+    let milestone = ws.tasks_of(case).find(|t| t.milestone).unwrap();
+    assert_eq!(milestone.title, "Abgabe");
+    assert_eq!(milestone.due.unwrap().to_string(), "2026-11-09");
+    assert_eq!(
+        milestone.status,
+        plnwrk_core::TaskStatus::Todo,
+        "a new case starts open"
+    );
 }

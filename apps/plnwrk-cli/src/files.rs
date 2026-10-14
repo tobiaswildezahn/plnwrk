@@ -148,18 +148,10 @@ pub fn session(doc: Document) -> Session {
     doc.into_session(Box::new(SystemClock), Box::new(RandomIds::default()))
 }
 
-/// Brings data of an older file up to date before it is changed (milestones of format
-/// version 1 become milestone tasks). Returns whether anything was converted.
-pub fn upgrade(session: &mut Session) -> Result<bool, Failure> {
-    if session.workspace().milestones().next().is_none() {
-        return Ok(false);
-    }
-    session.run(
-        "workspace.upgrade",
-        &serde_json::json!({}),
-        plnwrk_engine::Origin::Script,
-    )?;
-    Ok(true)
+/// A session on an opened file, its data brought up to date (milestones of format version 1
+/// become milestone tasks). Returns whether anything was converted.
+pub fn current(doc: Document) -> Result<(Session, bool), Failure> {
+    Ok(doc.open_session(Box::new(SystemClock), Box::new(RandomIds::default()))?)
 }
 
 /// The document of a session.

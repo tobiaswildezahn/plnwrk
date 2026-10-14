@@ -72,6 +72,21 @@ impl Session {
         self.actor = actor;
     }
 
+    /// Brings data of an older format up to date (see `workspace.upgrade`), as the first thing
+    /// after opening a file. Returns whether anything was converted; afterwards nothing can be
+    /// undone past this point.
+    pub fn upgrade(&mut self) -> Result<bool, CommandError> {
+        if self.ws.milestones().next().is_none() {
+            return Ok(false);
+        }
+        self.run_spec(
+            &crate::commands::workspace::UPGRADE,
+            &serde_json::json!({}),
+            Origin::Script,
+        )?;
+        Ok(true)
+    }
+
     /// The person working, if set.
     pub fn actor(&self) -> Option<PersonId> {
         self.actor
@@ -155,7 +170,13 @@ impl Session {
             });
         }
         let seq = self.append(id, raw.clone(), events, origin, None, None);
-        self.undo.push(seq);
+        if id == crate::commands::workspace::UPGRADE.id {
+            // Bringing older data up to date is a barrier: nothing before it can be undone
+            // (it would bring back the old form), and it cannot be undone itself.
+            self.undo.clear();
+        } else {
+            self.undo.push(seq);
+        }
         self.redo.clear();
         Ok(Outcome {
             change: Some(seq),
