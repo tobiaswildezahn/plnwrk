@@ -540,30 +540,112 @@ fn choosing_another_task_stores_what_was_typed() {
 #[test]
 fn a_recovery_copy_is_written_only_when_something_would_be_lost() {
     let dir = scratch("recovery");
-    // Untitled and changed: a copy that opens again.
+    // Untitled and changed: quitting without asking writes a copy that opens again.
     let mut app = harness_with_sample();
-    let copy = app.state_mut().emergency_save_to(&dir).unwrap();
+    app.state_mut()
+        .set_autosave(Some(dir.clone()), false, crate::autosave::INTERVAL);
+    let copy = app.state_mut().emergency_save().unwrap();
     let reopened = crate::OpenDoc::open(&copy, None).unwrap();
     assert!(reopened.session.workspace().projects().count() >= 3);
     assert_eq!(crate::doc::recovery_copies(&dir), vec![copy.clone()]);
     drop(reopened);
-    // The person chose to discard: nothing is written.
+    // The person chose to discard: nothing is written, and the copy goes.
     app.key_press_modifiers(Modifiers::COMMAND, Key::Q);
     app.run();
     click(&mut app, text::DISCARD);
-    let fresh = scratch("recovery-discarded");
-    assert!(app.state_mut().emergency_save_to(&fresh).is_none());
-    assert!(crate::doc::recovery_copies(&fresh).is_empty());
+    assert!(app.state_mut().emergency_save().is_none());
+    assert!(crate::doc::recovery_copies(&dir).is_empty());
     // Nothing changed: nothing is written.
     let mut clean = harness(PlnwrkApp::default());
     click(&mut clean, text::NEW_FILE);
-    assert!(clean.state_mut().emergency_save_to(&dir).is_none());
-    assert_eq!(crate::doc::recovery_copies(&dir).len(), 1);
-    // The start page offers it.
-    let mut start = PlnwrkApp::default();
-    start.state.recovered = crate::doc::recovery_copies(&dir);
-    let start = harness(start);
-    assert!(start.query_by_label(text::RECOVERED).is_some());
+    clean
+        .state_mut()
+        .set_autosave(Some(dir.clone()), false, crate::autosave::INTERVAL);
+    assert!(clean.state_mut().emergency_save().is_none());
+    assert!(crate::doc::recovery_copies(&dir).is_empty());
+}
+
+#[test]
+fn autosave_writes_a_copy_and_saving_removes_it() {
+    let dir = scratch("autosave-flow");
+    let recovery = dir.join("Notkopien");
+    let host = Scripted {
+        save: vec![dir.join("abteilung.plnwrk")],
+        open: Vec::new(),
+    };
+    let mut app = PlnwrkApp::with_host(Box::new(host));
+    app.set_autosave(Some(recovery.clone()), false, 0.0);
+    let mut harness = harness(app);
+    click(&mut harness, text::NEW_FILE);
+    assert!(
+        crate::doc::recovery_copies(&recovery).is_empty(),
+        "nothing to keep yet"
+    );
+    click(&mut harness, text::NEW_PROJECT);
+    type_into(&mut harness, text::TITLE, "Lage", false);
+    click(&mut harness, text::CREATE);
+    harness.run();
+    let copies = crate::doc::recovery_copies(&recovery);
+    assert_eq!(copies.len(), 1, "a copy right after the change");
+    let copy = copies.first().unwrap().clone();
+    let reopened = crate::OpenDoc::open(&copy, None).unwrap();
+    assert!(
+        reopened
+            .session
+            .workspace()
+            .projects()
+            .any(|p| p.title == "Lage")
+    );
+    drop(reopened);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(dir.join("abteilung.plnwrk").exists());
+    assert!(!copy.exists(), "saved: the copy is gone");
+    harness.run();
+    assert!(
+        crate::doc::recovery_copies(&recovery).is_empty(),
+        "and not written again"
+    );
+}
+
+#[test]
+fn a_recovery_copy_opens_as_unsaved_work_and_goes_once_saved() {
+    let dir = scratch("autosave-recover");
+    let recovery = dir.join("Notkopien");
+    // A copy left behind (e.g. by a crash).
+    let mut crashed = PlnwrkApp::default();
+    crashed.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
+    let mut crashed = harness(crashed);
+    click(&mut crashed, text::OPEN_SAMPLE);
+    let copy = crashed.state_mut().emergency_save().unwrap();
+    drop(crashed);
+
+    let host = Scripted {
+        save: vec![dir.join("gerettet.plnwrk")],
+        open: Vec::new(),
+    };
+    let mut app = PlnwrkApp::with_host(Box::new(host));
+    app.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
+    app.state.recovered = crate::doc::recovery_copies(&recovery);
+    let mut harness = harness(app);
+    assert!(harness.query_by_label(text::RECOVERED).is_some());
+    let name = copy.file_name().unwrap().to_string_lossy().into_owned();
+    click(&mut harness, &name);
+    let app = harness.state();
+    assert_eq!(
+        app.state.message.clone().unwrap().text,
+        text::RECOVERED_OPENED
+    );
+    assert!(app.has_unsaved_changes());
+    assert!(
+        app.doc().unwrap().path().is_none(),
+        "saving asks for a place"
+    );
+    assert_eq!(app.doc().unwrap().name(), text::UNTITLED);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(dir.join("gerettet.plnwrk").exists());
+    assert!(!copy.exists(), "recovered and saved: the copy is gone");
 }
 
 #[test]

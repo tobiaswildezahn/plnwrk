@@ -20,9 +20,21 @@ pub struct OpenDoc {
     saved: usize,
     /// Data of an older format was brought up to date when it was opened (not saved yet).
     pub upgraded: bool,
+    /// The name to show without a file (e.g. a recovered copy).
+    title: Option<String>,
+    /// Tells the recovery copy of this workspace apart from others (when it was opened).
+    recovery_key: String,
     /// Keeps other plnwrk processes off the file while it is open.
     #[cfg(not(target_arch = "wasm32"))]
     _lock: Option<plnwrk_store::file::Lock>,
+}
+
+/// A key unique to this opening: date and time, and a counter for several in one second.
+fn recovery_key() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
+    format!("{stamp} {n}")
 }
 
 fn session(doc: Document) -> Session {
@@ -37,6 +49,8 @@ impl OpenDoc {
             protection,
             saved,
             upgraded: false,
+            title: None,
+            recovery_key: recovery_key(),
             #[cfg(not(target_arch = "wasm32"))]
             _lock: None,
         }
@@ -91,9 +105,26 @@ impl OpenDoc {
 
     /// The name to show: the file name without extension, or "Unbenannt".
     pub fn name(&self) -> String {
-        self.path.as_deref().and_then(Path::file_stem).map_or_else(
-            || text::UNTITLED.to_owned(),
-            |s| s.to_string_lossy().into_owned(),
+        match self.path.as_deref().and_then(Path::file_stem) {
+            Some(stem) => stem.to_string_lossy().into_owned(),
+            None => self
+                .title
+                .clone()
+                .unwrap_or_else(|| text::UNTITLED.to_owned()),
+        }
+    }
+
+    /// How many changes the log holds (a cheap fingerprint of the state).
+    pub fn log_len(&self) -> usize {
+        self.session.log().len()
+    }
+
+    /// The data and protection as they would be saved now, for writing elsewhere (e.g. in the
+    /// background).
+    pub fn snapshot(&self) -> (Document, Protection) {
+        (
+            Document::from_session(&self.session),
+            self.protection.clone(),
         )
     }
 
@@ -194,16 +225,32 @@ pub fn recovery_copies(folder: &Path) -> Vec<PathBuf> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl OpenDoc {
-    /// Writes the current state as a new file `<name> <date time>.plnwrk` into `folder`
-    /// (created if needed), keeping the protection. Never replaces a file.
-    pub fn write_recovery_copy(&self, folder: &Path) -> Result<PathBuf, StoreError> {
-        std::fs::create_dir_all(folder).map_err(|e| StoreError::Io {
-            reason: e.to_string(),
-        })?;
-        let stamp = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S").to_string();
-        let path = folder.join(format!("{} {stamp}.plnwrk", self.name()));
-        plnwrk_store::file::write_new(&path, &self.to_bytes()?)?;
-        Ok(path)
+    /// Where the recovery copy of this workspace goes in `folder`: one fixed name per opening,
+    /// so each autosave replaces the last.
+    pub fn recovery_path(&self, folder: &Path) -> PathBuf {
+        folder.join(format!(
+            "{} – Wiederherstellung {}.plnwrk",
+            self.name(),
+            self.recovery_key
+        ))
+    }
+
+    /// Treats an opened recovery copy as a new, unsaved workspace: it keeps its name, but saving
+    /// asks for a place (never back into the recovery folder). Returns the copy's path.
+    pub fn detach_as_untitled(&mut self) -> Option<PathBuf> {
+        let path = self.path.take()?;
+        let name = self.name_of(&path);
+        self.title = Some(name);
+        self._lock = None;
+        self.saved = usize::MAX;
+        Some(path)
+    }
+
+    fn name_of(&self, path: &Path) -> String {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .and_then(|stem| stem.split(" – Wiederherstellung").next().map(str::to_owned))
+            .unwrap_or_else(|| text::UNTITLED.to_owned())
     }
 }
 
