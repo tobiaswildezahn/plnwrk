@@ -110,7 +110,7 @@ in `plan.rs` verwendet.
 5. **Meilensteine immer kritisch (rot):** Puffer eines Meilensteins = Arbeitstage zwischen dem,
    was seine Vorgänger frühestens erlauben, und seiner Frist; ohne Vorgänger nicht kritisch.
 6. **Erledigte Aufgaben werden mitgeschoben:** → fest wie Meilensteine, nicht kritisch, keine
-   Warnungen über sie (Vorschlag, Entscheidung 4.12).
+   Warnungen über sie (**entschieden**, 4.12). Ihre Termine begrenzen Nachfolger weiterhin.
 7. **„Wartet auf“ bietet Kreise an, Meldung passt nicht:** Aufgaben, die (direkt oder nicht)
    schon auf diese warten, nicht anbieten; `text::rule(Rule::Cycle)` allgemein formulieren.
 
@@ -134,7 +134,7 @@ statt Kalendertagen; Meldung bei mehr als 1000 Schüben.
 | 4.8 | **VS-NfD ohne Passphrase**: Beim Anlegen eines VS-NfD-Projekts sofort zum Schützen zwingen? Heute lässt sich unverschlüsselt weiterarbeiten; Speichern und Autosave scheitern dann (Statuszeile rot). | Beim Einstufen direkt den Schutz-Dialog öffnen | vor Phase 7 |
 | 4.9 | **Wiederherstellungskopien von VS-Dateien** liegen (verschlüsselt) in einem Systemordner, den IT-Sicherheit kaum im Blick hat. Autosave bei VS aus, oder Kopie neben der Datei? | Für VS: Kopie im Ordner der Datei | vor echtem VS-Einsatz |
 | 4.10 | **Wer testet außer Tobi**, mit welchem realistischen (erfundenen) Vorgang? | Eine Person aus der Abteilung, SKA-Ablauf | vor 3b-3 |
-| 4.12 | **Erledigte Aufgaben im Zeitplan**: mitschieben oder fest lassen? Heute rutschen sie mit, was das Datum abgeschlossener Arbeit umschreibt. | Fest wie Meilensteine, nicht kritisch | vor Merge Phase 5 |
+| 4.12 | ~~Erledigte Aufgaben im Zeitplan~~ **entschieden (Tobi, 2026-10-14):** fest wie Meilensteine, nicht kritisch, keine Warnungen über sie | – | umsetzen mit §3.1 Nr. 6 |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte
