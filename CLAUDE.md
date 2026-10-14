@@ -1,6 +1,7 @@
 # plnwrk – Agenten-Einstieg
 
-**Zuerst lesen: [docs/PLAN.md](docs/PLAN.md).** Es ist das verbindliche Steuerdokument
+**Zuerst lesen: [docs/STATUS.md](docs/STATUS.md)** (aktueller Stand, offene Punkte, nächste
+Schritte), **dann [docs/PLAN.md](docs/PLAN.md).** Es ist das verbindliche Steuerdokument
 (Architektur, Regeln, Phasen, Entscheidungsprotokoll). Nichts bauen, was dort nicht vorgesehen
 ist; Abweichungen dort in Abschnitt 9 eintragen.
 
@@ -21,6 +22,7 @@ source ~/.cargo/env                     # falls cargo nicht im PATH ist
 cargo xtask ci                          # die Schranke; muss grün sein
 cargo xtask layers | purity             # Einzelprüfungen
 cargo run -p plnwrk-cli -- demo         # Beispiel-Arbeitsbereich als JSON
+cargo run -p plnwrk-cli -- new a.plnwrk --sample   # Datei anlegen (run/query/verify/export/encrypt)
 cargo run -p plnwrk-cli -- commands     # alle Befehle mit JSON-Schema
 cargo run -p plnwrk                     # Desktop-App
 cd apps/plnwrk-web && trunk serve       # Browser-Version
@@ -39,6 +41,10 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   Müll-Parameter-Test (`tests/junk.rs`) erfasst ihn automatisch.
 - Abfragen: `QuerySpec` in `crates/engine/src/query/mod.rs`; Snapshots mit
   `INSTA_UPDATE=always cargo test -p plnwrk-engine --test queries` erneuern und Diff prüfen.
+- Dateiformat (`crates/store`): jede Änderung am Format braucht eine neue `manifest::VERSION`
+  und einen Migrationsschritt; Tests in `crates/store/tests/store.rs` decken Manipulationen ab.
+- Skript-Ersetzungen in Quelltexten immer mit `assert old in s` absichern (nach `cargo fmt`
+  passen Muster oft nicht mehr) und Testbehauptungen per Mutationsprobe belegen.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar (siehe `crates/ui`).

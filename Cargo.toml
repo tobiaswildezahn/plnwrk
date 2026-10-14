@@ -19,6 +19,8 @@ plnwrk-assistant = { path = "crates/assistant" }
 plnwrk-mcp = { path = "crates/mcp" }
 plnwrk-ui = { path = "crates/ui" }
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+age = "0.12.1"
+blake3 = "1.8.7"
 clap = "4.6.7"
 egui = "0.36.2"
 getrandom = "0.4.3"
@@ -29,8 +31,12 @@ proptest = "1.12"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 ulid = { version = "3.0.0", default-features = false }
-serde_json = "1.0.154"
+unicode-normalization = "0.1.25"
+zeroize = "1.9.1"
+serde_json = { version = "1.0.154", features = ["raw_value", "float_roundtrip"] }
 wasm-bindgen = "0.2"
+zip = { version = "9.0.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+rpassword = "7.5.4"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 
@@ -55,6 +61,21 @@ disallowed_types = "forbid"
 dbg_macro = "deny"
 print_stdout = "deny"
 allow_attributes_without_reason = "deny"
+
+# Cryptography is slow without optimisation; debug builds and tests optimise it anyway so that
+# opening an encrypted file takes a second, not ten.
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.blake3]
+opt-level = 3
 
 [profile.release]
 lto = "thin"

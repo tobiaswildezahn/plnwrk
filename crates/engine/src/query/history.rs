@@ -64,7 +64,7 @@ fn diff(before: &Entity, after: &Entity) -> Vec<FieldChange> {
     names.dedup();
     names
         .into_iter()
-        .filter(|name| name.as_str() != "kind")
+        .filter(|name| name.as_str() != "entity")
         .filter_map(|name| {
             let before = old.get(name).cloned().unwrap_or(Value::Null);
             let after = new.get(name).cloned().unwrap_or(Value::Null);

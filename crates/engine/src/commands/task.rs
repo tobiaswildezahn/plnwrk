@@ -206,7 +206,13 @@ fn move_task(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
 
 fn reparent(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     let mut task = load(tx, params.req("task", p::id)?)?;
+    // A level the task only inherited travels with it: moving a task out from under a VS-NfD
+    // parent must never quietly declassify it.
+    let level = tx.ws().effective_classification(&task);
     task.parent = params.opt("parent", p::id)?;
+    if task.classification.unwrap_or_default() < level {
+        task.classification = Some(level);
+    }
     tx.put(Entity::Task(task));
     Ok(())
 }
@@ -386,7 +392,7 @@ pub const REPARENT: CommandSpec = CommandSpec {
         P::clearable(
             "parent",
             K::Id(EntityKind::Task),
-            "New parent; omit or null for top level",
+            "New parent; omit or null for top level. An inherited classification is kept.",
         ),
     ],
     enabled: always,

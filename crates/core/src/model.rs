@@ -17,6 +17,7 @@ pub const LAG_MAX: i32 = 365;
 
 /// A project or a case: a container of tasks with an optional reference number and deadline.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Project {
     /// Identity.
     pub id: ProjectId,
@@ -46,6 +47,7 @@ pub struct Project {
 
 /// A piece of work inside a project. Tasks nest: `parent` makes it a subtask.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Task {
     /// Identity.
     pub id: TaskId,
@@ -83,6 +85,7 @@ pub struct Task {
 
 /// A date that matters in a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Milestone {
     /// Identity.
     pub id: MilestoneId,
@@ -98,6 +101,7 @@ pub struct Milestone {
 
 /// `to` waits for `from` (within one project).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Dependency {
     /// Identity.
     pub id: DependencyId,
@@ -113,6 +117,7 @@ pub struct Dependency {
 
 /// Someone who owns projects, does tasks or writes comments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Person {
     /// Identity.
     pub id: PersonId,
@@ -128,6 +133,7 @@ pub struct Person {
 
 /// A note on a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Comment {
     /// Identity.
     pub id: CommentId,
@@ -141,9 +147,10 @@ pub struct Comment {
     pub body: String,
 }
 
-/// Any entity, e.g. as the before or after value of an event.
+/// Any entity, e.g. as the before or after value of an event. In JSON the type is the field
+/// `entity` (not `kind`: projects have a field of that name).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "entity", rename_all = "snake_case")]
 pub enum Entity {
     /// A project or case.
     Project(Project),
@@ -252,6 +259,91 @@ impl std::fmt::Display for EntityKey {
 mod tests {
     use super::*;
     use crate::{CommentId, DependencyId, MilestoneId, PersonId, ProjectId, TaskId};
+
+    #[test]
+    fn every_entity_round_trips_through_json() {
+        use crate::*;
+        let t = jiff::Timestamp::UNIX_EPOCH;
+        let id = |n| ulid::Ulid(n);
+        let day: jiff::civil::Date = "2026-10-14".parse().unwrap();
+        let entities = [
+            Entity::Project(Project {
+                id: ProjectId::from_ulid(id(1)),
+                title: "P".into(),
+                description: "d".into(),
+                reference: Some("R".into()),
+                kind: Some("SKA".into()),
+                owner: Some(PersonId::from_ulid(id(5))),
+                start: Some(day),
+                due: Some(day),
+                status: ProjectStatus::OnHold,
+                template: true,
+                classification: Classification::VsNfd,
+                created: t,
+            }),
+            Entity::Task(Task {
+                id: TaskId::from_ulid(id(2)),
+                project: ProjectId::from_ulid(id(1)),
+                parent: Some(TaskId::from_ulid(id(9))),
+                title: "T".into(),
+                description: String::new(),
+                status: TaskStatus::Review,
+                priority: Priority::Critical,
+                assignee: None,
+                start: None,
+                due: Some(day),
+                estimate_minutes: Some(5),
+                progress: 50,
+                tags: vec!["a".into()],
+                classification: Some(Classification::VsNfd),
+                rank: Rank::parse("a0").unwrap(),
+                created: t,
+            }),
+            Entity::Milestone(Milestone {
+                id: MilestoneId::from_ulid(id(3)),
+                project: ProjectId::from_ulid(id(1)),
+                title: "M".into(),
+                date: day,
+                status: MilestoneStatus::Reached,
+            }),
+            Entity::Dependency(Dependency {
+                id: DependencyId::from_ulid(id(4)),
+                from: TaskId::from_ulid(id(2)),
+                to: TaskId::from_ulid(id(9)),
+                kind: DependencyKind::StartToStart,
+                lag_days: -2,
+            }),
+            Entity::Person(Person {
+                id: PersonId::from_ulid(id(5)),
+                name: "N".into(),
+                email: Some("e@x.de".into()),
+                role: None,
+                initials: "N".into(),
+            }),
+            Entity::Comment(Comment {
+                id: CommentId::from_ulid(id(6)),
+                task: TaskId::from_ulid(id(2)),
+                author: None,
+                created: t,
+                body: "b".into(),
+            }),
+        ];
+        for entity in &entities {
+            let json = serde_json::to_string(entity).unwrap();
+            let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+            value["smuggled"] = serde_json::json!("hidden payload");
+            assert!(
+                serde_json::from_value::<Entity>(value).is_err(),
+                "unknown fields are refused: {json}"
+            );
+        }
+        for entity in entities {
+            let json = serde_json::to_string(&entity).unwrap();
+            let back: Entity =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"));
+            assert_eq!(back, entity);
+        }
+    }
 
     #[test]
     fn keys_know_their_kind_and_read_well() {

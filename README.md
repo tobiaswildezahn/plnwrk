@@ -7,8 +7,9 @@ Datei, funktioniert ohne Netz und ist vollständig durch KI steuerbar.
 Ziel: modernes Projektmanagement in gewachsene Verwaltungsstrukturen bringen. Ein Vorgang
 (Aktenzeichen, Frist, fester Ablauf) und ein Projekt sind dabei dasselbe – ein Datenmodell.
 
-> **Status:** Phase 1 (Kern) fertig: Datenmodell, 23 Befehle mit Undo/Redo und Revisionsspur,
-> 9 Abfragen – bedienbar über die Kommandozeile. Oberfläche folgt. Fahrplan: [docs/PLAN.md](docs/PLAN.md).
+> **Status:** Kern und Dateiformat stehen: Datenmodell, 23 Befehle mit Undo/Redo und Revisionsspur,
+> 9 Abfragen, `.plnwrk`-Dateien mit Hash-Kette und optionaler Verschlüsselung (Pflicht bei VS-NfD) –
+> bedienbar über die Kommandozeile. Oberfläche folgt. Fahrplan: [docs/PLAN.md](docs/PLAN.md).
 
 ## Starten
 
@@ -19,6 +20,9 @@ cargo run -p plnwrk                                  # Desktop-App
 cd apps/plnwrk-web && trunk serve                    # Browser-Version (http://127.0.0.1:8080)
 cargo run -p plnwrk-cli -- demo                      # Beispiel als JSON
 cargo run -p plnwrk-cli -- commands                  # alle Befehle mit Parametern
+cargo run -p plnwrk-cli -- new abteilung.plnwrk --sample      # Datei mit Beispiel anlegen
+cargo run -p plnwrk-cli -- query abteilung.plnwrk overview    # Übersicht
+cargo run -p plnwrk-cli -- export abteilung.plnwrk --format markdown
 ```
 
 ## Qualität

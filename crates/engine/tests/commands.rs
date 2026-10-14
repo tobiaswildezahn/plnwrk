@@ -292,6 +292,32 @@ mod commands {
     }
 
     #[test]
+    fn an_inherited_classification_travels_with_the_task() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let secret = h.task(p, "geheim", json!({"classification": "vs_nfd"}));
+        let child = h.task(p, "Standort", json!({"parent": secret.to_string()}));
+        assert_eq!(h.ws().task(child).unwrap().classification, None);
+        h.ok("task.reparent", json!({"task": child.to_string()}));
+        let task = h.ws().task(child).unwrap().clone();
+        assert_eq!(task.classification, Some(Classification::VsNfd));
+        assert_eq!(
+            h.ws().effective_classification(&task),
+            Classification::VsNfd
+        );
+        // Moving it under another open task keeps it too.
+        let open = h.task(p, "offen", json!({}));
+        h.ok(
+            "task.reparent",
+            json!({"task": child.to_string(), "parent": open.to_string()}),
+        );
+        assert_eq!(
+            h.ws().task(child).unwrap().classification,
+            Some(Classification::VsNfd)
+        );
+    }
+
+    #[test]
     fn reparent_into_other_project_is_refused() {
         let mut h = Harness::new();
         let p = h.project(json!({"title": "P"}));
