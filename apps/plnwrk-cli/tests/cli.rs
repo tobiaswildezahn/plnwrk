@@ -20,7 +20,7 @@ mod cli {
         let (ok, value) = run(&["commands"]);
         assert!(ok);
         let commands = value.as_array().unwrap();
-        assert!(commands.len() >= 23);
+        assert!(commands.len() >= 20);
         assert!(
             commands
                 .iter()
@@ -30,16 +30,19 @@ mod cli {
 
     #[test]
     fn searches_commands_and_lists_queries() {
+        // Milestones are tasks now: the search finds task commands, never retired ones.
         let (_, value) = run(&["commands", "--search", "milestone"]);
-        assert!(value.as_array().is_some_and(|found| found.len() >= 4));
-        assert!(value.as_array().unwrap().iter().all(|c| {
-            c["id"].as_str().unwrap().contains("milestone")
-                || c["summary"]
-                    .as_str()
-                    .unwrap()
-                    .to_lowercase()
-                    .contains("milestone")
-        }));
+        let ids: Vec<&str> = value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"task.create"), "{ids:?}");
+        assert!(
+            ids.iter().all(|id| !id.starts_with("milestone.")),
+            "{ids:?}"
+        );
         let (ok, value) = run(&["queries"]);
         assert!(ok);
         assert!(

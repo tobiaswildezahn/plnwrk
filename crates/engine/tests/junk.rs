@@ -164,6 +164,12 @@ mod junk {
             ])
             .prop_map(Value::from)
             .boxed(),
+            ParamKind::Deadline => prop::sample::select(vec![
+                "2026-10-14", "2026-10-14T14:00", "2026-12-31T23:59", "2026-10-20T00:00",
+                "2026-10-14T24:00", "2026-10-14T9:00", "2026-02-30",
+            ])
+            .prop_map(Value::from)
+            .boxed(),
             ParamKind::Id(entity) => {
                 let own = pools.by_kind.get(&entity).cloned().unwrap_or_default();
                 let other = pools.all.clone();
@@ -280,8 +286,10 @@ mod junk {
                 panic!("{}: {error}", spec.id);
             }
             // The generator must reach past parameter checks, or the test proves little.
-            // `redo` has nothing to redo in a fresh session.
-            if spec.id != "redo" {
+            // `redo` has nothing to redo in a fresh session; `workspace.upgrade` needs data of
+            // format version 1, which commands can no longer create (tested in
+            // `session_tests.rs` and with real version 1 files in the store tests).
+            if !matches!(spec.id, "redo" | "workspace.upgrade") {
                 assert!(
                     successes.get() >= 5,
                     "{}: only {} successful runs",

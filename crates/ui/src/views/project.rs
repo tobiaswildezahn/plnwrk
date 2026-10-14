@@ -1,15 +1,13 @@
 //! One project or case: its head (fields, progress) and the tabs list, board and milestones.
 
 use egui::RichText;
-use plnwrk_core::{
-    Classification, MilestoneStatus, Project, ProjectId, ProjectStatus, Task, TaskStatus,
-};
+use plnwrk_core::{Classification, Project, ProjectId, ProjectStatus, Task, TaskStatus};
 use plnwrk_engine::query::{self, TaskIndex};
 use serde_json::json;
 
 use crate::doc::OpenDoc;
 use crate::state::{ProjectForm, State, Tab};
-use crate::views::{board, due_label, enter_field, status_tag};
+use crate::views::{board, date, due_label, enter_field, status_tag};
 use crate::{Clear, Intent, Then, dates, text};
 
 pub fn show(
@@ -46,7 +44,8 @@ fn head(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
+    let today = now.date();
     let mut error = None;
     let mut cancel = false;
     // Undo or another change while the form is open: start again from the stored project,
@@ -80,12 +79,19 @@ fn head(
                     .labelled_by(label.id);
                 ui.end_row();
                 let label = ui.label(text::START);
-                ui.add(egui::TextEdit::singleline(&mut form.start).hint_text("TT.MM.JJJJ"))
-                    .labelled_by(label.id);
+                date::date_input(ui, "project-start", &mut form.start, today, Some(label.id));
                 ui.end_row();
                 let label = ui.label(text::DUE);
-                ui.add(egui::TextEdit::singleline(&mut form.due).hint_text("TT.MM.JJJJ"))
-                    .labelled_by(label.id);
+                let case = !form.reference.trim().is_empty();
+                date::deadline_input(
+                    ui,
+                    "project-due",
+                    &mut form.due,
+                    &mut form.due_time,
+                    today,
+                    case,
+                    Some(label.id),
+                );
                 ui.end_row();
                 ui.label(text::OWNER);
                 person_choice(ui, "project-owner", &mut form.owner, &people);
@@ -165,14 +171,13 @@ fn head(
     ui.weak(line.join(" · "));
     ui.horizontal(|ui| {
         if let Some(due) = project.due {
-            let days = (due - today).get_days();
+            let (state, past) = text::deadline_state(due, project.due_time, now);
             let text = format!(
-                "{} {} · {}",
+                "{} {} · {state}",
                 text::DUE,
-                dates::format(due),
-                text::days_left(i64::from(days))
+                dates::format_deadline(due, project.due_time),
             );
-            if days < 0 && query::deadlines_count(project) {
+            if past && query::deadlines_count(project) {
                 ui.label(RichText::new(text).color(ui.visuals().error_fg_color));
             } else {
                 ui.label(text);
@@ -191,6 +196,15 @@ fn head(
                     progress.percent, progress.done, progress.tasks
                 )),
         );
+    }
+}
+
+/// The title as shown in lists: milestones carry a ♦.
+fn title_of(task: &Task) -> String {
+    if task.milestone {
+        format!("♦ {}", task.title)
+    } else {
+        task.title.clone()
     }
 }
 
@@ -232,7 +246,7 @@ fn list(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
     let index = TaskIndex::new(ws);
     let roots: Vec<&Task> = sorted(index.tasks_of(project.id))
         .into_iter()
@@ -244,7 +258,7 @@ fn list(
         }
         let mut stack: Vec<(&Task, usize)> = roots.iter().rev().map(|t| (*t, 0)).collect();
         while let Some((task, depth)) = stack.pop() {
-            let overdue = query::task_overdue(Some(project), task, today);
+            let overdue = query::task_overdue(Some(project), task, now);
             ui.horizontal(|ui| {
                 ui.add_space(depth as f32 * 20.0);
                 let mut done = task.status == TaskStatus::Done;
@@ -264,9 +278,9 @@ fn list(
                     ));
                 }
                 let title = if done {
-                    RichText::new(&task.title).strikethrough().weak()
+                    RichText::new(title_of(task)).strikethrough().weak()
                 } else {
-                    RichText::new(&task.title)
+                    RichText::new(title_of(task))
                 };
                 if ui
                     .selectable_label(state.selected == Some(task.id), title)
@@ -278,7 +292,7 @@ fn list(
                     ui.label(RichText::new(&person.initials).small().weak())
                         .on_hover_text(&person.name);
                 }
-                due_label(ui, task.due, overdue);
+                due_label(ui, task.due, task.due_time, overdue);
                 status_tag(ui, task.status);
                 if ui
                     .small_button("+")
@@ -339,12 +353,13 @@ fn milestones(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
-    let today = doc.session.clock().today();
-    let mut all: Vec<_> = ws
-        .milestones()
-        .filter(|m| m.project == project.id)
-        .collect();
-    all.sort_by(|a, b| a.date.cmp(&b.date).then(a.title.cmp(&b.title)));
+    let now = doc.session.clock().now_local();
+    let mut all: Vec<&Task> = ws.tasks_of(project.id).filter(|t| t.milestone).collect();
+    all.sort_by(|a, b| {
+        plnwrk_engine::query::deadline_order(a.due, a.due_time)
+            .cmp(&plnwrk_engine::query::deadline_order(b.due, b.due_time))
+            .then(a.title.cmp(&b.title))
+    });
     if all.is_empty() {
         ui.weak(text::NO_MILESTONES);
     }
@@ -353,35 +368,43 @@ fn milestones(
         .striped(true)
         .show(ui, |ui| {
             for milestone in all {
-                let state_now = query::milestone_state_in(project, milestone, today);
-                let mut reached = milestone.status == MilestoneStatus::Reached;
+                let state_now = query::milestone_state_in(project, milestone, now);
+                let mut reached = milestone.status == TaskStatus::Done;
                 if ui.checkbox(&mut reached, text::REACHED).changed() {
                     let status = if reached {
-                        MilestoneStatus::Reached
+                        TaskStatus::Done
                     } else {
-                        MilestoneStatus::Open
+                        TaskStatus::Todo
                     };
                     out.push(Intent::run(
-                        "milestone.update",
-                        json!({"milestone": milestone.id.to_string(), "status": status.name()}),
+                        "task.set_status",
+                        json!({"task": milestone.id.to_string(), "status": status.name()}),
                     ));
                 }
-                ui.label(dates::format(milestone.date));
+                ui.label(
+                    milestone
+                        .due
+                        .map(|day| dates::format_deadline(day, milestone.due_time))
+                        .unwrap_or_default(),
+                );
                 let label = RichText::new(format!(
                     "♦ {} ({})",
                     milestone.title,
                     text::milestone_state(state_now)
                 ));
-                if state_now == query::MilestoneState::Missed {
-                    ui.label(label.color(ui.visuals().error_fg_color));
+                let label = if state_now == query::MilestoneState::Missed {
+                    label.color(ui.visuals().error_fg_color)
                 } else {
-                    ui.label(label);
+                    label
+                };
+                if ui
+                    .selectable_label(state.selected == Some(milestone.id), label)
+                    .clicked()
+                {
+                    out.push(Intent::Select(Some(milestone.id)));
                 }
                 if ui.small_button("🗑").on_hover_text(text::DELETE).clicked() {
-                    out.push(Intent::run(
-                        "milestone.delete",
-                        json!({"milestone": milestone.id.to_string()}),
-                    ));
+                    out.push(Intent::Open(crate::state::Dialog::DeleteTask(milestone.id)));
                 }
                 ui.end_row();
             }
@@ -393,19 +416,24 @@ fn milestones(
                 .hint_text(text::TITLE)
                 .desired_width(240.0),
         );
-        ui.add(
-            egui::TextEdit::singleline(&mut state.forms.milestone_date)
-                .hint_text(format!("{} TT.MM.JJJJ", text::DATE))
-                .desired_width(130.0),
+        date::deadline_input(
+            ui,
+            ("new-milestone", project.id),
+            &mut state.forms.milestone_date,
+            &mut state.forms.milestone_time,
+            now.date(),
+            project.reference.is_some(),
+            None,
         );
         if ui.button(text::NEW_MILESTONE).clicked() {
-            match dates::parse(&state.forms.milestone_date) {
-                Ok(Some(date)) => out.push(Intent::Run {
-                    command: "milestone.create",
+            match dates::parse_deadline(&state.forms.milestone_date, &state.forms.milestone_time) {
+                Ok(Some(due)) => out.push(Intent::Run {
+                    command: "task.create",
                     params: json!({
                         "project": project.id.to_string(),
                         "title": state.forms.milestone_title.trim(),
-                        "date": date.to_string(),
+                        "milestone": true,
+                        "due": dates::deadline_param(Some(due)),
                     }),
                     then: Then::Nothing,
                     clear: Some(Clear::Milestone),

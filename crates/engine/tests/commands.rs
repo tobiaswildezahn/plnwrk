@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod commands {
     use plnwrk_core::{
-        Classification, EntityKey, FixedClock, MilestoneStatus, PersonId, Priority, ProjectId,
-        ProjectStatus, Rule, SequentialIds, TaskId, TaskStatus, Workspace,
+        Classification, EntityKey, FixedClock, PersonId, Priority, ProjectId, ProjectStatus, Rule,
+        SequentialIds, TaskId, TaskStatus, Workspace,
     };
     use plnwrk_engine::{CommandError, Origin, Session};
     use serde_json::{Value, json};
@@ -430,34 +430,87 @@ mod commands {
     // ---------------------------------------------------------------- milestones, dependencies, people, comments
 
     #[test]
-    fn milestone_lifecycle() {
+    fn milestones_are_top_level_tasks_with_a_deadline() {
         let mut h = Harness::new();
         let p = h.project(json!({"title": "P"}));
-        let created = h.ok(
+        let m = h.task(
+            p,
+            "Abgabe",
+            json!({"milestone": true, "due": "2026-11-01T14:30"}),
+        );
+        let task = h.ws().task(m).unwrap();
+        assert!(task.milestone);
+        assert_eq!(task.due.unwrap().to_string(), "2026-11-01");
+        assert_eq!(task.due_time.unwrap().to_string(), "14:30:00");
+        // A date without a time clears the time; null clears both.
+        h.ok(
+            "task.update",
+            json!({"task": m.to_string(), "due": "2026-11-02"}),
+        );
+        assert_eq!(h.ws().task(m).unwrap().due_time, None);
+        h.ok("task.update", json!({"task": m.to_string(), "due": null}));
+        assert_eq!(h.ws().task(m).unwrap().due, None);
+        // A milestone is never a subtask and never has subtasks.
+        let error = h.err(
+            "task.create",
+            json!({"project": p.to_string(), "title": "Teil", "parent": m.to_string()}),
+        );
+        assert_eq!(rule_of(&error), Some(Rule::Milestone));
+        let parent = h.task(p, "Oben", json!({}));
+        h.task(p, "Unten", json!({"parent": parent.to_string()}));
+        let error = h.err(
+            "task.update",
+            json!({"task": parent.to_string(), "milestone": true}),
+        );
+        assert_eq!(rule_of(&error), Some(Rule::Milestone));
+        let error = h.err(
+            "task.reparent",
+            json!({"task": m.to_string(), "parent": parent.to_string()}),
+        );
+        assert_eq!(rule_of(&error), Some(Rule::Milestone));
+        h.ok(
+            "task.update",
+            json!({"task": m.to_string(), "milestone": false}),
+        );
+        assert!(!h.ws().task(m).unwrap().milestone);
+    }
+
+    #[test]
+    fn deadlines_with_a_time_are_checked() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P", "due": "2026-12-24T14:00"}));
+        assert_eq!(
+            h.ws().project(p).unwrap().due_time.unwrap().to_string(),
+            "14:00:00"
+        );
+        for bad in [
+            "2026-12-24T24:00",
+            "2026-12-24T9:00",
+            "2026-12-24 14:00",
+            "2026-12-24T14:00:00",
+        ] {
+            let error = h.err(
+                "project.update",
+                json!({"project": p.to_string(), "due": bad}),
+            );
+            assert!(is_bad_param(&error, "due"), "{bad}: {error}");
+        }
+    }
+
+    #[test]
+    fn retired_milestone_commands_refuse_to_run() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let error = h.err(
             "milestone.create",
             json!({"project": p.to_string(), "title": "Abgabe", "date": "2026-11-01"}),
         );
-        let Some(EntityKey::Milestone(m)) = created.first().copied() else {
-            panic!("{created:?}");
-        };
-        h.ok(
-            "milestone.update",
-            json!({"milestone": m.to_string(), "date": "2026-11-02"}),
+        assert!(matches!(error, CommandError::Disabled { .. }), "{error}");
+        let error = h.err("workspace.upgrade", json!({}));
+        assert!(
+            matches!(error, CommandError::Disabled { .. }),
+            "nothing to upgrade"
         );
-        h.ok("milestone.reach", json!({"milestone": m.to_string()}));
-        let milestone = h.ws().milestone(m).unwrap();
-        assert_eq!(milestone.status, MilestoneStatus::Reached);
-        assert_eq!(milestone.date.to_string(), "2026-11-02");
-        h.ok("milestone.delete", json!({"milestone": m.to_string()}));
-        assert!(h.ws().milestone(m).is_none());
-        h.undo();
-        assert!(h.ws().milestone(m).is_some());
-        let ghost = ProjectId::from_ulid(ulid::Ulid(999));
-        let error = h.err(
-            "milestone.create",
-            json!({"project": ghost.to_string(), "title": "x", "date": "2026-11-01"}),
-        );
-        assert_eq!(rule_of(&error), Some(Rule::MissingReference));
     }
 
     #[test]
@@ -569,9 +622,10 @@ mod commands {
             "dependency.add",
             json!({"from": zuarbeit.to_string(), "to": entwurf.to_string()}),
         );
-        h.ok(
-            "milestone.create",
-            json!({"project": template.to_string(), "title": "Abgabe Senatskanzlei", "date": "2026-01-08"}),
+        h.task(
+            template,
+            "Abgabe Senatskanzlei",
+            json!({"milestone": true, "due": "2026-01-08T12:00"}),
         );
         (template, [eingang, zuarbeit, teil, entwurf])
     }
@@ -595,7 +649,7 @@ mod commands {
         assert_eq!(project.reference.as_deref(), Some("23/999"));
         assert_eq!(project.due.unwrap().to_string(), "2026-11-09");
         let tasks: Vec<_> = h.ws().tasks_of(case).cloned().collect();
-        assert_eq!(tasks.len(), 4);
+        assert_eq!(tasks.len(), 5);
         let by_title = |t: &str| tasks.iter().find(|x| x.title == t).unwrap();
         assert_eq!(
             by_title("Eingang erfassen").start.unwrap().to_string(),
@@ -617,15 +671,14 @@ mod commands {
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].from, by_title("Zuarbeit anfordern").id);
         assert_eq!(deps[0].to, by_title("Antwort entwerfen").id);
-        let milestone = h.ws().milestones().find(|m| m.project == case).unwrap();
-        assert_eq!(milestone.date.to_string(), "2026-11-09");
+        let milestone = by_title("Abgabe Senatskanzlei");
+        assert!(milestone.milestone);
+        assert_eq!(milestone.due.unwrap().to_string(), "2026-11-09");
+        assert_eq!(milestone.due_time.unwrap().to_string(), "12:00:00");
         assert_eq!(
             h.ws().tasks_of(template).cloned().collect::<Vec<_>>(),
             template_before
         );
-        for milestone in workspace_before.milestones() {
-            assert_eq!(h.ws().milestone(milestone.id), Some(milestone));
-        }
         for dependency in workspace_before.dependencies() {
             assert_eq!(h.ws().dependency(dependency.id), Some(dependency));
         }
@@ -708,9 +761,10 @@ mod commands {
         h.task(task_start, "spät", json!({"start": "9999-12-30"}));
         let milestone =
             h.project(json!({"title": "Meilenstein", "template": true, "start": "2026-01-01"}));
-        h.ok(
-            "milestone.create",
-            json!({"project": milestone.to_string(), "title": "Ende", "date": "9999-12-29"}),
+        h.task(
+            milestone,
+            "Ende",
+            json!({"milestone": true, "due": "9999-12-29"}),
         );
         for template in [project_due, task_due, task_start, milestone] {
             let error = h.err(

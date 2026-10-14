@@ -5,7 +5,7 @@
 
 use std::str::FromStr;
 
-use jiff::civil::Date;
+use jiff::civil::{Date, Time};
 use plnwrk_core::{EntityKind, text};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
@@ -23,6 +23,9 @@ pub enum ParamKind {
     Label,
     /// A calendar day, `YYYY-MM-DD`.
     Date,
+    /// A deadline: a day `YYYY-MM-DD`, optionally with a time of day `YYYY-MM-DDTHH:MM`
+    /// (local time). Without a time the whole day counts.
+    Deadline,
     /// The id of an entity.
     Id(EntityKind),
     /// One of a fixed list of names.
@@ -100,6 +103,10 @@ impl ParamSpec {
                 json!({"type": "string", "minLength": 1, "maxLength": text::LABEL_MAX})
             }
             ParamKind::Date => json!({"type": "string", "format": "date"}),
+            ParamKind::Deadline => json!({
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$",
+            }),
             ParamKind::Id(kind) => json!({
                 "type": "string",
                 "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
@@ -308,6 +315,56 @@ pub fn date(name: &str, value: &Value) -> Result<Date, CommandError> {
     }
     text.parse::<Date>()
         .map_err(|_| CommandError::bad(name, "is not a valid calendar day"))
+}
+
+/// A deadline: its day and, if given, its time of day.
+pub type Deadline = (Date, Option<Time>);
+
+/// Parses a deadline `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`.
+pub fn deadline(name: &str, value: &Value) -> Result<Deadline, CommandError> {
+    let text = string(name, value)?;
+    let bad = || {
+        CommandError::bad(
+            name,
+            "must be a deadline like 2026-10-14 or 2026-10-14T14:00",
+        )
+    };
+    let (day, time) = match text.split_once('T') {
+        Some((day, time)) => (day, Some(time)),
+        None => (text, None),
+    };
+    let day = date(name, &Value::from(day)).map_err(|_| bad())?;
+    let time = match time {
+        None => None,
+        Some(time) => {
+            let well_formed = time.len() == 5
+                && time.char_indices().all(
+                    |(i, c)| {
+                        if i == 2 { c == ':' } else { c.is_ascii_digit() }
+                    },
+                );
+            if !well_formed {
+                return Err(bad());
+            }
+            Some(time.parse::<Time>().map_err(|_| bad())?)
+        }
+    };
+    Ok((day, time))
+}
+
+/// Applies a deadline patch to the day and time fields of an entity.
+pub fn apply_deadline(patch: Patch<Deadline>, due: &mut Option<Date>, due_time: &mut Option<Time>) {
+    match patch {
+        Patch::Keep => {}
+        Patch::Clear => {
+            *due = None;
+            *due_time = None;
+        }
+        Patch::Set((day, time)) => {
+            *due = Some(day);
+            *due_time = time;
+        }
+    }
 }
 
 /// Parses an id of type `T`.

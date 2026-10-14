@@ -55,8 +55,22 @@ impl Document {
     }
 
     /// A session that continues this document with the given clock and ids. Undo starts empty.
+    /// Data of an older format stays as it is; use [`Self::open_session`] to work with it.
     pub fn into_session(self, clock: Box<dyn Clock>, ids: Box<dyn IdSource>) -> Session {
         Session::with_workspace(self.workspace, self.log, clock, ids)
+    }
+
+    /// The one way to work with an opened file: a session whose data is brought up to date
+    /// (`Session::upgrade`, which cannot be undone). Returns whether anything was converted;
+    /// the conversion is a change in the log, so it is saved with the next save.
+    pub fn open_session(
+        self,
+        clock: Box<dyn Clock>,
+        ids: Box<dyn IdSource>,
+    ) -> Result<(Session, bool), plnwrk_engine::CommandError> {
+        let mut session = self.into_session(clock, ids);
+        let upgraded = session.upgrade()?;
+        Ok((session, upgraded))
     }
 }
 

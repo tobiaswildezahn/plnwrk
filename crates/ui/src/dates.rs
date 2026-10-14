@@ -1,7 +1,7 @@
 //! Dates as people in Germany type and read them: `31.12.2026`. ISO (`2026-12-31`) is accepted
 //! too; commands always receive ISO.
 
-use jiff::civil::Date;
+use jiff::civil::{Date, Time};
 
 /// Shows a date as `31.12.2026`.
 pub fn format(date: Date) -> String {
@@ -49,6 +49,65 @@ pub fn parse(text: &str) -> Result<Option<Date>, String> {
     Date::new(year, month, day).map(Some).map_err(|_| invalid())
 }
 
+/// Shows a time of day as `14:00`.
+pub fn format_time(time: Time) -> String {
+    format!("{:02}:{:02}", time.hour(), time.minute())
+}
+
+/// Shows an optional time; empty without one.
+pub fn format_time_opt(time: Option<Time>) -> String {
+    time.map(format_time).unwrap_or_default()
+}
+
+/// Reads a typed time of day. Empty means "none". Accepts `14:00`, `9:30`, `14.30`, `14`.
+pub fn parse_time(text: &str) -> Result<Option<Time>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let invalid = || format!("„{text}“ ist keine Uhrzeit (HH:MM)");
+    let (hour, minute) = match text.split_once([':', '.']) {
+        Some((h, m)) if m.len() == 2 => (h, m),
+        Some(_) => return Err(invalid()),
+        None => (text, "00"),
+    };
+    let (Ok(hour), Ok(minute)) = (hour.parse::<i8>(), minute.parse::<i8>()) else {
+        return Err(invalid());
+    };
+    Time::new(hour, minute, 0, 0)
+        .map(Some)
+        .map_err(|_| invalid())
+}
+
+/// A deadline from a typed day and time. A time needs a day.
+pub fn parse_deadline(day: &str, time: &str) -> Result<Option<(Date, Option<Time>)>, String> {
+    match (parse(day)?, parse_time(time)?) {
+        (Some(day), time) => Ok(Some((day, time))),
+        (None, None) => Ok(None),
+        (None, Some(_)) => Err("Eine Uhrzeit braucht ein Datum.".to_owned()),
+    }
+}
+
+/// The form a command expects for a deadline (`2026-12-24` or `2026-12-24T14:00`), or JSON
+/// `null` to clear it.
+pub fn deadline_param(deadline: Option<(Date, Option<Time>)>) -> serde_json::Value {
+    match deadline {
+        None => serde_json::Value::Null,
+        Some((day, None)) => serde_json::Value::String(day.to_string()),
+        Some((day, Some(time))) => {
+            serde_json::Value::String(format!("{day}T{}", format_time(time)))
+        }
+    }
+}
+
+/// A deadline for people: `24.12.2026` or `24.12.2026, 14:00 Uhr`.
+pub fn format_deadline(day: Date, time: Option<Time>) -> String {
+    match time {
+        Some(time) => format!("{}, {} Uhr", format(day), format_time(time)),
+        None => format(day),
+    }
+}
+
 /// The ISO form a command expects, or JSON `null` to clear the field.
 pub fn param(date: Option<Date>) -> serde_json::Value {
     date.map_or(serde_json::Value::Null, |d| {
@@ -89,6 +148,40 @@ mod tests {
         ] {
             assert!(parse(text).is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn reads_times_and_deadlines() {
+        let t = |h, m| Time::new(h, m, 0, 0).unwrap();
+        assert_eq!(parse_time("14:00"), Ok(Some(t(14, 0))));
+        assert_eq!(parse_time(" 9:30 "), Ok(Some(t(9, 30))));
+        assert_eq!(parse_time("14.30"), Ok(Some(t(14, 30))));
+        assert_eq!(parse_time("8"), Ok(Some(t(8, 0))));
+        assert_eq!(parse_time(""), Ok(None));
+        for bad in ["24:00", "14:60", "14:5", "mittags", "-1:00", "14:00:00"] {
+            assert!(parse_time(bad).is_err(), "{bad}");
+        }
+        assert_eq!(format_time(t(9, 5)), "09:05");
+        let day = d(2026, 12, 24);
+        assert_eq!(
+            parse_deadline("24.12.2026", "14:00"),
+            Ok(Some((day, Some(t(14, 0)))))
+        );
+        assert_eq!(parse_deadline("", ""), Ok(None));
+        assert!(parse_deadline("", "14:00").is_err());
+        assert_eq!(
+            deadline_param(Some((day, Some(t(14, 0))))),
+            serde_json::json!("2026-12-24T14:00")
+        );
+        assert_eq!(
+            deadline_param(Some((day, None))),
+            serde_json::json!("2026-12-24")
+        );
+        assert_eq!(deadline_param(None), serde_json::Value::Null);
+        assert_eq!(
+            format_deadline(day, Some(t(14, 0))),
+            "24.12.2026, 14:00 Uhr"
+        );
     }
 
     #[test]

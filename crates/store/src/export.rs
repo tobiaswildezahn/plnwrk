@@ -8,9 +8,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use plnwrk_core::{
-    Classification, Milestone, MilestoneStatus, Project, Task, TaskId, TaskStatus, Workspace,
-};
+use plnwrk_core::{Classification, Project, Task, TaskId, TaskStatus, Workspace};
 
 use crate::{Document, StoreError, classification_of};
 
@@ -63,6 +61,21 @@ fn date(value: Option<jiff::civil::Date>) -> String {
     value.map(|d| d.to_string()).unwrap_or_default()
 }
 
+/// A time of day as `HH:MM`.
+fn time(value: Option<jiff::civil::Time>) -> String {
+    value
+        .map(|t| format!("{:02}:{:02}", t.hour(), t.minute()))
+        .unwrap_or_default()
+}
+
+/// A deadline as `2026-12-24` or `2026-12-24 14:00`.
+fn deadline(day: jiff::civil::Date, at: Option<jiff::civil::Time>) -> String {
+    match at {
+        Some(_) => format!("{day} {}", time(at)),
+        None => day.to_string(),
+    }
+}
+
 /// One row per task, separated by `;` (as spreadsheets in German locales expect), with a byte
 /// order mark so that spreadsheets read the umlauts as UTF-8.
 pub fn csv(doc: &Document) -> String {
@@ -72,7 +85,7 @@ pub fn csv(doc: &Document) -> String {
         out.push_str(VS_NFD_MARK);
         out.push_str("\r\n");
     }
-    out.push_str("Projekt;Aktenzeichen;Aufgabe;Übergeordnet;Status;Priorität;Bearbeitung;Beginn;Frist;Fortschritt;Schlagworte;Einstufung\r\n");
+    out.push_str("Projekt;Aktenzeichen;Aufgabe;Meilenstein;Übergeordnet;Status;Priorität;Bearbeitung;Beginn;Frist;Uhrzeit;Fortschritt;Schlagworte;Einstufung\r\n");
     for project in projects(ws) {
         for task in tasks(ws, project) {
             let parent = task
@@ -89,12 +102,14 @@ pub fn csv(doc: &Document) -> String {
                 field(&project.title),
                 field(project.reference.as_deref().unwrap_or_default()),
                 field(&task.title),
+                if task.milestone { "ja" } else { "" }.to_owned(),
                 field(parent),
                 task.status.name().to_owned(),
                 task.priority.name().to_owned(),
                 field(assignee),
                 date(task.start),
                 date(task.due),
+                time(task.due_time),
                 task.progress.to_string(),
                 field(&task.tags.join(", ")),
                 ws.effective_classification(task).name().to_owned(),
@@ -147,7 +162,7 @@ fn task_lines(ws: &Workspace, project: &Project, all: &[&Task], out: &mut String
             details.push(md(&person.name));
         }
         if let Some(due) = task.due {
-            details.push(format!("Frist {due}"));
+            details.push(format!("Frist {}", deadline(due, task.due_time)));
         }
         if !matches!(task.status, TaskStatus::Todo | TaskStatus::Done) {
             details.push(task.status.name().replace('_', " "));
@@ -200,7 +215,7 @@ pub fn markdown(doc: &Document) -> String {
             facts.insert(0, format!("Art: {}", md(kind)));
         }
         if let Some(due) = project.due {
-            facts.push(format!("Frist: {due}"));
+            facts.push(format!("Frist: {}", deadline(due, project.due_time)));
         }
         if let Some(owner) = project.owner.and_then(|id| ws.person(id)) {
             facts.push(format!("Verantwortlich: {}", md(&owner.name)));
@@ -209,28 +224,29 @@ pub fn markdown(doc: &Document) -> String {
             facts.push(VS_NFD_MARK.to_owned());
         }
         let _ = writeln!(out, "\n{}", facts.join(" · "));
-        let mut milestones: Vec<&Milestone> = ws
-            .milestones()
-            .filter(|m| m.project == project.id)
-            .collect();
-        milestones.sort_by(|a, b| a.date.cmp(&b.date).then(a.title.cmp(&b.title)));
+        let all = tasks(ws, project);
+        let mut milestones: Vec<&Task> = all.iter().copied().filter(|t| t.milestone).collect();
+        milestones.sort_by(|a, b| {
+            plnwrk_engine::query::deadline_order(a.due, a.due_time)
+                .cmp(&plnwrk_engine::query::deadline_order(b.due, b.due_time))
+                .then(a.title.cmp(&b.title))
+        });
         if !milestones.is_empty() {
             out.push_str("\n### Meilensteine\n\n");
             for milestone in milestones {
-                let mark = if milestone.status == MilestoneStatus::Reached {
+                let mark = if milestone.status == TaskStatus::Done {
                     "x"
                 } else {
                     " "
                 };
-                let _ = writeln!(
-                    out,
-                    "- [{mark}] {} {}",
-                    milestone.date,
-                    md(&milestone.title)
-                );
+                let when = milestone
+                    .due
+                    .map(|due| format!("{} ", deadline(due, milestone.due_time)))
+                    .unwrap_or_default();
+                let _ = writeln!(out, "- [{mark}] {when}{}", md(&milestone.title));
             }
         }
-        let all = tasks(ws, project);
+        let all: Vec<&Task> = all.into_iter().filter(|t| !t.milestone).collect();
         if !all.is_empty() {
             out.push_str("\n### Aufgaben\n\n");
             task_lines(ws, project, &all, &mut out);

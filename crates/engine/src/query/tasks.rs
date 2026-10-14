@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use jiff::civil::Date;
+use jiff::civil::{Date, DateTime, Time};
 use plnwrk_core::{
-    Classification, Milestone, PersonId, Priority, ProjectId, Task, TaskId, TaskStatus, Workspace,
+    Classification, PersonId, Priority, ProjectId, Task, TaskId, TaskStatus, Workspace,
 };
 use serde::Serialize;
 
@@ -29,6 +29,10 @@ pub struct TaskCard {
     pub assignee: Option<PersonRef>,
     /// Deadline.
     pub due: Option<Date>,
+    /// Its time of day, if set.
+    pub due_time: Option<Time>,
+    /// A milestone.
+    pub milestone: bool,
     /// Past its deadline and not done.
     pub overdue: bool,
     /// Percent done (done counts as 100).
@@ -49,7 +53,7 @@ pub struct TaskCard {
 pub struct TaskIndex<'a> {
     children: BTreeMap<TaskId, Vec<&'a Task>>,
     by_project: BTreeMap<ProjectId, Vec<&'a Task>>,
-    milestones: BTreeMap<ProjectId, Vec<&'a Milestone>>,
+    milestones: BTreeMap<ProjectId, Vec<&'a Task>>,
 }
 
 impl<'a> TaskIndex<'a> {
@@ -61,13 +65,9 @@ impl<'a> TaskIndex<'a> {
                 index.children.entry(parent).or_default().push(task);
             }
             index.by_project.entry(task.project).or_default().push(task);
-        }
-        for milestone in ws.milestones() {
-            index
-                .milestones
-                .entry(milestone.project)
-                .or_default()
-                .push(milestone);
+            if task.milestone {
+                index.milestones.entry(task.project).or_default().push(task);
+            }
         }
         index
     }
@@ -77,8 +77,8 @@ impl<'a> TaskIndex<'a> {
         self.by_project.get(&project).map_or(&[], Vec::as_slice)
     }
 
-    /// The milestones of a project.
-    pub fn milestones_of(&self, project: ProjectId) -> &[&'a Milestone] {
+    /// The milestone tasks of a project.
+    pub fn milestones_of(&self, project: ProjectId) -> &[&'a Task] {
         self.milestones.get(&project).map_or(&[], Vec::as_slice)
     }
 
@@ -94,7 +94,7 @@ impl<'a> TaskIndex<'a> {
 }
 
 /// Builds the card of a task.
-pub fn card(ws: &Workspace, index: &TaskIndex<'_>, task: &Task, today: Date) -> TaskCard {
+pub fn card(ws: &Workspace, index: &TaskIndex<'_>, task: &Task, now: DateTime) -> TaskCard {
     let children = index.children(task.id);
     TaskCard {
         id: task.id,
@@ -105,7 +105,9 @@ pub fn card(ws: &Workspace, index: &TaskIndex<'_>, task: &Task, today: Date) -> 
         priority: task.priority,
         assignee: person_ref(ws, task.assignee),
         due: task.due,
-        overdue: task_overdue(ws.project(task.project), task, today),
+        due_time: task.due_time,
+        milestone: task.milestone,
+        overdue: task_overdue(ws.project(task.project), task, now),
         progress: effective_progress(task),
         tags: task.tags.clone(),
         subtasks: children.len(),
@@ -214,14 +216,12 @@ fn sort(tasks: &mut [&Task], order: TaskSort) {
 }
 
 /// Filtered, sorted and grouped tasks.
-pub fn tasks(ws: &Workspace, query: &TaskQuery, today: Date) -> Vec<TaskGroupRows> {
+pub fn tasks(ws: &Workspace, query: &TaskQuery, now: DateTime) -> Vec<TaskGroupRows> {
     let index = TaskIndex::new(ws);
     let mut found: Vec<&Task> = ws.tasks().filter(|t| matches(ws, t, query)).collect();
     sort(&mut found, query.sort);
     let cards = |list: Vec<&Task>| -> Vec<TaskCard> {
-        list.into_iter()
-            .map(|t| card(ws, &index, t, today))
-            .collect()
+        list.into_iter().map(|t| card(ws, &index, t, now)).collect()
     };
     match query.group {
         None => vec![TaskGroupRows {
@@ -298,7 +298,7 @@ pub struct Board {
 }
 
 /// The board of a project (all tasks, subtasks included); `None` if it does not exist.
-pub fn board(ws: &Workspace, project: ProjectId, today: Date) -> Option<Board> {
+pub fn board(ws: &Workspace, project: ProjectId, now: DateTime) -> Option<Board> {
     let title = ws.project(project)?.title.clone();
     let index = TaskIndex::new(ws);
     let mut all: Vec<&Task> = index.tasks_of(project).to_vec();
@@ -310,7 +310,7 @@ pub fn board(ws: &Workspace, project: ProjectId, today: Date) -> Option<Board> {
             tasks: all
                 .iter()
                 .filter(|t| t.status == *status)
-                .map(|t| card(ws, &index, t, today))
+                .map(|t| card(ws, &index, t, now))
                 .collect(),
         })
         .collect();

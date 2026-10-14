@@ -13,9 +13,9 @@ use serde_json::Value;
 
 pub use history::{Action, FieldChange, HistoryEntry, history};
 pub use overview::{
-    MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, deadlines_count,
-    effective_progress, milestone_state, milestone_state_in, overdue, overview, progress,
-    task_overdue, templates,
+    MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, deadline_order,
+    deadlines_count, effective_progress, is_past, milestone_ref, milestone_state,
+    milestone_state_in, overdue, overview, progress, task_overdue, templates,
 };
 pub use tasks::{
     Board, Column, TaskCard, TaskGroup, TaskGroupRows, TaskIndex, TaskQuery, TaskSort, board, card,
@@ -61,16 +61,19 @@ fn not_found(entity: EntityKey) -> CommandError {
 }
 
 fn q_overview(s: &Session, _: &Params<'_>) -> Result<Value, CommandError> {
-    json(&overview(s.workspace(), s.clock().today()))
+    json(&overview(s.workspace(), s.clock().now_local()))
 }
 
 fn q_templates(s: &Session, _: &Params<'_>) -> Result<Value, CommandError> {
-    json(&templates(s.workspace(), s.clock().today()))
+    json(&templates(s.workspace(), s.clock().now_local()))
 }
 
 fn q_board(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     let id: ProjectId = params.req("project", p::id)?;
-    json(&board(s.workspace(), id, s.clock().today()).ok_or(not_found(EntityKey::Project(id)))?)
+    json(
+        &board(s.workspace(), id, s.clock().now_local())
+            .ok_or(not_found(EntityKey::Project(id)))?,
+    )
 }
 
 fn q_tasks(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
@@ -84,11 +87,11 @@ fn q_tasks(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
         sort: params.opt("sort", p::choice)?.unwrap_or_default(),
         group: params.opt("group", p::choice)?,
     };
-    json(&tasks(s.workspace(), &query, s.clock().today()))
+    json(&tasks(s.workspace(), &query, s.clock().now_local()))
 }
 
 fn q_overdue(s: &Session, _: &Params<'_>) -> Result<Value, CommandError> {
-    json(&overdue(s.workspace(), s.clock().today()))
+    json(&overdue(s.workspace(), s.clock().now_local()))
 }
 
 fn q_progress(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
@@ -148,7 +151,7 @@ pub struct TaskDetail {
 
 fn q_task(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     let ws = s.workspace();
-    let today = s.clock().today();
+    let now = s.clock().now_local();
     let id: TaskId = params.req("task", p::id)?;
     let task = ws.task(id).ok_or(not_found(EntityKey::Task(id)))?;
     let index = TaskIndex::new(ws);
@@ -167,10 +170,10 @@ fn q_task(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     comments.sort_by(|a, b| a.created.cmp(&b.created).then(a.id.cmp(&b.id)));
     json(&TaskDetail {
         task: task.clone(),
-        card: card(ws, &index, task, today),
+        card: card(ws, &index, task, now),
         subtasks: subtasks
             .into_iter()
-            .map(|t| card(ws, &index, t, today))
+            .map(|t| card(ws, &index, t, now))
             .collect(),
         waits_for: ws
             .dependencies()
@@ -202,21 +205,20 @@ pub struct ProjectDetail {
 
 fn q_project(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     let ws = s.workspace();
-    let today = s.clock().today();
+    let now = s.clock().now_local();
     let id: ProjectId = params.req("project", p::id)?;
     let project = ws.project(id).ok_or(not_found(EntityKey::Project(id)))?;
     let index = TaskIndex::new(ws);
     let mut milestones: Vec<MilestoneRef> = index
         .milestones_of(id)
         .iter()
-        .map(|m| MilestoneRef {
-            id: m.id,
-            title: m.title.clone(),
-            date: m.date,
-            state: milestone_state_in(project, m, today),
-        })
+        .map(|m| milestone_ref(project, m, now))
         .collect();
-    milestones.sort_by(|a, b| a.date.cmp(&b.date).then(a.title.cmp(&b.title)));
+    milestones.sort_by(|a, b| {
+        deadline_order(a.date, a.time)
+            .cmp(&deadline_order(b.date, b.time))
+            .then(a.title.cmp(&b.title))
+    });
     let mut top: Vec<&Task> = index
         .tasks_of(id)
         .iter()
@@ -227,10 +229,7 @@ fn q_project(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     json(&ProjectDetail {
         project: project.clone(),
         milestones,
-        tasks: top
-            .into_iter()
-            .map(|t| card(ws, &index, t, today))
-            .collect(),
+        tasks: top.into_iter().map(|t| card(ws, &index, t, now)).collect(),
         progress: overview::progress_with(ws, &index, id)
             .ok_or(not_found(EntityKey::Project(id)))?,
     })
@@ -304,7 +303,7 @@ static QUERIES: &[QuerySpec] = &[
     },
     QuerySpec {
         name: "overdue",
-        summary: "Everything past its deadline: tasks, projects and missed milestones, latest first.",
+        summary: "Everything past its deadline: projects and tasks (milestones too), latest first.",
         params: &[],
         run: q_overdue,
     },

@@ -18,6 +18,8 @@ pub struct OpenDoc {
     protection: Protection,
     /// Length of the log when it was last saved or opened.
     saved: usize,
+    /// Data of an older format was brought up to date when it was opened (not saved yet).
+    pub upgraded: bool,
     /// Keeps other plnwrk processes off the file while it is open.
     #[cfg(not(target_arch = "wasm32"))]
     _lock: Option<plnwrk_store::file::Lock>,
@@ -34,6 +36,7 @@ impl OpenDoc {
             path,
             protection,
             saved,
+            upgraded: false,
             #[cfg(not(target_arch = "wasm32"))]
             _lock: None,
         }
@@ -59,12 +62,16 @@ impl OpenDoc {
             _ => Protection::None,
         };
         let saved = opened.document.log.len();
-        Ok(Self::with(
-            session(opened.document),
-            None,
-            protection,
-            saved,
-        ))
+        let (session, upgraded) = opened
+            .document
+            .open_session(Box::new(SystemClock), Box::new(RandomIds::default()))
+            .map_err(|e| StoreError::Corrupt {
+                reason: format!("upgrade: {e}"),
+            })?;
+        // A conversion is a change in the log: the file counts as changed until saved.
+        let mut doc = Self::with(session, None, protection, saved);
+        doc.upgraded = upgraded;
+        Ok(doc)
     }
 
     /// The file it lives in.

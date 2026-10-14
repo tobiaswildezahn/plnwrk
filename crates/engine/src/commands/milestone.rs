@@ -1,14 +1,20 @@
-//! Milestones: create, update, reach, delete.
+//! Milestones of format version 1: create, update, reach, delete. **Replaced by tasks marked
+//! `milestone`**; these commands never run any more and are kept only so that the history of
+//! older files can be checked (`command::find`). `workspace.upgrade` converts the data.
 
 use plnwrk_core::{
     Entity, EntityKey, EntityKind, Milestone, MilestoneId, MilestoneStatus, ProjectId,
 };
 
-use crate::command::{CommandSpec, Runner, always};
+use crate::command::{CommandSpec, Runner};
 use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
 const STATUS: &[&str] = &MilestoneStatus::NAMES;
+
+fn replaced(_: &crate::Session) -> Result<(), String> {
+    Err("milestones are tasks now: use task.create or task.update with milestone".to_owned())
+}
 
 fn load(tx: &Tx<'_>, id: MilestoneId) -> Result<Milestone, CommandError> {
     tx.ws()
@@ -70,7 +76,7 @@ pub const CREATE: CommandSpec = CommandSpec {
         P::required("title", K::Title, "Name"),
         P::required("date", K::Date, "The day"),
     ],
-    enabled: always,
+    enabled: replaced,
     run: Runner::Edit(create),
 };
 
@@ -84,7 +90,7 @@ pub const UPDATE: CommandSpec = CommandSpec {
         P::optional("date", K::Date, "The day"),
         P::optional("status", K::Choice(STATUS), "open or reached"),
     ],
-    enabled: always,
+    enabled: replaced,
     run: Runner::Edit(update),
 };
 
@@ -93,7 +99,7 @@ pub const REACH: CommandSpec = CommandSpec {
     id: "milestone.reach",
     summary: "Marks a milestone as reached.",
     params: &[MILESTONE],
-    enabled: always,
+    enabled: replaced,
     run: Runner::Edit(reach),
 };
 
@@ -102,6 +108,6 @@ pub const DELETE: CommandSpec = CommandSpec {
     id: "milestone.delete",
     summary: "Deletes a milestone.",
     params: &[MILESTONE],
-    enabled: always,
+    enabled: replaced,
     run: Runner::Edit(delete),
 };

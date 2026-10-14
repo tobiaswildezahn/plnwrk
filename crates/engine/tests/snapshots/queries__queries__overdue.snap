@@ -6,6 +6,7 @@ expression: "snapshot_value(&s, \"overdue\", json!({}))"
   {
     "days_late": 4,
     "due": "2026-10-10",
+    "due_time": null,
     "entity": {
       "id": "00000000000000000000000005",
       "kind": "task"
@@ -16,9 +17,10 @@ expression: "snapshot_value(&s, \"overdue\", json!({}))"
   {
     "days_late": 2,
     "due": "2026-10-12",
+    "due_time": null,
     "entity": {
       "id": "0000000000000000000000000C",
-      "kind": "milestone"
+      "kind": "task"
     },
     "project": "00000000000000000000000003",
     "title": "Zuschlag erteilt"

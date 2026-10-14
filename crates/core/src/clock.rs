@@ -1,7 +1,7 @@
 //! Time comes from outside: the core never reads the system clock (docs/PLAN.md §2).
 
 use jiff::Timestamp;
-use jiff::civil::Date;
+use jiff::civil::{Date, DateTime};
 
 /// Where the current time comes from. Apps read the system clock in the user's time zone;
 /// tests use [`FixedClock`].
@@ -10,6 +10,8 @@ pub trait Clock {
     fn now(&self) -> Timestamp;
     /// The current calendar day where the user is.
     fn today(&self) -> Date;
+    /// The current date and time of day where the user is (for deadlines with a time).
+    fn now_local(&self) -> DateTime;
 }
 
 /// A clock that always shows the same moment.
@@ -19,6 +21,8 @@ pub struct FixedClock {
     pub now: Timestamp,
     /// What [`Clock::today`] returns.
     pub today: Date,
+    /// What [`Clock::now_local`] returns.
+    pub local: DateTime,
 }
 
 impl FixedClock {
@@ -26,7 +30,20 @@ impl FixedClock {
     pub fn at(day: &str) -> Result<Self, jiff::Error> {
         let today: Date = day.parse()?;
         let now = today.to_zoned(jiff::tz::TimeZone::UTC)?.timestamp();
-        Ok(Self { now, today })
+        Ok(Self {
+            now,
+            today,
+            local: today.to_datetime(jiff::civil::Time::midnight()),
+        })
+    }
+
+    /// The same clock at another time of day (local time, `HH:MM`).
+    pub fn at_time(self, time: &str) -> Result<Self, jiff::Error> {
+        let time: jiff::civil::Time = time.parse()?;
+        Ok(Self {
+            local: self.today.to_datetime(time),
+            ..self
+        })
     }
 }
 
@@ -37,6 +54,10 @@ impl Clock for FixedClock {
 
     fn today(&self) -> Date {
         self.today
+    }
+
+    fn now_local(&self) -> DateTime {
+        self.local
     }
 }
 

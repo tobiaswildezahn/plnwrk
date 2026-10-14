@@ -5,11 +5,12 @@ use std::collections::BTreeMap;
 
 use jiff::civil::Date;
 use plnwrk_core::{
-    Classification, Dependency, Entity, EntityKey, EntityKind, Milestone, MilestoneStatus, Project,
-    ProjectId, ProjectStatus, Task, TaskId, TaskStatus,
+    Classification, Dependency, Entity, EntityKey, EntityKind, Milestone, Project, ProjectId,
+    ProjectStatus, Task, TaskId, TaskStatus,
 };
 
 use crate::command::{CommandSpec, Runner, always};
+use crate::commands::workspace::milestone_task;
 use crate::params::{self as p, ParamKind as K, ParamSpec as P, Params};
 use crate::{CommandError, Tx};
 
@@ -24,6 +25,7 @@ pub(crate) fn load(tx: &Tx<'_>, id: ProjectId) -> Result<Project, CommandError> 
 
 fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     let id: ProjectId = tx.new_id();
+    let due = params.opt("due", p::deadline)?;
     let project = Project {
         id,
         title: params.req("title", p::title)?,
@@ -32,7 +34,8 @@ fn create(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         kind: params.opt("kind", p::label)?,
         owner: params.opt("owner", p::id)?,
         start: params.opt("start", p::date)?,
-        due: params.opt("due", p::date)?,
+        due: due.map(|(day, _)| day),
+        due_time: due.and_then(|(_, time)| time),
         status: params.opt("status", p::choice)?.unwrap_or_default(),
         template: params.opt("template", p::boolean)?.unwrap_or(false),
         classification: params.opt("classification", p::choice)?.unwrap_or_default(),
@@ -57,7 +60,11 @@ fn update(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
     params.patch("kind", p::label)?.apply_to(&mut project.kind);
     params.patch("owner", p::id)?.apply_to(&mut project.owner);
     params.patch("start", p::date)?.apply_to(&mut project.start);
-    params.patch("due", p::date)?.apply_to(&mut project.due);
+    p::apply_deadline(
+        params.patch("due", p::deadline)?,
+        &mut project.due,
+        &mut project.due_time,
+    );
     if let Some(status) = params.patch_required("status", p::choice)? {
         project.status = status;
     }
@@ -123,6 +130,7 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         }
     };
     let id: ProjectId = tx.new_id();
+    let due = params.opt("due", p::deadline)?;
     let project = Project {
         id,
         title: params.req("title", p::title)?,
@@ -131,9 +139,13 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         kind: template.kind.clone(),
         owner: params.opt("owner", p::id)?.or(template.owner),
         start: Some(start),
-        due: match params.opt("due", p::date)? {
-            Some(due) => Some(due),
+        due: match due {
+            Some((day, _)) => Some(day),
             None => moved(template.due)?,
+        },
+        due_time: match due {
+            Some((_, time)) => time,
+            None => template.due_time,
         },
         status: ProjectStatus::Active,
         template: false,
@@ -172,16 +184,12 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         .filter(|m| m.project == template.id)
         .cloned()
         .collect();
+    // Templates from format version 1 may still hold milestones of their own; the new
+    // project gets milestone tasks instead.
     for milestone in milestones {
-        let new = tx.new_id();
         let date = moved(Some(milestone.date))?.unwrap_or(start);
-        tx.insert(Entity::Milestone(Milestone {
-            id: new,
-            project: id,
-            date,
-            status: MilestoneStatus::Open,
-            ..milestone
-        }))?;
+        let task = milestone_task(tx, &milestone, (id, None), date, false)?;
+        tx.insert(Entity::Task(task))?;
     }
     let dependencies: Vec<Dependency> = tx
         .ws()
@@ -224,7 +232,11 @@ pub const CREATE: CommandSpec = CommandSpec {
         ),
         P::optional("owner", K::Id(EntityKind::Person), "Who is responsible"),
         P::optional("start", K::Date, "First day"),
-        P::optional("due", K::Date, "Deadline"),
+        P::optional(
+            "due",
+            K::Deadline,
+            "Deadline, optionally with a time of day",
+        ),
         P::optional("status", K::Choice(PROJECT_STATUS), "Default: active"),
         P::optional(
             "template",
@@ -249,7 +261,11 @@ pub const UPDATE: CommandSpec = CommandSpec {
         P::clearable("kind", K::Label, "Free label"),
         P::clearable("owner", K::Id(EntityKind::Person), "Who is responsible"),
         P::clearable("start", K::Date, "First day"),
-        P::clearable("due", K::Date, "Deadline"),
+        P::clearable(
+            "due",
+            K::Deadline,
+            "Deadline, optionally with a time of day",
+        ),
         P::optional("status", K::Choice(PROJECT_STATUS), "Lifecycle"),
         P::optional("template", K::Bool, "Use as a template"),
         P::optional(
@@ -284,7 +300,11 @@ pub const INSTANTIATE: CommandSpec = CommandSpec {
         P::required("title", K::Title, "Name of the new project or case"),
         P::required("start", K::Date, "First day; template dates move along"),
         P::optional("reference", K::Label, "File or reference number"),
-        P::optional("due", K::Date, "Deadline; default: the template's, moved"),
+        P::optional(
+            "due",
+            K::Deadline,
+            "Deadline, optionally with a time of day; default: the template's, moved",
+        ),
         P::optional("owner", K::Id(EntityKind::Person), "Who is responsible"),
     ],
     enabled: always,

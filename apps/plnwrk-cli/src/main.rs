@@ -199,9 +199,18 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
         .map_or("", String::as_str);
     let params = params(matches)?;
     let (open, _lock) = files::open_for_change(&path, true)?;
-    let mut session: Session = files::session(open.doc);
-    let outcome = session.run(command, &params, Origin::User)?;
-    if outcome.change.is_some() {
+    let (mut session, upgraded): (Session, bool) = files::current(open.doc)?;
+    // Asked for explicitly: already done while opening.
+    let outcome = if upgraded && command == "workspace.upgrade" {
+        plnwrk_engine::Outcome {
+            change: None,
+            created: Vec::new(),
+        }
+    } else {
+        session.run(command, &params, Origin::User)?
+    };
+    let changed = outcome.change.is_some() || upgraded;
+    if changed {
         files::save(&path, &files::document(&session), &open.protection).map_err(
             |Failure(cause)| {
                 Failure(json!({
@@ -213,20 +222,22 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
         )?;
     }
     Ok(Output::Json(
-        json!({"outcome": outcome, "saved": outcome.change.is_some()}),
+        json!({"outcome": outcome, "saved": changed, "upgraded": upgraded}),
     ))
 }
 
 fn run_query(matches: &ArgMatches) -> Result<Output, Failure> {
     let open = files::open(&path(matches)?, false)?;
     let name = matches.get_one::<String>("name").map_or("", String::as_str);
-    let session = files::session(open.doc);
+    let (session, _) = files::current(open.doc)?;
     Ok(Output::Json(session.query(name, &params(matches)?)?))
 }
 
 fn export_file(matches: &ArgMatches) -> Result<Output, Failure> {
     let open = files::open(&path(matches)?, false)?;
-    let doc = &open.doc;
+    // Older data is brought up to date first (not saved), so nothing is left out.
+    let (session, _) = files::current(open.doc)?;
+    let doc = &files::document(&session);
     match matches.get_one::<String>("format").map(String::as_str) {
         Some("json") => Ok(Output::Text(export::json(doc)?)),
         Some("csv") => Ok(Output::Text(export::csv(doc))),
@@ -242,7 +253,9 @@ fn encrypt(matches: &ArgMatches) -> Result<Output, Failure> {
         return Err(Failure::message("the file is already encrypted"));
     }
     let protection = Protection::Passphrase(files::passphrase(true)?);
-    files::save(&path, &open.doc, &protection)?;
+    // Written in the current format, so older data is brought up to date first.
+    let (session, _) = files::current(open.doc)?;
+    files::save(&path, &files::document(&session), &protection)?;
     Ok(Output::Json(json!({"encrypted": true})))
 }
 
@@ -252,7 +265,8 @@ fn decrypt(matches: &ArgMatches) -> Result<Output, Failure> {
     if !open.manifest.encrypted {
         return Err(Failure::message("the file is not encrypted"));
     }
-    files::save(&path, &open.doc, &Protection::None)?;
+    let (session, _) = files::current(open.doc)?;
+    files::save(&path, &files::document(&session), &Protection::None)?;
     Ok(Output::Json(json!({"encrypted": false})))
 }
 

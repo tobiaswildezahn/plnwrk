@@ -400,4 +400,135 @@ mod files {
         assert!(json["workspace"]["projects"].is_object());
         assert_eq!(json["marking"], Value::Null);
     }
+
+    #[test]
+    fn changing_a_version_1_file_upgrades_it() {
+        let dir = Dir::new("v1");
+        let file = dir.file();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/store/tests/fixtures/v1-sample.plnwrk");
+        std::fs::copy(&fixture, &file).unwrap();
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 1);
+        // Reading leaves it as it is.
+        ok(&["verify", s(&file)], None);
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 1);
+        // Changing it converts the old milestones in the same save.
+        let project = project_id_any(s(&file), None);
+        let params = json!({"project": project, "title": "Neu"}).to_string();
+        let result = ok(&["run", s(&file), "task.create", &params], None);
+        assert_eq!(result["upgraded"], true);
+        assert_eq!(result["saved"], true);
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 2);
+        let tasks = ok(
+            &["query", s(&file), "tasks", r#"{"include_done": true}"#],
+            None,
+        );
+        let milestones = tasks[0]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["milestone"] == true)
+            .count();
+        assert_eq!(milestones, 3, "two in the project, one in the case");
+        // A second change has nothing more to convert.
+        let params = json!({"project": project, "title": "Noch eins"}).to_string();
+        assert_eq!(
+            ok(&["run", s(&file), "task.create", &params], None)["upgraded"],
+            false
+        );
+    }
+
+    fn v1_copy(dir: &Dir) -> PathBuf {
+        let file = dir.file();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/store/tests/fixtures/v1-sample.plnwrk");
+        std::fs::copy(&fixture, &file).unwrap();
+        file
+    }
+
+    #[test]
+    fn queries_and_exports_of_a_version_1_file_keep_its_milestones() {
+        let dir = Dir::new("v1-read");
+        let file = v1_copy(&dir);
+        let overview = ok(&["query", s(&file), "overview"], None);
+        assert!(
+            overview
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|card| !card["next_milestone"].is_null())
+        );
+        let markdown = cli(&["export", s(&file), "--format", "markdown"], None);
+        assert!(String::from_utf8_lossy(&markdown.stdout).contains("### Meilensteine"));
+        // Reading never writes.
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 1);
+    }
+
+    #[test]
+    fn undo_cannot_reach_past_the_upgrade_and_an_explicit_upgrade_saves() {
+        let dir = Dir::new("v1-undo");
+        let file = v1_copy(&dir);
+        let before = std::fs::read(&file).unwrap();
+        fails(&["run", s(&file), "undo"], None);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "file untouched");
+        let result = ok(&["run", s(&file), "workspace.upgrade"], None);
+        assert_eq!(result["upgraded"], true);
+        assert_eq!(result["saved"], true);
+        assert_eq!(ok(&["info", s(&file)], None)["version"], 2);
+        ok(&["verify", s(&file)], None);
+    }
+
+    fn milestone_ids(file: &str) -> Vec<String> {
+        let tasks = ok(&["query", file, "tasks", r#"{"include_done": true}"#], None);
+        let mut ids: Vec<String> = tasks[0]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["milestone"] == true)
+            .map(|t| t["id"].as_str().unwrap().to_owned())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn reading_a_version_1_file_twice_gives_the_same_ids() {
+        let dir = Dir::new("v1-ids");
+        let file = v1_copy(&dir);
+        let first = milestone_ids(s(&file));
+        assert_eq!(first.len(), 3);
+        assert_eq!(milestone_ids(s(&file)), first, "stable between calls");
+        // An id from a query can be used to change the file.
+        let params = json!({"task": first[0], "title": "Zuschlag (neu)"}).to_string();
+        ok(&["run", s(&file), "task.update", &params], None);
+        assert_eq!(milestone_ids(s(&file)), first, "the same ids after saving");
+        let markdown = |f: &Path| {
+            String::from_utf8(cli(&["export", s(f), "--format", "json"], None).stdout).unwrap()
+        };
+        let other = Dir::new("v1-ids-2");
+        let copy = v1_copy(&other);
+        assert_eq!(markdown(&copy), markdown(&copy), "exports are repeatable");
+    }
+
+    #[test]
+    fn encrypting_a_version_1_file_writes_it_in_the_current_format() {
+        let dir = Dir::new("v1-encrypt");
+        let file = v1_copy(&dir);
+        let pass = "lange-passphrase-123";
+        ok(&["encrypt", s(&file)], Some(pass));
+        let bytes = std::fs::read(&file).unwrap();
+        let secret = plnwrk_store::SecretString::from(pass.to_owned());
+        let opened = plnwrk_store::open(&bytes, Some(&secret)).unwrap();
+        assert_eq!(opened.manifest.version, plnwrk_store::manifest::VERSION);
+        assert_eq!(opened.document.workspace.milestones().count(), 0);
+        assert_eq!(
+            opened
+                .document
+                .workspace
+                .tasks()
+                .filter(|t| t.milestone)
+                .count(),
+            4
+        );
+    }
 }

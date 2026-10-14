@@ -148,6 +148,12 @@ pub fn session(doc: Document) -> Session {
     doc.into_session(Box::new(SystemClock), Box::new(RandomIds::default()))
 }
 
+/// A session on an opened file, its data brought up to date (milestones of format version 1
+/// become milestone tasks). Returns whether anything was converted.
+pub fn current(doc: Document) -> Result<(Session, bool), Failure> {
+    Ok(doc.open_session(Box::new(SystemClock), Box::new(RandomIds::default()))?)
+}
+
 /// The document of a session.
 pub fn document(session: &Session) -> Document {
     Document::from_session(session)

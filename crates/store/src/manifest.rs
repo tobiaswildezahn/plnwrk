@@ -9,7 +9,13 @@ use crate::StoreError;
 /// Marks a plnwrk file.
 pub const FORMAT: &str = "plnwrk";
 /// The format version this build writes and reads.
-pub const VERSION: u32 = 1;
+///
+/// - 1: Phase 2 and 3a.
+/// - 2: deadlines may carry a time of day (`due_time`) and tasks may be milestones
+///   (`milestone`); milestones of their own are no longer written. Same layout as 1, so files of
+///   version 1 are read unchanged; their milestones are converted by the command
+///   `workspace.upgrade` (a change in the log, history kept).
+pub const VERSION: u32 = 2;
 /// The oldest version this build can read (older ones would be migrated).
 pub const OLDEST: u32 = 1;
 
@@ -97,12 +103,12 @@ mod tests {
 
     #[test]
     fn versions_are_checked_first() {
-        let newer = br#"{"format":"plnwrk","version":2,"future":"field"}"#;
+        let newer = br#"{"format":"plnwrk","version":3,"future":"field"}"#;
         assert_eq!(
             Manifest::parse(newer),
             Err(StoreError::NewerFormat {
-                found: 2,
-                supported: 1
+                found: 3,
+                supported: 2
             })
         );
         let older = br#"{"format":"plnwrk","version":0}"#;

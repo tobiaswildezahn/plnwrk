@@ -534,21 +534,80 @@ mod store {
     #[test]
     fn newer_versions_ask_for_an_update() {
         let bytes = save(&sample_doc(), &Protection::None).unwrap();
-        let newer = edit_json(&bytes, "manifest.json", |m| m["version"] = json!(2));
+        let next = plnwrk_store::manifest::VERSION + 1;
+        let newer = edit_json(&bytes, "manifest.json", |m| m["version"] = json!(next));
+        let expected = StoreError::NewerFormat {
+            found: next,
+            supported: plnwrk_store::manifest::VERSION,
+        };
+        assert_eq!(load(&newer, None), Err(expected.clone()));
+        assert_eq!(peek(&newer), Err(expected));
+    }
+
+    // ------------------------------------------------------------------ format version 1
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap()
+    }
+
+    /// Files written by Phase 3a open unchanged, their milestones convert in one change, and
+    /// the result saves as version 2 and opens again.
+    fn upgrades(bytes: &[u8], passphrase: Option<&SecretString>) {
+        let head = peek(bytes).unwrap();
+        assert_eq!(head.version, 1);
+        let opened = plnwrk_store::open(bytes, passphrase).unwrap();
+        let doc = opened.document;
         assert_eq!(
-            load(&newer, None),
-            Err(StoreError::NewerFormat {
-                found: 2,
-                supported: 1
-            })
+            doc.workspace.milestones().count(),
+            4,
+            "version 1 milestones (two, template, case)"
         );
+        assert!(
+            doc.workspace
+                .tasks()
+                .all(|t| !t.milestone && t.due_time.is_none())
+        );
+        let mut session = doc
+            .clone()
+            .into_session(clock(), Box::new(SequentialIds::starting_at(1 << 100)));
+        session
+            .run("workspace.upgrade", &json!({}), Origin::Script)
+            .unwrap();
+        assert_eq!(session.log().len(), doc.log.len() + 1);
+        let ws = session.workspace();
+        assert_eq!(ws.milestones().count(), 0);
+        assert_eq!(ws.tasks().filter(|t| t.milestone).count(), 4);
+        assert!(ws.check().is_empty());
+        let protection = match passphrase {
+            Some(secret) => Protection::Passphrase(secret.clone()),
+            None => Protection::None,
+        };
+        let upgraded = Document::from_session(&session);
+        let saved = save_with(&upgraded, &protection, fast()).unwrap();
         assert_eq!(
-            peek(&newer),
-            Err(StoreError::NewerFormat {
-                found: 2,
-                supported: 1
-            })
+            peek(&saved).unwrap().version,
+            plnwrk_store::manifest::VERSION
         );
+        let again = plnwrk_store::open(&saved, passphrase).unwrap().document;
+        assert_eq!(again, upgraded);
+        // The history before the upgrade is untouched, byte for byte.
+        assert_eq!(again.log.get(..doc.log.len()), Some(doc.log.as_slice()));
+    }
+
+    #[test]
+    fn version_1_files_open_and_upgrade() {
+        upgrades(&fixture("v1-sample.plnwrk"), None);
+    }
+
+    #[test]
+    fn encrypted_version_1_files_open_and_upgrade() {
+        let secret = pass("v1-fixture-passphrase");
+        upgrades(&fixture("v1-sample-encrypted.plnwrk"), Some(&secret));
     }
 
     #[test]
@@ -828,13 +887,17 @@ mod store {
         );
         insta::assert_snapshot!("markdown", markdown);
         let csv = plnwrk_store::export::csv(&doc);
-        assert_eq!(csv.lines().count(), 1 + 10, "header and one row per task");
+        assert_eq!(
+            csv.lines().count(),
+            1 + 10 + 3,
+            "header and one row per task, milestones included"
+        );
         insta::assert_snapshot!("csv", csv);
         let json: Value = serde_json::from_str(&plnwrk_store::export::json(&doc).unwrap()).unwrap();
         assert!(
             json["workspace"]["tasks"]
                 .as_object()
-                .is_some_and(|t| t.len() == 14)
+                .is_some_and(|t| t.len() == 18)
         );
     }
 
