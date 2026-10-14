@@ -1,0 +1,38 @@
+---
+source: crates/store/tests/store.rs
+expression: markdown
+---
+# Arbeitsbereich
+
+## Digitalfunk Umrüstung Wachen
+
+Art: Projekt · Status: active · Frist: 2026-12-15 · Verantwortlich: Tobias Wildezahn
+
+### Meilensteine
+
+- [ ] 2026-10-12 Zuschlag erteilt
+- [ ] 2026-12-15 Inbetriebnahme
+
+### Aufgaben
+
+- [x] Bestandsaufnahme Geräte — Frist 2026-09-15
+- [ ] Ausschreibung vorbereiten — Anna Berg, Frist 2026-10-10, in progress
+  - [x] Leistungsverzeichnis
+  - [ ] Vergabevermerk — Anna Berg
+- [ ] Einbau Wache 11 — Frist 2026-11-20
+- [ ] Schulung Einsatzkräfte — Frist 2026-12-10
+
+## SKA 23/1234 Sirenenwarnung (23/1234)
+
+Art: SKA · Status: active · Frist: 2026-10-19 · Verantwortlich: Anna Berg
+
+### Meilensteine
+
+- [ ] 2026-10-19 Abgabe Senatskanzlei
+
+### Aufgaben
+
+- [x] Eingang erfassen und Federführung klären — Frist 2026-10-12
+- [ ] Zuarbeiten anfordern — Frist 2026-10-16
+  - [ ] Fachamt — Frist 2026-10-15
+- [ ] Antwort entwerfen — Frist 2026-10-18

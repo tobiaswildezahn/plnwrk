@@ -11,6 +11,7 @@ pub mod chain;
 mod container;
 mod crypto;
 mod error;
+pub mod export;
 pub mod manifest;
 mod replay;
 

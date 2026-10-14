@@ -443,6 +443,35 @@ mod store {
     }
 
     #[test]
+    fn exports_of_the_sample() {
+        let doc = sample_doc();
+        let markdown = plnwrk_store::export::markdown(&doc.workspace);
+        assert!(
+            !markdown.contains("SKA beantworten"),
+            "templates are left out"
+        );
+        insta::assert_snapshot!("markdown", markdown);
+        let csv = plnwrk_store::export::csv(&doc.workspace);
+        assert_eq!(csv.lines().count(), 1 + 10, "header and one row per task");
+        insta::assert_snapshot!("csv", csv);
+        let json: Value =
+            serde_json::from_str(&plnwrk_store::export::json(&doc.workspace).unwrap()).unwrap();
+        assert!(json["tasks"].as_object().is_some_and(|t| t.len() == 14));
+    }
+
+    #[test]
+    fn classified_exports_are_marked() {
+        let doc = classified();
+        let mark = plnwrk_store::export::VS_NFD_MARK;
+        assert!(plnwrk_store::export::csv(&doc.workspace).starts_with(mark));
+        assert!(
+            plnwrk_store::export::markdown(&doc.workspace).starts_with(&format!("> **{mark}**"))
+        );
+        let open = sample_doc();
+        assert!(!plnwrk_store::export::csv(&open.workspace).contains(mark));
+    }
+
+    #[test]
     fn errors_serialize_for_agents() {
         let json = serde_json::to_value(StoreError::NewerFormat {
             found: 2,
