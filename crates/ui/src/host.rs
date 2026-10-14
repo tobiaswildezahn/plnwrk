@@ -39,8 +39,8 @@ pub trait Host {
     /// [`Host::uploaded`] (the app asks every frame).
     fn request_upload(&mut self) {}
 
-    /// Browser: the file chosen since the last call, if any.
-    fn uploaded(&mut self) -> Option<Upload> {
+    /// Browser: the file chosen since the last call, if any (`Err`: it could not be read).
+    fn uploaded(&mut self) -> Option<Result<Upload, String>> {
         None
     }
 
@@ -61,6 +61,11 @@ pub trait Host {
     /// Browser: every key and value kept with [`Host::store`].
     fn stored(&mut self) -> Vec<(String, String)> {
         Vec::new()
+    }
+
+    /// Browser: an id of this tab that stays the same when the page is loaded again.
+    fn tab(&mut self) -> String {
+        String::new()
     }
 }
 
@@ -103,8 +108,10 @@ impl Host for Scripted {
 pub struct BrowserLog {
     /// How often the person was asked to choose a file.
     pub upload_requests: usize,
-    /// The next file "chosen" (taken by the app on its next frame).
-    pub upload: Option<Upload>,
+    /// The next file "chosen" (taken by the app on its next frame), or why it was not read.
+    pub upload: Option<Result<Upload, String>>,
+    /// The id of this tab.
+    pub tab: String,
     /// Every download, oldest first.
     pub downloads: Vec<Upload>,
     /// Downloads fail with this reason.
@@ -140,8 +147,12 @@ impl Host for TestBrowser {
         self.0.borrow_mut().upload_requests += 1;
     }
 
-    fn uploaded(&mut self) -> Option<Upload> {
+    fn uploaded(&mut self) -> Option<Result<Upload, String>> {
         self.0.borrow_mut().upload.take()
+    }
+
+    fn tab(&mut self) -> String {
+        self.0.borrow().tab.clone()
     }
 
     fn download(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {

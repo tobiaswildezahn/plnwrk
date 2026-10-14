@@ -29,12 +29,32 @@ fn local_storage() -> Result<web_sys::Storage, String> {
         .ok_or_else(|| "no local storage".to_owned())
 }
 
+/// The id of this tab: kept in the tab's own session storage, so it survives a reload (and
+/// the tab finds its own recovery copies), but every other tab has its own.
+fn tab_id() -> String {
+    const KEY: &str = "plnwrk.tab";
+    let storage = web_sys::window().and_then(|w| w.session_storage().ok().flatten());
+    if let Some(id) = storage
+        .as_ref()
+        .and_then(|s| s.get_item(KEY).ok().flatten())
+    {
+        return id;
+    }
+    let id = plnwrk_platform::instance();
+    if let Some(storage) = storage {
+        let _ = storage.set_item(KEY, &id);
+    }
+    id
+}
+
 /// The browser around the app.
 pub struct WebHost {
     /// To wake the app up when a chosen file has been read.
     ctx: egui::Context,
-    /// The file chosen last, until the app takes it.
-    upload: Rc<RefCell<Option<Upload>>>,
+    /// The file chosen last (or why it could not be read), until the app takes it.
+    upload: Rc<RefCell<Option<Result<Upload, String>>>>,
+    /// The id of this tab.
+    tab: String,
     /// Whether leaving the page asks first.
     leave: Rc<Cell<bool>>,
 }
@@ -63,6 +83,7 @@ impl WebHost {
         Self {
             ctx,
             upload: Rc::new(RefCell::new(None)),
+            tab: tab_id(),
             leave,
         }
     }
@@ -84,14 +105,15 @@ impl WebHost {
             };
             let name = file.name();
             wasm_bindgen_futures::spawn_local(async move {
-                match wasm_bindgen_futures::JsFuture::from(file.array_buffer()).await {
-                    Ok(buffer) => {
-                        let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
-                        *slot.borrow_mut() = Some(Upload { name, bytes });
-                        ctx.request_repaint();
-                    }
-                    Err(error) => log::warn!("plnwrk: file not read: {}", reason(&error)),
-                }
+                let read = wasm_bindgen_futures::JsFuture::from(file.array_buffer())
+                    .await
+                    .map(|buffer| Upload {
+                        name,
+                        bytes: js_sys::Uint8Array::new(&buffer).to_vec(),
+                    })
+                    .map_err(|error| reason(&error));
+                *slot.borrow_mut() = Some(read);
+                ctx.request_repaint();
             });
         });
         input.set_onchange(Some(on_change.unchecked_ref()));
@@ -147,8 +169,12 @@ impl Host for WebHost {
         }
     }
 
-    fn uploaded(&mut self) -> Option<Upload> {
+    fn uploaded(&mut self) -> Option<Result<Upload, String>> {
         self.upload.borrow_mut().take()
+    }
+
+    fn tab(&mut self) -> String {
+        self.tab.clone()
     }
 
     fn download(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {

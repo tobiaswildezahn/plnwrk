@@ -172,6 +172,8 @@ pub struct PlnwrkApp {
     autosave: autosave::Autosave,
     /// Browser: the recovery copy in the browser's storage.
     browser_copy: browser_copy::BrowserCopy,
+    /// Browser: the id of this tab (its copies are its own).
+    tab: String,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -205,8 +207,9 @@ impl PlnwrkApp {
 
     /// An app without stored settings, using these dialogs.
     pub fn with_host(mut host: Box<dyn Host>) -> Self {
+        let tab = host.tab();
         let stored_copies = if host.browser() {
-            browser_copy::offered(&mut *host)
+            browser_copy::offered(&mut *host, &tab, jiff::Timestamp::now())
         } else {
             Vec::new()
         };
@@ -222,6 +225,7 @@ impl PlnwrkApp {
             leave_warning: false,
             autosave: autosave::Autosave::default(),
             browser_copy: browser_copy::BrowserCopy::default(),
+            tab,
         }
     }
 
@@ -449,8 +453,15 @@ impl PlnwrkApp {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         text::set_language(self.state.language);
         // A file chosen in the browser arrives some frames after it was asked for.
-        if let Some(upload) = self.host.uploaded() {
-            self.file(FileAction::Upload(upload));
+        match self.host.uploaded() {
+            Some(Ok(upload)) => self.file(FileAction::Upload(upload)),
+            Some(Err(reason)) => {
+                self.state.message = Some(Message::error(format!(
+                    "{} {reason}",
+                    text::t().upload_failed
+                )));
+            }
+            None => {}
         }
         if ui.ctx().options(|o| o.theme_preference) != self.state.theme {
             ui.ctx().set_theme(self.state.theme);
@@ -485,7 +496,7 @@ impl PlnwrkApp {
         let before = self.copy_status();
         let wait = if self.state.browser {
             self.browser_copy
-                .tick(&mut *self.host, self.doc.as_ref(), time)
+                .tick(&mut *self.host, &self.tab, self.doc.as_ref(), time)
         } else {
             self.autosave.tick(self.doc.as_ref(), time)
         };
@@ -516,20 +527,21 @@ impl PlnwrkApp {
     /// Browser: the recovered copies to offer, without the one of the open work.
     fn refresh_stored_copies(&mut self) {
         let own = self.browser_copy.key().map(str::to_owned);
-        self.state.stored_copies = browser_copy::offered(&mut *self.host)
-            .into_iter()
-            .filter(|(key, _)| Some(key) != own.as_ref())
-            .collect();
+        self.state.stored_copies =
+            browser_copy::offered(&mut *self.host, &self.tab, jiff::Timestamp::now())
+                .into_iter()
+                .filter(|copy| Some(&copy.key) != own.as_ref())
+                .collect();
     }
 
     /// Browser: opens a recovered copy as unsaved work; it stays until the work is saved.
     fn open_stored_copy(&mut self, key: String) {
-        let Some((_, copy)) = self
+        let Some(copy) = self
             .state
             .stored_copies
             .iter()
-            .find(|(k, _)| *k == key)
-            .cloned()
+            .find(|c| c.key == key)
+            .map(|c| c.file.clone())
         else {
             return;
         };
@@ -709,6 +721,15 @@ impl PlnwrkApp {
     fn file(&mut self, action: FileAction) {
         // A browser tab is not quit from inside the page (the browser asks on leaving).
         if action == FileAction::Quit && self.state.browser {
+            return;
+        }
+        // Refused before asking about unsaved work: the answer would not matter.
+        if let FileAction::Upload(upload) = &action
+            && self.state.browser
+            && plnwrk_store::peek(&upload.bytes)
+                .is_ok_and(|head| head.classification >= Classification::VsNfd)
+        {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
             return;
         }
         let force = std::mem::take(&mut self.state.force);
@@ -956,7 +977,8 @@ impl PlnwrkApp {
             Ok(()) => {
                 doc.mark_saved();
                 self.autosave.saved();
-                self.browser_copy.saved(&mut *self.host);
+                self.browser_copy
+                    .downloaded(&mut *self.host, &self.tab, doc);
                 self.state.message =
                     Some(Message::info(format!("{} {name}", text::t().downloaded)));
                 true
@@ -1072,6 +1094,27 @@ impl eframe::App for PlnwrkApp {
         }
         storage.set_string(LANGUAGE_KEY, self.state.language.code().to_owned());
         storage.set_string(THEME_KEY, theme_code(self.state.theme).to_owned());
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::asks_for_classified;
+    use serde_json::json;
+
+    #[test]
+    fn classified_parameters_are_found_anywhere() {
+        assert!(asks_for_classified(&json!({"classification": "vs_nfd"})));
+        assert!(asks_for_classified(
+            &json!({"items": [{"title": "x"}, {"classification": "vs_nfd"}]})
+        ));
+        assert!(asks_for_classified(
+            &json!({"a": {"b": {"classification": "vs_nfd"}}})
+        ));
+        assert!(!asks_for_classified(&json!({"classification": "open"})));
+        assert!(!asks_for_classified(&json!({"title": "vs_nfd"})));
+        assert!(!asks_for_classified(&json!({"classification": "VS-NfD"})));
+        assert!(!asks_for_classified(&json!(null)));
     }
 }
 

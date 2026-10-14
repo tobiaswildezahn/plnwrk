@@ -137,9 +137,14 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 - **Getippter, nicht übernommener Text** (Feld hat noch den Cursor) steht nicht in der
   Minutenkopie, nur in der Notsicherung beim Beenden; bei einem harten Absturz ist er weg.
 - **Browser:** Zwischenstand liegt im `localStorage` (Klartext, nur nicht eingestufte,
-  unverschlüsselte Arbeit); wer den Browser-Speicher lesen kann, sieht ihn. Verschlüsselte
-  Arbeit bekommt keinen Zwischenstand. Speichern = Herunterladen, der Download-Ordner ist
-  Sache des Browsers. Der Dateidialog des Browsers lässt sich nicht automatisiert prüfen.
+  unverschlüsselte Arbeit); wer den Browser-Speicher lesen kann, sieht ihn – auch jede andere
+  Seite unter derselben Adresse (darum vor dem Veröffentlichen eine eigene (Sub-)Domain statt
+  `<owner>.github.io`). Verschlüsselte Arbeit bekommt keinen Zwischenstand. Speichern =
+  Herunterladen; ob der Browser die Datei wirklich ablegt, erfährt die Seite nicht, darum
+  bleibt die Kopie danach 7 Tage (markiert „heruntergeladen“). Ein dupliziertes Tab erbt die
+  Tab-Kennung und gilt als dasselbe Tab. Öffnen per Tastatur (⌘O, Palette) könnte Safari als
+  „nicht vom Menschen ausgelöst“ ignorieren – Knopf „Datei öffnen…“ geht immer. Der
+  Dateidialog des Browsers lässt sich nicht automatisiert prüfen.
   eframe registriert sein eigenes Speichern beim Verlassen unter einem falschen Ereignisnamen
   (`onbeforeunload`); plnwrk verlässt sich darum nicht darauf.
 - **Autosave:** macOS „App Nap“ kann den Takt eines verdeckten Programms verzögern; nach

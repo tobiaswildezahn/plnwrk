@@ -3351,6 +3351,7 @@ dependencies = [
  "eframe",
  "js-sys",
  "log",
+ "plnwrk-platform",
  "plnwrk-ui",
  "wasm-bindgen",
  "wasm-bindgen-futures",

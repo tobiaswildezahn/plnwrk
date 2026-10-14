@@ -240,6 +240,8 @@ pub struct Texts {
     pub browser_not_vs_hint: &'static str,
     pub no_copy_encrypted: &'static str,
     pub browser_copy_hint: &'static str,
+    pub copy_downloaded: &'static str,
+    pub upload_failed: &'static str,
     /// Suggestions for the kind of a project.
     pub kinds: [&'static str; 2],
     /// Names of the months, January first.
@@ -408,6 +410,8 @@ pub static DE: Texts = Texts {
     browser_not_vs_hint: "Der Browser ist keine für Verschlusssachen geeignete Umgebung. VS-NfD-Dateien öffnen nur in der Desktop-App.",
     no_copy_encrypted: "Kein Zwischenstand im Browser: die Datei ist verschlüsselt.",
     browser_copy_hint: "Zwischenstand im Browser-Speicher. Nach einem Neuladen steht er auf der Startseite.",
+    copy_downloaded: "heruntergeladen",
+    upload_failed: "Die Datei ließ sich nicht lesen:",
     kinds: ["Projekt", "Vorgang"],
     months: [
         "Januar",
@@ -586,6 +590,8 @@ pub static EN: Texts = Texts {
     browser_not_vs_hint: "The browser is not an environment suited to classified material. VS-NfD files open only in the desktop app.",
     no_copy_encrypted: "No interim copy in the browser: the file is encrypted.",
     browser_copy_hint: "Interim copy in the browser's storage. After a reload it is offered on the start page.",
+    copy_downloaded: "downloaded",
+    upload_failed: "The file could not be read:",
     kinds: ["Project", "Case"],
     months: [
         "January",

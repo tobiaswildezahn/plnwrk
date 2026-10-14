@@ -2387,10 +2387,10 @@ fn choose_upload(
     name: &str,
     bytes: Vec<u8>,
 ) {
-    browser.0.borrow_mut().upload = Some(crate::Upload {
+    browser.0.borrow_mut().upload = Some(Ok(crate::Upload {
         name: name.to_owned(),
         bytes,
-    });
+    }));
     harness.run();
 }
 
@@ -2665,15 +2665,21 @@ fn the_desktop_keeps_vs_nfd_and_shows_no_browser_hint() {
 }
 
 /// The recovery copies in the test browser's storage.
-fn stored_copies(browser: &crate::host::TestBrowser) -> Vec<(String, crate::Upload)> {
+fn stored_copies(browser: &crate::host::TestBrowser) -> Vec<crate::browser_copy::StoredCopy> {
     browser
         .0
         .borrow()
         .storage
         .iter()
         .filter(|(k, _)| k.starts_with(crate::browser_copy::PREFIX))
-        .filter_map(|(k, v)| crate::browser_copy::decode(v).map(|u| (k.clone(), u)))
+        .filter_map(|(k, v)| crate::browser_copy::decode(k, v))
         .collect()
+}
+
+/// Clicks the start page entry of a recovery copy (its line also shows the time).
+fn open_copy(harness: &mut Harness<'_, PlnwrkApp>, name: &str) {
+    harness.get_by_label_contains(name).click();
+    harness.run();
 }
 
 /// The page is loaded again: a new app on the same browser storage.
@@ -2690,9 +2696,10 @@ fn work_in_the_browser_survives_a_reload_until_it_is_downloaded() {
     type_into(&mut harness, text::t().title, "Lage", false);
     click(&mut harness, text::t().create);
     let copies = stored_copies(&browser);
-    let [(_, copy)] = copies.as_slice() else {
+    let [copy] = copies.as_slice() else {
         panic!("{copies:?}")
     };
+    let copy = copy.file.clone();
     let kept = crate::OpenDoc::from_bytes(&copy.bytes, None).unwrap();
     assert!(
         kept.session
@@ -2705,7 +2712,7 @@ fn work_in_the_browser_survives_a_reload_until_it_is_downloaded() {
     // Reloaded (or the tab crashed): the copy is offered and opens as unsaved work.
     let mut harness = reload(&browser);
     assert!(harness.query_by_label(text::t().recovered).is_some());
-    click(&mut harness, &copy.name.clone());
+    open_copy(&mut harness, &copy.name);
     let app = harness.state();
     assert!(app.has_unsaved_changes(), "recovered work is unsaved");
     assert!(projects(app).iter().any(|p| p.title == "Lage"));
@@ -2720,12 +2727,27 @@ fn work_in_the_browser_survives_a_reload_until_it_is_downloaded() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     assert_eq!(browser.0.borrow().downloads.len(), 1);
+    // The browser cannot tell whether the file arrived (its dialog may have been cancelled):
+    // the copy stays, marked, and is offered again after a reload.
+    let copies = stored_copies(&browser);
+    assert_eq!(copies.len(), 1);
+    assert!(copies[0].downloaded);
+    assert!(!harness.state().has_unsaved_changes());
+    click(&mut harness, text::t().file_menu);
+    click(&mut harness, text::t().close_file);
+    assert_eq!(
+        stored_copies(&browser).len(),
+        1,
+        "closed after a download: kept"
+    );
+    let harness = reload(&browser);
     assert!(
-        stored_copies(&browser).is_empty(),
-        "downloaded: the copy is gone"
+        harness
+            .query_all_by_label_contains(text::t().copy_downloaded)
+            .count()
+            >= 1
     );
 }
-
 #[test]
 fn discarding_drops_the_copy_but_keeps_a_recovered_one() {
     let (mut harness, browser) = in_browser();
@@ -2741,8 +2763,8 @@ fn discarding_drops_the_copy_but_keeps_a_recovered_one() {
     click(&mut harness, text::t().open_sample);
     drop(harness);
     let mut harness = reload(&browser);
-    let name = stored_copies(&browser)[0].1.name.clone();
-    click(&mut harness, &name);
+    let name = stored_copies(&browser)[0].file.name.clone();
+    open_copy(&mut harness, &name);
     click(&mut harness, text::t().file_menu);
     click(&mut harness, text::t().close_file);
     click(&mut harness, text::t().discard);
@@ -2816,7 +2838,8 @@ fn a_full_storage_is_reported_and_tried_again_later() {
     let wait = app.autosave_at(now + 1.0);
     assert!(wait.is_some_and(|w| w > 1.0), "{wait:?}");
     assert!(stored_copies(&browser).is_empty());
-    assert!(app.autosave_at(1.0e6).is_none());
+    // Written once it works again; afterwards only the tab's sign of life is due.
+    assert_eq!(app.autosave_at(1.0e6), Some(crate::browser_copy::HEARTBEAT));
     assert_eq!(
         stored_copies(&browser).len(),
         1,
@@ -2833,7 +2856,7 @@ fn rubbish_in_the_browser_storage_is_ignored() {
     );
     browser.0.borrow_mut().storage.insert(
         format!("{}keine-datei", crate::browser_copy::PREFIX),
-        crate::browser_copy::encode("müll", b"PK not a plnwrk file"),
+        crate::browser_copy::encode("müll", b"PK not a plnwrk file", "", false),
     );
     browser
         .0
@@ -2843,7 +2866,136 @@ fn rubbish_in_the_browser_storage_is_ignored() {
     let mut harness = reload(&browser);
     let offered = harness.state().state.stored_copies.len();
     assert_eq!(offered, 1, "only what decodes is offered");
-    click(&mut harness, "müll");
+    open_copy(&mut harness, "müll");
     assert!(harness.state().doc().is_none());
     assert!(harness.state().state.message.clone().unwrap().error);
+}
+
+/// A copy of the sample, written by another tab.
+fn copy_of_another_tab(browser: &crate::host::TestBrowser, tab: &str, downloaded: bool) -> String {
+    let sample = crate::OpenDoc::sample().unwrap();
+    let key = format!("{}andere {tab}", crate::browser_copy::PREFIX);
+    let value = crate::browser_copy::encode("andere", &file_bytes(&sample), tab, downloaded);
+    browser.0.borrow_mut().storage.insert(key.clone(), value);
+    key
+}
+
+#[test]
+fn the_copy_of_an_open_tab_is_not_offered_to_another() {
+    let browser = crate::host::TestBrowser::default();
+    browser.0.borrow_mut().tab = "mein-tab".to_owned();
+    copy_of_another_tab(&browser, "tab-b", false);
+    // Tab B said a moment ago that it is open.
+    let now = jiff::Timestamp::now().as_second();
+    browser.0.borrow_mut().storage.insert(
+        format!("{}tab-b", crate::browser_copy::LIVE),
+        now.to_string(),
+    );
+    let harness = reload(&browser);
+    assert!(harness.state().state.stored_copies.is_empty(), "B is open");
+    // B was closed a minute ago: its copy is offered.
+    browser.0.borrow_mut().storage.insert(
+        format!("{}tab-b", crate::browser_copy::LIVE),
+        (now - 60).to_string(),
+    );
+    let harness = reload(&browser);
+    assert_eq!(harness.state().state.stored_copies.len(), 1);
+    // The own tab's copy is offered after a reload even though the tab said it is open.
+    browser.0.borrow_mut().storage.insert(
+        format!("{}mein-tab", crate::browser_copy::LIVE),
+        now.to_string(),
+    );
+    copy_of_another_tab(&browser, "mein-tab", false);
+    let harness = reload(&browser);
+    assert_eq!(harness.state().state.stored_copies.len(), 2);
+}
+
+#[test]
+fn an_open_tab_says_so_while_it_has_a_copy() {
+    let browser = crate::host::TestBrowser::default();
+    browser.0.borrow_mut().tab = "tab-a".to_owned();
+    let mut harness = reload(&browser);
+    let live = format!("{}tab-a", crate::browser_copy::LIVE);
+    click(&mut harness, text::t().open_sample);
+    assert!(browser.0.borrow().storage.contains_key(&live));
+    browser.0.borrow_mut().storage.remove(&live);
+    let now = harness.ctx.input(|i| i.time);
+    harness
+        .state_mut()
+        .autosave_at(now + crate::browser_copy::HEARTBEAT + 0.1);
+    assert!(
+        browser.0.borrow().storage.contains_key(&live),
+        "again after a while"
+    );
+}
+
+#[test]
+fn downloaded_copies_go_after_a_week() {
+    let browser = crate::host::TestBrowser::default();
+    let key = copy_of_another_tab(&browser, "alt", true);
+    // Written eight days ago.
+    let old = jiff::Timestamp::now()
+        .checked_sub(jiff::SignedDuration::from_hours(8 * 24))
+        .unwrap();
+    {
+        let mut log = browser.0.borrow_mut();
+        let value = log.storage.get(&key).cloned().unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&value).unwrap();
+        json["time"] = serde_json::Value::String(old.to_string());
+        log.storage.insert(key.clone(), json.to_string());
+    }
+    let harness = reload(&browser);
+    assert!(harness.state().state.stored_copies.is_empty());
+    assert!(!browser.0.borrow().storage.contains_key(&key), "removed");
+    // Unsaved work is never removed by age.
+    copy_of_another_tab(&browser, "alt", false);
+    let harness = reload(&browser);
+    assert_eq!(harness.state().state.stored_copies.len(), 1);
+}
+
+#[test]
+fn a_file_that_cannot_be_read_is_said() {
+    let (mut harness, browser) = in_browser();
+    browser.0.borrow_mut().upload = Some(Err("NotReadableError".to_owned()));
+    harness.run();
+    let message = harness.state().state.message.clone().unwrap();
+    assert!(message.error && message.text.starts_with(text::t().upload_failed));
+}
+
+#[test]
+fn a_vs_nfd_upload_over_unsaved_work_is_refused_without_asking() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().open_sample);
+    choose_upload(&mut harness, &browser, "geheim.plnwrk", classified_file());
+    assert!(
+        harness.state().state.dialog.is_none(),
+        "no question about unsaved work"
+    );
+    assert_eq!(
+        harness.state().state.message.clone().unwrap().text,
+        text::t().vs_blocked
+    );
+    assert!(
+        harness.state().has_unsaved_changes(),
+        "the work is still there"
+    );
+}
+
+#[test]
+fn protecting_in_the_browser_leaves_no_plain_copy() {
+    let (mut harness, browser) = in_browser();
+    click(&mut harness, text::t().open_sample);
+    assert_eq!(
+        stored_copies(&browser).len(),
+        1,
+        "a plain copy of unprotected work"
+    );
+    open_file_menu(&mut harness);
+    click(&mut harness, text::t().protect);
+    type_password(&mut harness, 0, "richtig-lange-passphrase");
+    type_password(&mut harness, 1, "richtig-lange-passphrase");
+    click(&mut harness, text::t().protect_button);
+    let download = browser.0.borrow().downloads.last().cloned().unwrap();
+    assert!(plnwrk_store::peek(&download.bytes).unwrap().encrypted);
+    assert!(stored_copies(&browser).is_empty(), "the plain copy is gone");
 }

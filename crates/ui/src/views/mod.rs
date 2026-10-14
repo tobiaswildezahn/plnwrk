@@ -296,15 +296,22 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
         if !state.stored_copies.is_empty() {
             ui.add_space(16.0);
             ui.strong(text::t().recovered);
-            for (key, copy) in &state.stored_copies {
-                let (open, delete) = copy_row(ui, &copy.name, text::t().browser_copy_hint);
+            for copy in &state.stored_copies {
+                let mut label = copy.file.name.clone();
+                if let Some(time) = copy.time {
+                    label = format!("{label} – {}", crate::dates::format_moment(time));
+                }
+                if copy.downloaded {
+                    label = format!("{label} ({})", text::t().copy_downloaded);
+                }
+                let (open, delete) = copy_row(ui, &label, text::t().browser_copy_hint);
                 if open {
-                    out.push(Intent::OpenStoredCopy(key.clone()));
+                    out.push(Intent::OpenStoredCopy(copy.key.clone()));
                 }
                 if delete {
                     out.push(Intent::Open(Dialog::DeleteStoredCopy {
-                        key: key.clone(),
-                        name: copy.name.clone(),
+                        key: copy.key.clone(),
+                        name: label,
                     }));
                 }
             }

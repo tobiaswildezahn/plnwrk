@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 eframe.workspace = true
+plnwrk-platform.workspace = true
 plnwrk-ui.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

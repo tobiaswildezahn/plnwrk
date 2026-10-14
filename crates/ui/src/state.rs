@@ -481,7 +481,7 @@ pub struct State {
     /// Files are uploaded and downloaded (the browser).
     pub browser: bool,
     /// Browser: recovery copies in the browser's storage (key and file), newest first.
-    pub stored_copies: Vec<(String, crate::host::Upload)>,
+    pub stored_copies: Vec<crate::browser_copy::StoredCopy>,
 }
 
 impl State {
