@@ -99,6 +99,56 @@ impl Workspace {
             .filter(move |task| task.project == project)
     }
 
+    /// Entries whose map key differs from their own id (possible only in data read from a
+    /// file). Reported by [`Workspace::check`].
+    pub fn misfiled(&self) -> Vec<EntityKey> {
+        let mut out = Vec::new();
+        out.extend(
+            self.projects
+                .iter()
+                .filter(|(k, v)| **k != v.id)
+                .map(|(k, _)| EntityKey::Project(*k)),
+        );
+        out.extend(
+            self.tasks
+                .iter()
+                .filter(|(k, v)| **k != v.id)
+                .map(|(k, _)| EntityKey::Task(*k)),
+        );
+        out.extend(
+            self.milestones
+                .iter()
+                .filter(|(k, v)| **k != v.id)
+                .map(|(k, _)| EntityKey::Milestone(*k)),
+        );
+        out.extend(
+            self.dependencies
+                .iter()
+                .filter(|(k, v)| **k != v.id)
+                .map(|(k, _)| EntityKey::Dependency(*k)),
+        );
+        out.extend(
+            self.people
+                .iter()
+                .filter(|(k, v)| **k != v.id)
+                .map(|(k, _)| EntityKey::Person(*k)),
+        );
+        out.extend(
+            self.comments
+                .iter()
+                .filter(|(k, v)| **k != v.id)
+                .map(|(k, _)| EntityKey::Comment(*k)),
+        );
+        out
+    }
+
+    /// The highest classification anywhere in the workspace (projects and tasks).
+    pub fn highest_classification(&self) -> Classification {
+        let projects = self.projects.values().map(|p| p.classification);
+        let tasks = self.tasks.values().filter_map(|t| t.classification);
+        projects.chain(tasks).max().unwrap_or_default()
+    }
+
     /// Number of tasks.
     pub fn task_count(&self) -> usize {
         self.tasks.len()

@@ -352,8 +352,8 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
-| 1 Kern | umgesetzt, PR offen (2026-10-14) |
-| 2 Speicherung | offen |
+| 1 Kern | fertig (2026-10-14, PR #2, zwei Reviews) |
+| 2 Speicherung | in Arbeit |
 | 3 Desktop-UI | offen |
 | 4 Web | offen |
 | 5 Zeitplanung | offen |

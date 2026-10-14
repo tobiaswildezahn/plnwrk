@@ -31,6 +31,8 @@ pub enum Rule {
     Duplicate,
     /// A task depends on itself.
     SelfReference,
+    /// Stored data does not fit together (e.g. an entry filed under another id).
+    Corrupt,
 }
 
 /// One broken rule.
@@ -107,6 +109,9 @@ impl Workspace {
     /// Every broken rule, in a stable order. Empty means the workspace is consistent.
     pub fn check(&self) -> Vec<Violation> {
         let mut report = Report(Vec::new());
+        for key in self.misfiled() {
+            report.add(key, Rule::Corrupt, "entry is filed under another id");
+        }
         self.check_projects(&mut report);
         self.check_tasks(&mut report);
         self.check_milestones(&mut report);
@@ -660,6 +665,32 @@ mod tests {
         let found = ws.check();
         assert_eq!(found[0].entity, EntityKey::Task(ids.c));
         assert!(found[0].message.contains("progress"));
+    }
+
+    #[test]
+    fn entries_filed_under_another_id_are_reported() {
+        let (ws, ids) = valid();
+        let json = serde_json::to_string(&ws).unwrap();
+        // Rename the map key of the person, as a damaged or edited file might.
+        let other = PersonId::from_ulid(ulid::Ulid(4242)).to_string();
+        let damaged = json.replacen(
+            &format!("\"{}\":{{", ids.person),
+            &format!("\"{other}\":{{"),
+            1,
+        );
+        assert_ne!(damaged, json);
+        let back: Workspace = serde_json::from_str(&damaged).unwrap();
+        assert!(rules(&back).contains(&Rule::Corrupt));
+    }
+
+    #[test]
+    fn highest_classification_covers_projects_and_tasks() {
+        let (mut ws, ids) = valid();
+        assert_eq!(ws.highest_classification(), Classification::Open);
+        edit_task(&mut ws, ids.c, |t| {
+            t.classification = Some(Classification::VsNfd)
+        });
+        assert_eq!(ws.highest_classification(), Classification::VsNfd);
     }
 
     #[test]
