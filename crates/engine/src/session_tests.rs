@@ -342,10 +342,11 @@ fn undo_refuses_when_the_data_was_changed_behind_its_back() {
     let mut s = session();
     let id = create_person(&mut s, "Anna");
     // Simulate an outside edit (e.g. a damaged file): the person no longer looks as logged.
-    if let Some(Entity::Person(mut p)) = s.workspace().get(EntityKey::Person(id)) {
-        p.name = "Außen geändert".into();
-        s.workspace_mut().put(Entity::Person(p));
-    }
+    let Some(Entity::Person(mut p)) = s.workspace().get(EntityKey::Person(id)) else {
+        panic!("person missing");
+    };
+    p.name = "Außen geändert".into();
+    s.workspace_mut().put(Entity::Person(p));
     let before = snapshot(&s);
     let error = s.run("undo", &json!({}), Origin::User).unwrap_err();
     assert!(matches!(error, CommandError::Conflict { .. }));

@@ -100,7 +100,22 @@ fn instantiate(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError>
         return Err(CommandError::bad("template", "is not a template"));
     }
     let start: Date = params.req("start", p::date)?;
-    // With an anchor, every date moves along; without one, task dates are not taken over.
+    // Every date moves along with the start. Without a start in the template there is nothing
+    // to measure the shift from, so dated templates need one.
+    if template.start.is_none() {
+        let dated = tx
+            .ws()
+            .tasks_of(template.id)
+            .any(|t| t.start.is_some() || t.due.is_some())
+            || tx.ws().milestones().any(|m| m.project == template.id)
+            || template.due.is_some();
+        if dated {
+            return Err(CommandError::bad(
+                "template",
+                "has dates but no start date; set the template's start first",
+            ));
+        }
+    }
     let moved = |date: Option<Date>| -> Result<Option<Date>, CommandError> {
         match (date, template.start) {
             (Some(date), Some(anchor)) => shift(date, anchor, start).map(Some),

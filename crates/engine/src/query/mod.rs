@@ -13,8 +13,9 @@ use serde_json::Value;
 
 pub use history::{Action, FieldChange, HistoryEntry, history};
 pub use overview::{
-    MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard,
-    effective_progress, milestone_state, overdue, overview, progress, templates,
+    MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, deadlines_count,
+    effective_progress, milestone_state, milestone_state_in, overdue, overview, progress,
+    task_overdue, templates,
 };
 pub use tasks::{
     Board, Column, TaskCard, TaskGroup, TaskGroupRows, TaskIndex, TaskQuery, TaskSort, board, card,
@@ -204,19 +205,24 @@ fn q_project(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
     let today = s.clock().today();
     let id: ProjectId = params.req("project", p::id)?;
     let project = ws.project(id).ok_or(not_found(EntityKey::Project(id)))?;
-    let mut milestones: Vec<MilestoneRef> = ws
-        .milestones()
-        .filter(|m| m.project == id)
+    let index = TaskIndex::new(ws);
+    let mut milestones: Vec<MilestoneRef> = index
+        .milestones_of(id)
+        .iter()
         .map(|m| MilestoneRef {
             id: m.id,
             title: m.title.clone(),
             date: m.date,
-            state: milestone_state(m, today),
+            state: milestone_state_in(project, m, today),
         })
         .collect();
     milestones.sort_by(|a, b| a.date.cmp(&b.date).then(a.title.cmp(&b.title)));
-    let index = TaskIndex::new(ws);
-    let mut top: Vec<&Task> = ws.tasks_of(id).filter(|t| t.parent.is_none()).collect();
+    let mut top: Vec<&Task> = index
+        .tasks_of(id)
+        .iter()
+        .copied()
+        .filter(|t| t.parent.is_none())
+        .collect();
     top.sort_by(|a, b| a.rank.cmp(&b.rank));
     json(&ProjectDetail {
         project: project.clone(),
@@ -225,7 +231,8 @@ fn q_project(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
             .into_iter()
             .map(|t| card(ws, &index, t, today))
             .collect(),
-        progress: progress(ws, id).ok_or(not_found(EntityKey::Project(id)))?,
+        progress: overview::progress_with(ws, &index, id)
+            .ok_or(not_found(EntityKey::Project(id)))?,
     })
 }
 

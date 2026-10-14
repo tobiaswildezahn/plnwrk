@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 
 use jiff::civil::Date;
 use plnwrk_core::{
-    Classification, PersonId, Priority, ProjectId, Task, TaskId, TaskStatus, Workspace,
+    Classification, Milestone, PersonId, Priority, ProjectId, Task, TaskId, TaskStatus, Workspace,
 };
 use serde::Serialize;
 
-use super::overview::{PersonRef, effective_progress, person_ref};
+use super::overview::{PersonRef, effective_progress, person_ref, task_overdue};
 
 /// A task as shown in lists and on the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -43,23 +43,43 @@ pub struct TaskCard {
     pub classification: Classification,
 }
 
-/// Direct subtasks of every task, built once per query so that cards and progress stay linear
-/// in the number of tasks.
+/// Tasks by parent and by project, milestones by project – built once per query so that cards,
+/// progress and overviews stay linear in the size of the workspace.
 #[derive(Debug, Default)]
 pub struct TaskIndex<'a> {
     children: BTreeMap<TaskId, Vec<&'a Task>>,
+    by_project: BTreeMap<ProjectId, Vec<&'a Task>>,
+    milestones: BTreeMap<ProjectId, Vec<&'a Milestone>>,
 }
 
 impl<'a> TaskIndex<'a> {
-    /// Indexes all tasks of the workspace.
+    /// Indexes all tasks and milestones of the workspace.
     pub fn new(ws: &'a Workspace) -> Self {
-        let mut children: BTreeMap<TaskId, Vec<&'a Task>> = BTreeMap::new();
+        let mut index = Self::default();
         for task in ws.tasks() {
             if let Some(parent) = task.parent {
-                children.entry(parent).or_default().push(task);
+                index.children.entry(parent).or_default().push(task);
             }
+            index.by_project.entry(task.project).or_default().push(task);
         }
-        Self { children }
+        for milestone in ws.milestones() {
+            index
+                .milestones
+                .entry(milestone.project)
+                .or_default()
+                .push(milestone);
+        }
+        index
+    }
+
+    /// The tasks of a project.
+    pub fn tasks_of(&self, project: ProjectId) -> &[&'a Task] {
+        self.by_project.get(&project).map_or(&[], Vec::as_slice)
+    }
+
+    /// The milestones of a project.
+    pub fn milestones_of(&self, project: ProjectId) -> &[&'a Milestone] {
+        self.milestones.get(&project).map_or(&[], Vec::as_slice)
     }
 
     /// The direct subtasks of a task.
@@ -85,7 +105,7 @@ pub fn card(ws: &Workspace, index: &TaskIndex<'_>, task: &Task, today: Date) -> 
         priority: task.priority,
         assignee: person_ref(ws, task.assignee),
         due: task.due,
-        overdue: task.status != TaskStatus::Done && task.due.is_some_and(|d| d < today),
+        overdue: task_overdue(ws.project(task.project), task, today),
         progress: effective_progress(task),
         tags: task.tags.clone(),
         subtasks: children.len(),
@@ -281,7 +301,7 @@ pub struct Board {
 pub fn board(ws: &Workspace, project: ProjectId, today: Date) -> Option<Board> {
     let title = ws.project(project)?.title.clone();
     let index = TaskIndex::new(ws);
-    let mut all: Vec<&Task> = ws.tasks_of(project).collect();
+    let mut all: Vec<&Task> = index.tasks_of(project).to_vec();
     sort(&mut all, TaskSort::Rank);
     let columns = TaskStatus::ALL
         .iter()

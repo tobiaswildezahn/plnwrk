@@ -33,16 +33,37 @@ pub enum TextError {
     ControlChar,
 }
 
-/// Invisible formatting characters that can make text read differently than it is stored
-/// ("Trojan Source"): zero-width characters, bidirectional overrides and isolates, BOM.
-fn is_hidden(c: char) -> bool {
+/// Invisible characters that can make text read differently than it is stored, or carry
+/// hidden instructions to an AI assistant ("Trojan Source", "ASCII smuggling"): the Unicode
+/// format category (Cf) as of Unicode 16, line and paragraph separators, and the tag block.
+///
+/// Deliberately allowed, because real writing needs them: soft hyphen (U+00AD, from word
+/// processors), zero-width non-joiner and joiner (U+200C/U+200D: Persian, Indic scripts, emoji
+/// such as 👩‍🚒) and the left-to-right / right-to-left marks (U+200E/U+200F: Hebrew and Arabic
+/// names). Bidirectional overrides and isolates stay forbidden.
+pub fn is_hidden(c: char) -> bool {
     matches!(
         c,
-        '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
+        '\u{0600}'..='\u{0605}'
+            | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
+            | '\u{200B}'
+            | '\u{2028}'..='\u{202E}'
             | '\u{2060}'..='\u{2064}'
-            | '\u{2066}'..='\u{2069}'
+            | '\u{2066}'..='\u{206F}'
             | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
     )
 }
 
@@ -145,9 +166,34 @@ mod tests {
 
     #[test]
     fn invisible_characters_are_rejected() {
-        for bad in ["a\u{202E}b", "a\u{200B}b", "\u{FEFF}a", "a\u{2066}b"] {
+        let smuggled = format!("Bericht{}", "\u{E0049}\u{E0067}\u{E006E}");
+        for bad in [
+            "a\u{202E}b",
+            "a\u{200B}b",
+            "\u{FEFF}a",
+            "a\u{2066}b",
+            "a\u{2028}b",
+            "a\u{2029}b",
+            "a\u{061C}b",
+            "a\u{180E}b",
+            "a\u{FFF9}b",
+            smuggled.as_str(),
+        ] {
             assert_eq!(title(bad), Err(TextError::ControlChar), "{bad:?}");
             assert_eq!(body(bad), Err(TextError::ControlChar), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn characters_real_writing_needs_are_allowed() {
+        for good in [
+            "Einsatz 👩\u{200D}🚒",
+            "می\u{200C}خواهم",
+            "\u{200F}שלום",
+            "Ein\u{00AD}satz\u{00AD}leitung",
+        ] {
+            assert!(title(good).is_ok(), "{good:?}");
+            assert!(body(good).is_ok(), "{good:?}");
         }
     }
 

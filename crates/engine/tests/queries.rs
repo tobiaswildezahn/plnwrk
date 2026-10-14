@@ -242,7 +242,7 @@ mod queries {
     }
 
     #[test]
-    fn finished_projects_report_nothing_overdue() {
+    fn finished_projects_report_nothing_overdue_anywhere() {
         let (mut s, ids) = setup();
         s.run(
             "project.update",
@@ -251,6 +251,58 @@ mod queries {
         )
         .unwrap();
         assert!(query::overdue(s.workspace(), today()).is_empty());
+        let board = query::board(s.workspace(), ids.project, today()).unwrap();
+        assert!(
+            board
+                .columns
+                .iter()
+                .flat_map(|c| &c.tasks)
+                .all(|t| !t.overdue)
+        );
+        let detail = s
+            .query("project", &json!({"project": ids.project.to_string()}))
+            .unwrap();
+        assert!(
+            detail["milestones"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|m| m["state"] != "missed")
+        );
+        let card = query::overview(s.workspace(), today())
+            .into_iter()
+            .find(|c| c.id == ids.project)
+            .unwrap();
+        assert_eq!(card.overdue_tasks, 0);
+        assert_ne!(
+            card.next_milestone.map(|m| m.state),
+            Some(MilestoneState::Missed)
+        );
+    }
+
+    #[test]
+    fn rank_order_without_project_keeps_each_project_together() {
+        let (s, ids) = setup();
+        let all = query::tasks(
+            s.workspace(),
+            &TaskQuery {
+                include_done: true,
+                ..TaskQuery::default()
+            },
+            today(),
+        );
+        let mut seen = Vec::new();
+        for task in &all[0].tasks {
+            if seen.last() != Some(&task.project) {
+                assert!(
+                    !seen.contains(&task.project),
+                    "tasks of a project are split up"
+                );
+                seen.push(task.project);
+            }
+        }
+        assert_eq!(seen.len(), 2);
+        assert!(seen.contains(&ids.project) && seen.contains(&ids.case));
     }
 
     #[test]

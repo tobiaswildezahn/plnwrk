@@ -608,18 +608,25 @@ mod commands {
     }
 
     #[test]
-    fn instantiate_without_template_start_drops_task_dates() {
+    fn instantiate_refuses_dated_templates_without_start_but_takes_undated_ones() {
         let mut h = Harness::new();
-        let template = h.project(json!({"title": "T", "template": true}));
-        h.task(template, "a", json!({"due": "2026-01-05"}));
+        let dated = h.project(json!({"title": "T", "template": true}));
+        h.task(dated, "a", json!({"due": "2026-01-05"}));
+        let error = h.err(
+            "project.instantiate",
+            json!({"template": dated.to_string(), "title": "Neu", "start": "2026-11-02"}),
+        );
+        assert!(is_bad_param(&error, "template"));
+        let undated = h.project(json!({"title": "U", "template": true}));
+        h.task(undated, "a", json!({}));
         let created = h.ok(
             "project.instantiate",
-            json!({"template": template.to_string(), "title": "Neu", "start": "2026-11-02", "due": "2026-11-30"}),
+            json!({"template": undated.to_string(), "title": "Neu", "start": "2026-11-02", "due": "2026-11-30"}),
         );
         let Some(EntityKey::Project(case)) = created.first().copied() else {
             panic!("{created:?}");
         };
-        assert!(h.ws().tasks_of(case).all(|t| t.due.is_none()));
+        assert_eq!(h.ws().tasks_of(case).count(), 1);
         assert_eq!(
             h.ws().project(case).unwrap().due.unwrap().to_string(),
             "2026-11-30"
@@ -662,16 +669,30 @@ mod commands {
 
     #[test]
     fn instantiate_refuses_dates_that_leave_the_calendar() {
+        // Each case lets exactly one kind of date overflow.
         let mut h = Harness::new();
-        let template = h.project(json!({
-            "title": "T", "template": true, "start": "2026-01-01", "due": "9999-12-31"
+        let project_due = h.project(json!({
+            "title": "Frist", "template": true, "start": "2026-01-01", "due": "9999-12-31"
         }));
-        h.task(template, "spät", json!({"due": "9999-12-30"}));
-        let error = h.err(
-            "project.instantiate",
-            json!({"template": template.to_string(), "title": "x", "start": "2026-11-02"}),
+        let task_due =
+            h.project(json!({"title": "Aufgabe", "template": true, "start": "2026-01-01"}));
+        h.task(task_due, "spät", json!({"due": "9999-12-30"}));
+        let task_start =
+            h.project(json!({"title": "Beginn", "template": true, "start": "2026-01-01"}));
+        h.task(task_start, "spät", json!({"start": "9999-12-30"}));
+        let milestone =
+            h.project(json!({"title": "Meilenstein", "template": true, "start": "2026-01-01"}));
+        h.ok(
+            "milestone.create",
+            json!({"project": milestone.to_string(), "title": "Ende", "date": "9999-12-29"}),
         );
-        assert!(is_bad_param(&error, "start"));
+        for template in [project_due, task_due, task_start, milestone] {
+            let error = h.err(
+                "project.instantiate",
+                json!({"template": template.to_string(), "title": "x", "start": "2026-11-02"}),
+            );
+            assert!(is_bad_param(&error, "start"), "{error}");
+        }
     }
 
     #[test]
@@ -689,40 +710,84 @@ mod commands {
         assert_eq!(ranks.len(), count);
     }
 
+    fn order(h: &Harness, p: ProjectId) -> Vec<TaskId> {
+        let mut tasks: Vec<_> = h.ws().tasks_of(p).cloned().collect();
+        tasks.sort_by(|a, b| a.rank.cmp(&b.rank));
+        tasks.into_iter().map(|t| t.id).collect()
+    }
+
+    /// Whether the last change re-ranked any task other than `except`.
+    fn spread_happened(before: &Workspace, after: &Workspace, except: TaskId) -> bool {
+        after
+            .tasks()
+            .filter(|t| t.id != except)
+            .any(|t| before.task(t.id).is_some_and(|b| b.rank != t.rank))
+    }
+
     #[test]
-    fn a_crowded_gap_is_spread_out_and_one_undo_restores_the_old_order() {
+    fn a_crowded_gap_is_spread_out_when_creating_and_one_undo_restores_it() {
         let mut h = Harness::new();
         let p = h.project(json!({"title": "P"}));
         let first = h.task(p, "first", json!({}));
-        let mut last = h.task(p, "second", json!({}));
-        // Always insert right after `first`: the gap is used up after about 1 500 inserts, so
-        // the order must be spread out once on the way.
+        let second = h.task(p, "second", json!({}));
+        let mut expected = vec![first, second];
+        let mut spreads = 0;
+        // Always insert right after `first`: the gap is used up after about 1 500 inserts.
         for n in 0..1_600 {
-            last = h.task(p, &format!("n{n}"), json!({"after": first.to_string()}));
+            let before = h.ws().clone();
+            let new = h.task(p, &format!("n{n}"), json!({"after": first.to_string()}));
+            expected.insert(1, new);
+            if spread_happened(&before, h.ws(), new) {
+                spreads += 1;
+                assert_eq!(order(&h, p), expected, "order after spreading");
+                let after = h.ws().clone();
+                h.undo();
+                assert_eq!(h.ws(), &before, "one undo restores the old ranks");
+                h.ok("redo", json!({}));
+                assert_eq!(h.ws(), &after);
+            }
         }
+        assert_eq!(spreads, 1);
+        assert_eq!(order(&h, p), expected);
         let max = h
             .ws()
             .tasks_of(p)
             .map(|t| t.rank.as_str().len())
             .max()
             .unwrap();
-        assert!(max <= plnwrk_core::rank::RANK_MAX);
-        // The newest task sits right after `first`.
-        let mut order: Vec<_> = h.ws().tasks_of(p).cloned().collect();
-        order.sort_by(|a, b| a.rank.cmp(&b.rank));
-        assert_eq!(order[0].id, first);
-        assert_eq!(order[1].id, last);
-        let before = h.ws().clone();
-        h.ok(
-            "task.create",
-            json!({"project": p.to_string(), "title": "x", "after": first.to_string()}),
-        );
-        h.undo();
-        assert_eq!(h.ws(), &before);
+        assert!(max <= 40, "ranks were not spread out: {max} characters");
     }
 
     #[test]
-    fn create_reports_rank_problems_on_after() {
+    fn a_crowded_gap_is_spread_out_when_moving_and_one_undo_restores_it() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let first = h.task(p, "first", json!({}));
+        let x = h.task(p, "x", json!({}));
+        let y = h.task(p, "y", json!({}));
+        let last = h.task(p, "last", json!({}));
+        let mut spreads = 0;
+        // Alternately move x and y right after `first`: the gap behind `first` keeps shrinking.
+        for n in 0..1_600 {
+            let (moved, other) = if n % 2 == 0 { (y, x) } else { (x, y) };
+            let before = h.ws().clone();
+            h.ok(
+                "task.move",
+                json!({"task": moved.to_string(), "after": first.to_string()}),
+            );
+            assert_eq!(order(&h, p), vec![first, moved, other, last]);
+            if spread_happened(&before, h.ws(), moved) {
+                spreads += 1;
+                h.undo();
+                assert_eq!(h.ws(), &before);
+                h.ok("redo", json!({}));
+            }
+        }
+        assert!(spreads >= 1);
+    }
+
+    #[test]
+    fn create_refuses_a_neighbour_from_another_project() {
         let mut h = Harness::new();
         let p = h.project(json!({"title": "P"}));
         let q = h.project(json!({"title": "Q"}));

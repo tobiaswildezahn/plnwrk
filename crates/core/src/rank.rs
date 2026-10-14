@@ -1,6 +1,7 @@
-//! Sort keys that never need renumbering ("fractional indexing"). Moving a card between two
-//! others gives it a key strictly between theirs, so a move changes exactly one task – which
-//! keeps undo, history and later synchronisation simple.
+//! Sort keys that rarely need renumbering ("fractional indexing"). Moving a card between two
+//! others gives it a key strictly between theirs, so a move normally changes exactly one task –
+//! which keeps undo, history and later synchronisation simple. Only when one gap has been used
+//! up (about 1 500 inserts at the very same place) does the engine spread out the whole order.
 //!
 //! A key is an integer part of variable length followed by an optional fraction, in base 62
 //! (`0-9A-Za-z`, which sorts like the characters). The first character tells the length of the
@@ -276,16 +277,13 @@ impl Rank {
         Rank::parse(&text)
     }
 
-    /// `count` short, evenly increasing ranks – for spreading out a crowded order.
-    pub fn spread(count: usize) -> Vec<Rank> {
+    /// `count` short, increasing ranks – for spreading out a crowded order.
+    pub fn spread(count: usize) -> Result<Vec<Rank>, RankError> {
         let mut out: Vec<Rank> = Vec::with_capacity(count);
         for _ in 0..count {
-            match Rank::between(out.last(), None) {
-                Ok(next) => out.push(next),
-                Err(_) => break,
-            }
+            out.push(Rank::between(out.last(), None)?);
         }
-        out
+        Ok(out)
     }
 }
 
@@ -386,10 +384,32 @@ mod tests {
 
     #[test]
     fn spread_gives_increasing_short_ranks() {
-        let ranks = Rank::spread(5_000);
+        let ranks = Rank::spread(5_000).unwrap();
         assert_eq!(ranks.len(), 5_000);
         assert!(ranks.windows(2).all(|w| w[0] < w[1]));
         assert!(ranks.iter().all(|r| r.as_str().len() <= 4));
+    }
+
+    #[test]
+    fn matches_the_reference_implementation_at_the_edges() {
+        let smallest_with_fraction = format!("A{}1", "0".repeat(26));
+        let below = format!("A{}0V", "0".repeat(26));
+        let top = format!("z{}", "z".repeat(26));
+        let beyond = format!("{top}V");
+        let cases: [(Option<&str>, Option<&str>, &str); 6] = [
+            (None, Some("Y00"), "Xzzz"),
+            (Some("bzz"), None, "c000"),
+            (None, Some("b999"), "b99"),
+            (Some("a0"), Some("a1V"), "a1"),
+            (None, Some(smallest_with_fraction.as_str()), below.as_str()),
+            (Some(top.as_str()), None, beyond.as_str()),
+        ];
+        for (low, high, expected) in cases {
+            let low = low.map(r);
+            let high = high.map(r);
+            let got = Rank::between(low.as_ref(), high.as_ref()).unwrap();
+            assert_eq!(got.as_str(), expected, "{low:?} {high:?}");
+        }
     }
 
     #[test]

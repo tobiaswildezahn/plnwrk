@@ -88,14 +88,15 @@ fn compute_rank(
 }
 
 /// Gives every task of the project a fresh, short rank in the current order.
-fn spread(tx: &mut Tx<'_>, project: ProjectId) {
+fn spread(tx: &mut Tx<'_>, project: ProjectId, param: &str) -> Result<(), CommandError> {
     let mut tasks: Vec<Task> = tx.ws().tasks_of(project).cloned().collect();
     tasks.sort_by(|a, b| a.rank.cmp(&b.rank));
-    let ranks = Rank::spread(tasks.len());
+    let ranks = Rank::spread(tasks.len()).map_err(|e| rank_error(param, e))?;
     for (mut task, rank) in tasks.into_iter().zip(ranks) {
         task.rank = rank;
         tx.put(Entity::Task(task));
     }
+    Ok(())
 }
 
 /// The rank for a placed task. If the gap is too crowded, the project's order is spread out
@@ -109,7 +110,7 @@ fn place(
 ) -> Result<Rank, CommandError> {
     match compute_rank(tx, project, me, after, before) {
         Err(RankError::TooLong) => {
-            spread(tx, project);
+            spread(tx, project, param)?;
             compute_rank(tx, project, me, after, before).map_err(|e| rank_error(param, e))
         }
         other => other.map_err(|e| rank_error(param, e)),
@@ -305,7 +306,7 @@ pub const CREATE: CommandSpec = CommandSpec {
         P::optional(
             "classification",
             K::Choice(CLASSIFICATION),
-            "Own classification, not lower than the project's",
+            "Own classification, not lower than the project's or the parent task's",
         ),
         P::optional(
             "after",

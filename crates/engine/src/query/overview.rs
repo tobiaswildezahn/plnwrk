@@ -60,8 +60,10 @@ pub(crate) fn progress_with(
     project: ProjectId,
 ) -> Option<Progress> {
     ws.project(project)?;
-    let leaves: Vec<&Task> = ws
+    let leaves: Vec<&Task> = index
         .tasks_of(project)
+        .iter()
+        .copied()
         .filter(|t| index.is_leaf(t.id))
         .collect();
     let done = leaves
@@ -122,6 +124,31 @@ fn is_live(project: &Project) -> bool {
     !project.template && project.status != ProjectStatus::Archived
 }
 
+/// Whether deadlines of a project and of its tasks and milestones still count: not for
+/// templates, finished or archived projects. The one rule behind every "overdue" and "missed".
+pub fn deadlines_count(project: &Project) -> bool {
+    !project.template
+        && !matches!(
+            project.status,
+            ProjectStatus::Done | ProjectStatus::Archived
+        )
+}
+
+/// Whether a task is past its deadline and that still counts.
+pub fn task_overdue(project: Option<&Project>, task: &Task, today: Date) -> bool {
+    project.is_some_and(deadlines_count)
+        && task.status != TaskStatus::Done
+        && task.due.is_some_and(|due| due < today)
+}
+
+/// The state of a milestone inside its project: never "missed" where deadlines do not count.
+pub fn milestone_state_in(project: &Project, milestone: &Milestone, today: Date) -> MilestoneState {
+    match milestone_state(milestone, today) {
+        MilestoneState::Missed if !deadlines_count(project) => MilestoneState::Open,
+        state => state,
+    }
+}
+
 /// Days from `from` to `to` (negative if `to` is earlier).
 pub(crate) fn days_between(from: Date, to: Date) -> i64 {
     from.until(to).map_or(0, |span| i64::from(span.get_days()))
@@ -145,11 +172,9 @@ pub struct OverdueItem {
 /// Every unfinished task, project and milestone past its date, latest first. Templates,
 /// archived and finished projects (with their tasks and milestones) are left out.
 pub fn overdue(ws: &Workspace, today: Date) -> Vec<OverdueItem> {
+    let index = TaskIndex::new(ws);
     let mut items = Vec::new();
-    for project in ws
-        .projects()
-        .filter(|p| is_live(p) && p.status != ProjectStatus::Done)
-    {
+    for project in ws.projects().filter(|p| deadlines_count(p)) {
         if let Some(due) = project.due
             && due < today
         {
@@ -161,10 +186,9 @@ pub fn overdue(ws: &Workspace, today: Date) -> Vec<OverdueItem> {
                 days_late: days_between(due, today),
             });
         }
-        for task in ws.tasks_of(project.id) {
+        for task in index.tasks_of(project.id) {
             if let Some(due) = task.due
-                && due < today
-                && task.status != TaskStatus::Done
+                && task_overdue(Some(project), task, today)
             {
                 items.push(OverdueItem {
                     entity: EntityKey::Task(task.id),
@@ -175,8 +199,8 @@ pub fn overdue(ws: &Workspace, today: Date) -> Vec<OverdueItem> {
                 });
             }
         }
-        for milestone in ws.milestones().filter(|m| m.project == project.id) {
-            if milestone_state(milestone, today) == MilestoneState::Missed {
+        for milestone in index.milestones_of(project.id) {
+            if milestone_state_in(project, milestone, today) == MilestoneState::Missed {
                 items.push(OverdueItem {
                     entity: EntityKey::Milestone(milestone.id),
                     project: project.id,
@@ -227,16 +251,17 @@ pub struct ProjectCard {
 }
 
 fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -> ProjectCard {
-    let tasks: Vec<&Task> = ws.tasks_of(project.id).collect();
-    let next_milestone = ws
-        .milestones()
-        .filter(|m| m.project == project.id && m.status == MilestoneStatus::Open)
+    let tasks = index.tasks_of(project.id);
+    let next_milestone = index
+        .milestones_of(project.id)
+        .iter()
+        .filter(|m| m.status == MilestoneStatus::Open)
         .min_by_key(|m| m.date)
         .map(|m| MilestoneRef {
             id: m.id,
             title: m.title.clone(),
             date: m.date,
-            state: milestone_state(m, today),
+            state: milestone_state_in(project, m, today),
         });
     ProjectCard {
         id: project.id,
@@ -258,7 +283,7 @@ fn card(ws: &Workspace, index: &TaskIndex<'_>, project: &Project, today: Date) -
             .count(),
         overdue_tasks: tasks
             .iter()
-            .filter(|t| t.status != TaskStatus::Done && t.due.is_some_and(|d| d < today))
+            .filter(|t| task_overdue(Some(project), t, today))
             .count(),
         next_milestone,
         classification: project.classification,

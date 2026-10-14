@@ -12,11 +12,11 @@ expression: "snapshot_value(&s, \"templates\", json!({}))"
     "next_milestone": {
       "date": "2026-01-08",
       "id": "0000000000000000000000000N",
-      "state": "missed",
+      "state": "open",
       "title": "Abgabe Senatskanzlei"
     },
     "open_tasks": 4,
-    "overdue_tasks": 4,
+    "overdue_tasks": 0,
     "owner": null,
     "progress": {
       "done": 0,
