@@ -49,8 +49,16 @@ fn head(
     let today = doc.session.clock().today();
     let mut error = None;
     let mut cancel = false;
+    // Undo or another change while the form is open: start again from the stored project,
+    // so "Übernehmen" never writes back values that are no longer current.
+    if let Some((source, _)) = &state.forms.project
+        && source.id == project.id
+        && source != project
+    {
+        state.forms.project = Some((project.clone(), ProjectForm::of(project)));
+    }
     if let Some((editing, form)) = &mut state.forms.project
-        && *editing == project.id
+        && editing.id == project.id
     {
         let people: Vec<_> = ws.people().map(|p| (p.id, p.name.clone())).collect();
         egui::Grid::new("project-form")
@@ -150,7 +158,7 @@ fn head(
                 ));
             }
             if ui.button(text::EDIT).clicked() {
-                state.forms.project = Some((project.id, ProjectForm::of(project)));
+                state.forms.project = Some((project.clone(), ProjectForm::of(project)));
             }
         });
     });

@@ -31,6 +31,13 @@ fn type_into(harness: &mut Harness<'_, PlnwrkApp>, label: &str, text: &str, ente
         .query_by_label(label)
         .unwrap_or_else(|| harness.get_by(|n| n.placeholder() == Some(label)));
     node.focus();
+    harness.run();
+    // Replace what is there, like selecting the field's text before typing.
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run();
+    let node = harness
+        .query_by_label(label)
+        .unwrap_or_else(|| harness.get_by(|n| n.placeholder() == Some(label)));
     node.type_text(text);
     harness.run();
     if enter {
@@ -395,4 +402,345 @@ fn a_click_on_a_board_card_opens_its_details() {
     harness.run();
     assert_eq!(harness.state().state.selected, Some(id));
     assert!(harness.query_by_label(text::DELETE_TASK).is_some());
+}
+
+/// Saves the sample to a file and selects a task in its list.
+fn saved_sample_with_task(name: &str, task: &str) -> (Harness<'static, PlnwrkApp>, PathBuf) {
+    let dir = scratch(name);
+    let path = dir.join("abteilung.plnwrk");
+    let host = Scripted {
+        save: vec![path.clone(), path.clone()],
+        open: vec![path.clone()],
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    click(&mut harness, text::OPEN_SAMPLE);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(!harness.state().has_unsaved_changes());
+    // The project is in the sidebar and on its card; either opens it.
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, task);
+    (harness, path)
+}
+
+fn reopen(path: &std::path::Path) -> crate::OpenDoc {
+    crate::OpenDoc::open(path, None).unwrap()
+}
+
+#[test]
+fn typed_text_is_saved_by_the_shortcut_even_while_the_field_has_focus() {
+    let (mut harness, path) = saved_sample_with_task("typed-save", "Einbau Wache 11");
+    type_into(
+        &mut harness,
+        text::DESCRIPTION,
+        "Schlüssel bei Wache holen",
+        false,
+    );
+    assert!(harness.state().has_unsaved_changes(), "typed text counts");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(!harness.state().has_unsaved_changes());
+    let task = task_named(harness.state(), "Einbau Wache 11").unwrap();
+    assert_eq!(task.description, "Schlüssel bei Wache holen");
+    drop(harness);
+    let stored = reopen(&path);
+    assert!(
+        stored
+            .session
+            .workspace()
+            .tasks()
+            .any(|t| t.description == "Schlüssel bei Wache holen")
+    );
+}
+
+#[test]
+fn closing_with_typed_text_asks_first() {
+    let (mut harness, _) = saved_sample_with_task("typed-close", "Einbau Wache 11");
+    type_into(&mut harness, text::DUE, "24.12.2026", false);
+    assert!(!harness.state_mut().close_requested(), "asks");
+    harness.run();
+    assert!(harness.query_by_label(text::UNSAVED_TITLE).is_some());
+    let task = task_named(harness.state(), "Einbau Wache 11").unwrap();
+    assert_eq!(
+        task.due.map(|d| d.to_string()),
+        Some("2026-12-24".to_owned())
+    );
+}
+
+#[test]
+fn a_wrong_typed_date_stops_saving_and_says_why() {
+    let (mut harness, _) = saved_sample_with_task("typed-wrong", "Einbau Wache 11");
+    type_into(&mut harness, text::DUE, "31.02.2026", false);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_some_and(|m| m.error)
+    );
+    assert!(!harness.state_mut().close_requested(), "not closed over it");
+}
+
+#[test]
+fn typing_survives_a_change_of_the_task_from_elsewhere() {
+    let (mut harness, _) = saved_sample_with_task("rebase", "Einbau Wache 11");
+    type_into(&mut harness, text::TAGS, "eilig, intern", false);
+    let id = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
+    // The progress changes meanwhile (as by the slider or a drag on the board).
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "task.set_progress",
+            &serde_json::json!({"task": id.to_string(), "progress": 50}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    harness.run();
+    let draft = harness.state().state.forms.task.clone().unwrap();
+    assert_eq!(draft.tags, "eilig, intern", "typed text kept");
+    assert_eq!(draft.progress, 50, "untouched field follows");
+    harness.key_press(Key::Enter);
+    harness.run();
+    let task = task_named(harness.state(), "Einbau Wache 11").unwrap();
+    assert_eq!(task.tags, vec!["eilig", "intern"]);
+    assert_eq!(task.progress, 50);
+}
+
+#[test]
+fn undo_with_the_detail_panel_open_shows_the_old_value() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    click(&mut harness, "Kisten");
+    type_into(&mut harness, text::DUE, "01.12.2026", true);
+    assert_eq!(
+        harness.get_by_label(text::DUE).value().as_deref(),
+        Some("01.12.2026")
+    );
+    click(&mut harness, &format!("⟲ {}", text::UNDO));
+    let task = task_named(harness.state(), "Kisten").unwrap();
+    assert_eq!(task.due, None);
+    assert_eq!(harness.get_by_label(text::DUE).value().as_deref(), Some(""));
+}
+
+#[test]
+fn every_action_that_drops_the_file_asks_first() {
+    use crate::state::FileAction;
+    for action in [
+        FileAction::New,
+        FileAction::Sample,
+        FileAction::Open,
+        FileAction::OpenPath(PathBuf::from("/nirgends.plnwrk")),
+        FileAction::Close,
+        FileAction::Quit,
+    ] {
+        let mut harness = harness(PlnwrkApp::default());
+        click(&mut harness, text::OPEN_SAMPLE);
+        harness.state_mut().file(action.clone());
+        harness.run();
+        assert!(
+            harness.query_by_label(text::UNSAVED_TITLE).is_some(),
+            "{action:?} asks"
+        );
+        click(&mut harness, text::CANCEL);
+        assert!(
+            projects(harness.state()).len() >= 3,
+            "{action:?} kept the data"
+        );
+        assert!(!harness.state().wants_to_quit());
+    }
+}
+
+#[test]
+fn the_quit_shortcut_asks_about_unsaved_changes() {
+    let mut harness = harness(PlnwrkApp::default());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    assert!(harness.state().wants_to_quit(), "nothing to lose");
+
+    let mut harness = harness_with_sample();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    assert!(!harness.state().wants_to_quit());
+    assert!(harness.query_by_label(text::UNSAVED_TITLE).is_some());
+    click(&mut harness, text::DISCARD);
+    assert!(harness.state().wants_to_quit());
+}
+
+fn harness_with_sample() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::OPEN_SAMPLE);
+    harness
+}
+
+#[test]
+fn shortcuts_wait_while_a_dialog_is_open() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    click(&mut harness, "Kisten");
+    click(&mut harness, text::DELETE_TASK);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    harness.run();
+    assert!(
+        task_named(harness.state(), "Kisten").is_some(),
+        "no undo behind the dialog"
+    );
+    click(&mut harness, text::DELETE);
+    assert!(task_named(harness.state(), "Kisten").is_none());
+    assert!(harness.state().state.message.is_none());
+}
+
+#[test]
+fn a_half_written_comment_stays_with_its_task() {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::NEW_TASK_HINT, "Kisten", true);
+    type_into(&mut harness, text::NEW_TASK_HINT, "Transporter", true);
+    click(&mut harness, "Kisten");
+    type_into(
+        &mut harness,
+        text::NEW_COMMENT_HINT,
+        "nur für Kisten",
+        false,
+    );
+    click(&mut harness, "Transporter");
+    assert!(harness.state().state.forms.comment.is_empty());
+    let ws = harness.state().doc().unwrap().session.workspace();
+    assert_eq!(ws.comments().count(), 0);
+}
+
+#[test]
+fn cards_are_reordered_within_a_column() {
+    let mut harness = with_project("Umzug");
+    for title in ["Erste", "Zweite", "Dritte"] {
+        type_into(&mut harness, text::NEW_TASK_HINT, title, true);
+    }
+    click(&mut harness, text::BOARD);
+    let third = harness.get_by_label("Dritte").rect().center();
+    let first = harness.get_by_label("Erste").rect();
+    let above_first = egui::pos2(first.center().x, first.top() + 2.0);
+    harness.drag_at(third);
+    harness.run();
+    harness.hover_at(third + egui::vec2(5.0, -5.0));
+    harness.run();
+    harness.hover_at(above_first);
+    harness.run();
+    harness.drop_at(above_first);
+    harness.run();
+    let mut order: Vec<Task> = tasks(harness.state());
+    order.sort_by(|a, b| a.rank.cmp(&b.rank));
+    let titles: Vec<&str> = order.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(titles, vec!["Dritte", "Erste", "Zweite"]);
+    assert!(order.iter().all(|t| t.status == TaskStatus::Todo));
+}
+
+#[test]
+fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
+    let dir = scratch("passphrase");
+    let path = dir.join("geheim.plnwrk");
+    let doc = plnwrk_store::Document::from_session(&crate::OpenDoc::sample().unwrap().session);
+    let secret = plnwrk_store::SecretString::from("richtig-lange-passphrase".to_owned());
+    let bytes = plnwrk_store::save_with(
+        &doc,
+        &plnwrk_store::Protection::Passphrase(secret),
+        plnwrk_store::SaveOptions {
+            work_factor: Some(10),
+        },
+    )
+    .unwrap();
+    std::fs::write(&path, bytes).unwrap();
+    let host = Scripted {
+        open: vec![path],
+        save: Vec::new(),
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
+    harness.run();
+    assert!(harness.query_by_label(text::PASSPHRASE_QUESTION).is_some());
+
+    let field = harness.get_by_role(egui::accesskit::Role::PasswordInput);
+    field.focus();
+    field.type_text("falsch-falsch-falsch");
+    harness.run();
+    click(&mut harness, "Öffnen");
+    assert!(harness.state().doc().is_none());
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_some_and(|m| m.error)
+    );
+    assert!(
+        harness.query_by_label(text::PASSPHRASE_QUESTION).is_some(),
+        "asked again"
+    );
+
+    let field = harness.get_by_role(egui::accesskit::Role::PasswordInput);
+    field.focus();
+    field.type_text("richtig-lange-passphrase");
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+    let app = harness.state();
+    assert!(app.doc().is_some_and(crate::OpenDoc::encrypted));
+    assert!(app.state.dialog.is_none());
+}
+
+#[test]
+fn save_as_onto_the_open_file_and_opening_it_again_are_harmless() {
+    let (mut harness, path) = saved_sample_with_task("same-file", "Einbau Wache 11");
+    // The second scripted save answer is the same path.
+    harness.get_by_label(text::FILE_MENU).click();
+    harness.run();
+    click(&mut harness, text::SAVE_AS);
+    let app = harness.state();
+    assert!(
+        app.state.message.as_ref().is_some_and(|m| !m.error),
+        "{:?}",
+        app.state.message
+    );
+    // Opening the very file that is open says so instead of a lock error.
+    harness.state_mut().open_path(path);
+    harness.run();
+    let message = harness.state().state.message.clone().unwrap();
+    assert_eq!(message.text, text::ALREADY_OPEN);
+}
+
+#[test]
+fn the_project_form_never_writes_back_outdated_values() {
+    let mut harness = with_project("Umzug");
+    let id = projects(harness.state()).first().unwrap().id;
+    // "Bearbeiten" is also the menu; the button of the project head comes last.
+    harness.get_all_by_label(text::EDIT).last().unwrap().click();
+    harness.run();
+    assert!(harness.state().state.forms.project.is_some());
+    // Changed meanwhile (e.g. undo, or another field): the open form must follow.
+    harness
+        .state_mut()
+        .doc
+        .as_mut()
+        .unwrap()
+        .session
+        .run(
+            "project.update",
+            &serde_json::json!({"project": id.to_string(), "reference": "AZ 7"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    harness.run();
+    click(&mut harness, text::APPLY);
+    let project = projects(harness.state()).into_iter().next().unwrap();
+    assert_eq!(project.reference.as_deref(), Some("AZ 7"));
 }

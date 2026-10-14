@@ -17,6 +17,7 @@ plnwrk-engine.workspace = true
 plnwrk-platform.workspace = true
 plnwrk-store.workspace = true
 serde_json.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true

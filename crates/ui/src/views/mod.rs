@@ -24,7 +24,12 @@ pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
     let undo = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
     let redo = KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     let open_file = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+    let quit = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
     ctx.input_mut(|input| {
+        if input.consume_shortcut(&quit) {
+            out.push(Intent::File(FileAction::Quit));
+            return;
+        }
         if input.consume_shortcut(&open_file) {
             out.push(Intent::File(FileAction::Open));
         }

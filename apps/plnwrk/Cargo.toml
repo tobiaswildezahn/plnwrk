@@ -13,5 +13,9 @@ eframe.workspace = true
 plnwrk-ui.workspace = true
 rfd.workspace = true
 
+# Without winit's default macOS menu, Cmd+Q reaches the app and asks about unsaved changes.
+[target.'cfg(target_os = "macos")'.dependencies]
+winit.workspace = true
+
 [lints]
 workspace = true

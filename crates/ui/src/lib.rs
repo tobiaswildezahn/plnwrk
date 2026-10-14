@@ -152,9 +152,47 @@ impl PlnwrkApp {
         self.doc.as_ref()
     }
 
-    /// Whether closing the window may lose changes.
+    /// Whether closing the window may lose changes: unsaved data, or text typed in the detail
+    /// panel that is not stored yet.
     pub fn has_unsaved_changes(&self) -> bool {
-        self.doc.as_ref().is_some_and(OpenDoc::is_dirty)
+        self.doc.is_some()
+            && (self.doc.as_ref().is_some_and(OpenDoc::is_dirty)
+                || self
+                    .state
+                    .forms
+                    .task
+                    .as_ref()
+                    .is_some_and(state::TaskDraft::is_pending))
+    }
+
+    /// Stores what is typed in the detail panel but not committed yet (the field still has the
+    /// focus). Returns `false` if that failed (e.g. a wrong date); the reason is shown.
+    fn flush_draft(&mut self) -> bool {
+        let Some(doc) = &self.doc else { return true };
+        let Some(mut draft) = self.state.forms.task.take() else {
+            return true;
+        };
+        let Some(task) = doc.session.workspace().task(draft.source.id) else {
+            return true;
+        };
+        if &draft.source != task {
+            draft.rebase(task);
+        }
+        let id = task.id;
+        let changes = draft.changes();
+        self.state.forms.task = Some(draft);
+        match changes {
+            Ok(map) if map.is_empty() => true,
+            Ok(mut map) => {
+                map.insert("task".to_owned(), Value::String(id.to_string()));
+                self.run("task.update", &Value::Object(map), Then::Nothing, None);
+                !self.state.message.as_ref().is_some_and(|m| m.error)
+            }
+            Err(reason) => {
+                self.state.message = Some(Message::error(reason));
+                false
+            }
+        }
     }
 
     /// The window title: file name, a dot for unsaved changes, app name.
@@ -174,11 +212,35 @@ impl PlnwrkApp {
     /// The person asked to close the window. Returns whether it may close now; otherwise the
     /// app asks about unsaved changes and closes itself afterwards.
     pub fn close_requested(&mut self) -> bool {
-        if self.state.quitting || !self.has_unsaved_changes() {
+        if self.state.quitting {
             return true;
         }
-        self.state.dialog = Some(Dialog::Unsaved(FileAction::Quit));
+        if !self.flush_draft() {
+            return false;
+        }
+        if !self.has_unsaved_changes() {
+            return true;
+        }
+        self.state.open_dialog(Dialog::Unsaved(FileAction::Quit));
         false
+    }
+
+    /// Last chance when the app ends without asking (e.g. "Beenden" in the Dock, logging out):
+    /// unsaved changes of a file go to its recovery copy `.<name>.autosave.plnwrk` beside it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn emergency_save(&mut self) {
+        if self.state.quitting {
+            return; // the person decided (saved or discarded)
+        }
+        let _ = self.flush_draft();
+        let Some(doc) = &self.doc else { return };
+        if !doc.is_dirty() {
+            return;
+        }
+        if let (Some(path), Ok(bytes)) = (doc.path(), doc.to_bytes()) {
+            let copy = plnwrk_store::file::autosave_path(path);
+            let _ = plnwrk_store::file::write_atomic(&copy, &bytes);
+        }
     }
 
     /// Whether the app decided to close the window (after the question about unsaved changes).
@@ -191,7 +253,9 @@ impl PlnwrkApp {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         self.forget_vanished();
         let mut intents = Vec::new();
-        views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
+        if self.state.dialog.is_none() {
+            views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
+        }
         views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
         for intent in intents {
             self.apply(intent);
@@ -205,7 +269,7 @@ impl PlnwrkApp {
         if let Some(id) = self.state.selected
             && ws.task(id).is_none()
         {
-            self.state.selected = None;
+            self.state.select(None);
         }
         if let View::Project(id) = self.state.view
             && ws.project(id).is_none()
@@ -223,29 +287,35 @@ impl PlnwrkApp {
                 clear,
             } => self.run(command, &params, then, clear),
             Intent::Go(view) => {
+                self.flush_draft();
                 self.state.view = view;
-                self.state.selected = None;
+                self.state.select(None);
                 if matches!(view, View::Project(_)) {
                     self.state.tab = Tab::List;
                 }
             }
-            Intent::Select(task) => self.state.selected = task,
-            Intent::Open(dialog) => self.state.dialog = Some(dialog),
-            Intent::CloseDialog => self.state.dialog = None,
+            Intent::Select(task) => {
+                if task != self.state.selected {
+                    self.flush_draft();
+                }
+                self.state.select(task);
+            }
+            Intent::Open(dialog) => self.state.open_dialog(dialog),
+            Intent::CloseDialog => self.state.close_dialog(),
             Intent::File(action) => self.file(action),
             Intent::Unlock(path, secret) => {
-                self.state.dialog = None;
+                self.state.close_dialog();
                 self.open(path, Some(secret));
             }
             Intent::SaveThen(action) => {
-                self.state.dialog = None;
+                self.state.close_dialog();
                 if self.save(false) {
                     self.state.force = true;
                     self.file(action);
                 }
             }
             Intent::Discard(action) => {
-                self.state.dialog = None;
+                self.state.close_dialog();
                 self.state.force = true;
                 self.file(action);
             }
@@ -267,7 +337,7 @@ impl PlnwrkApp {
                 {
                     self.state.view = View::Project(*id);
                     self.state.tab = Tab::List;
-                    self.state.selected = None;
+                    self.state.select(None);
                 }
                 if let Some(clear) = clear {
                     self.state.clear(clear);
@@ -280,8 +350,13 @@ impl PlnwrkApp {
     /// Carries out a file action; actions that would drop unsaved changes ask first.
     fn file(&mut self, action: FileAction) {
         let force = std::mem::take(&mut self.state.force);
+        // Typed text counts like any change: stored first, so saving includes it and leaving
+        // asks about it. Not when the person chose to discard.
+        if !force && !self.flush_draft() {
+            return;
+        }
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
-            self.state.dialog = Some(Dialog::Unsaved(action));
+            self.state.open_dialog(Dialog::Unsaved(action));
             return;
         }
         match action {
@@ -320,6 +395,12 @@ impl PlnwrkApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: PathBuf, passphrase: Option<SecretString>) {
+        let resolved = plnwrk_store::file::resolve(&path).ok();
+        if resolved.is_some() && self.doc.as_ref().and_then(OpenDoc::path) == resolved.as_deref() {
+            self.state.message = Some(Message::info(text::ALREADY_OPEN));
+            return;
+        }
+        let retry = passphrase.is_some();
         match OpenDoc::open(&path, passphrase) {
             Ok(doc) => {
                 if let Some(path) = doc.path() {
@@ -328,10 +409,19 @@ impl PlnwrkApp {
                 self.replace(doc);
             }
             Err(StoreError::PassphraseRequired) => {
-                self.state.dialog = Some(Dialog::Passphrase {
+                self.state.open_dialog(Dialog::Passphrase {
                     path,
                     text: String::new(),
                 });
+            }
+            Err(StoreError::WrongPassphrase) if retry => {
+                self.state.open_dialog(Dialog::Passphrase {
+                    path,
+                    text: String::new(),
+                });
+                self.state.message = Some(Message::error(text::store_error(
+                    &StoreError::WrongPassphrase,
+                )));
             }
             Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
         }
@@ -407,6 +497,11 @@ impl eframe::App for PlnwrkApp {
         if self.state.quitting {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.emergency_save();
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

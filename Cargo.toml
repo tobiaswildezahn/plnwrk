@@ -37,6 +37,7 @@ unicode-normalization = "0.1.25"
 zeroize = "1.9.1"
 serde_json = { version = "1.0.154", features = ["raw_value", "float_roundtrip"] }
 wasm-bindgen = "0.2"
+winit = { version = "0.30.13", default-features = false }
 zip = { version = "9.0.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 rpassword = "7.5.4"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }

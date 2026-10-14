@@ -12,6 +12,7 @@ use crate::views::project::person_choice;
 use crate::{Clear, Intent, Then, text};
 
 pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
+    let serial = state.dialog_serial;
     let Some(dialog) = &mut state.dialog else {
         return;
     };
@@ -34,9 +35,8 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 ui.add_space(6.0);
                 egui::Grid::new("new-project").num_columns(2).show(ui, |ui| {
                     let label = ui.label(text::TITLE);
-                    ui.text_edit_singleline(&mut form.title)
-                        .labelled_by(label.id)
-                        .request_focus_once();
+                    let field = ui.text_edit_singleline(&mut form.title).labelled_by(label.id);
+                    focus_once(&field, serial);
                     ui.end_row();
                     ui.label(text::KIND);
                     ui.horizontal(|ui| {
@@ -153,7 +153,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 ui.label(path.display().to_string());
                 ui.label(text::PASSPHRASE_QUESTION);
                 let field = ui.add(egui::TextEdit::singleline(secret).password(true));
-                field.request_focus_once();
+                focus_once(&field, serial);
                 let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
                 ui.horizontal(|ui| {
                     if (ui.button("Öffnen").clicked() || entered) && !secret.is_empty() {
@@ -214,18 +214,15 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
     }
 }
 
-/// Focus a field once, when the dialog opens.
-trait FocusOnce {
-    fn request_focus_once(&self);
-}
-
-impl FocusOnce for egui::Response {
-    fn request_focus_once(&self) {
-        let id = self.id.with("focused-once");
-        let done = self.ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-        if !done {
-            self.request_focus();
-            self.ctx.data_mut(|d| d.insert_temp(id, true));
-        }
+/// Focuses a field once per opened dialog (`serial` counts opened dialogs).
+fn focus_once(response: &egui::Response, serial: u64) {
+    let id = Id::new(("dialog-focus", serial));
+    let done = response
+        .ctx
+        .data(|d| d.get_temp::<bool>(id))
+        .unwrap_or(false);
+    if !done {
+        response.request_focus();
+        response.ctx.data_mut(|d| d.insert_temp(id, true));
     }
 }

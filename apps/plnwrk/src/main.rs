@@ -46,6 +46,16 @@ fn main() -> ExitCode {
             .with_title(plnwrk_ui::APP_NAME)
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([720.0, 480.0]),
+        event_loop_builder: Some(Box::new(|builder| {
+            // winit's default menu quits on Cmd+Q without a close request, which would skip
+            // the question about unsaved changes; plnwrk handles Cmd+Q itself.
+            #[cfg(target_os = "macos")]
+            {
+                use winit::platform::macos::EventLoopBuilderExtMacOS as _;
+                builder.with_default_menu(false);
+            }
+            let _ = builder;
+        })),
         ..Default::default()
     };
     let result = eframe::run_native(

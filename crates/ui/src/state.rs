@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use plnwrk_core::{PersonId, Project, ProjectId, ProjectStatus, Task, TaskId};
 use serde_json::{Map, Value, json};
+use zeroize::Zeroize as _;
 
 use crate::Clear;
 use crate::dates;
@@ -216,6 +217,57 @@ pub struct TaskDraft {
 }
 
 impl TaskDraft {
+    /// Text typed but not stored yet, as parameters of `task.update` (without `task`).
+    /// A wrong date is refused.
+    pub fn changes(&self) -> Result<Map<String, Value>, String> {
+        let stored = &self.source;
+        let mut map = Map::new();
+        if self.title.trim() != stored.title {
+            map.insert("title".to_owned(), json!(self.title.trim()));
+        }
+        if self.description != stored.description {
+            map.insert("description".to_owned(), json!(self.description));
+        }
+        if tags(&self.tags) != stored.tags {
+            map.insert("tags".to_owned(), json!(tags(&self.tags)));
+        }
+        let start = dates::parse(&self.start)?;
+        if start != stored.start {
+            map.insert("start".to_owned(), dates::param(start));
+        }
+        let due = dates::parse(&self.due)?;
+        if due != stored.due {
+            map.insert("due".to_owned(), dates::param(due));
+        }
+        Ok(map)
+    }
+
+    /// Whether something was typed that is not stored yet.
+    pub fn is_pending(&self) -> bool {
+        self.changes().map_or(true, |map| !map.is_empty())
+    }
+
+    /// Follows a change of the stored task (undo, another field, a drag on the board) without
+    /// losing what is being typed: fields the person has not touched take the new value.
+    pub fn rebase(&mut self, task: &Task) {
+        let old = Self::of(&self.source);
+        let new = Self::of(task);
+        let keep = |mine: &mut String, before: &String, after: String| {
+            if mine == before {
+                *mine = after;
+            }
+        };
+        keep(&mut self.title, &old.title, new.title);
+        keep(&mut self.description, &old.description, new.description);
+        keep(&mut self.tags, &old.tags, new.tags);
+        keep(&mut self.start, &old.start, new.start);
+        keep(&mut self.due, &old.due, new.due);
+        if self.progress == old.progress {
+            self.progress = new.progress;
+        }
+        self.source = task.clone();
+    }
+
     pub fn of(task: &Task) -> Self {
         Self {
             source: task.clone(),
@@ -276,7 +328,8 @@ pub struct Forms {
     pub comment: String,
     pub person: PersonForm,
     pub task: Option<TaskDraft>,
-    pub project: Option<(ProjectId, ProjectForm)>,
+    /// The project being edited (as it was when the form opened) and the form.
+    pub project: Option<(Project, ProjectForm)>,
 }
 
 /// Everything the views keep between frames.
@@ -293,6 +346,8 @@ pub struct State {
     pub force: bool,
     /// The window is closing.
     pub quitting: bool,
+    /// Counts opened dialogs, so each one can focus its first field once.
+    pub dialog_serial: u64,
 }
 
 impl State {
@@ -301,8 +356,34 @@ impl State {
         self.view = View::Overview;
         self.tab = Tab::List;
         self.selected = None;
-        self.dialog = None;
+        self.close_dialog();
         self.forms = Forms::default();
+    }
+
+    /// Shows a dialog.
+    pub fn open_dialog(&mut self, dialog: Dialog) {
+        self.close_dialog();
+        self.dialog = Some(dialog);
+        self.dialog_serial = self.dialog_serial.wrapping_add(1);
+    }
+
+    /// Closes the dialog; a typed passphrase is wiped from memory.
+    pub fn close_dialog(&mut self) {
+        if let Some(Dialog::Passphrase { text, .. }) = &mut self.dialog {
+            text.zeroize();
+        }
+        self.dialog = None;
+    }
+
+    /// Selects a task (or none). Input meant for the previous task is dropped, so it never
+    /// lands on another one.
+    pub fn select(&mut self, task: Option<TaskId>) {
+        if task != self.selected {
+            self.forms.comment.clear();
+            self.forms.detail_subtask.clear();
+            self.forms.task = None;
+        }
+        self.selected = task;
     }
 
     /// Empties a form after its command succeeded.
@@ -317,7 +398,7 @@ impl State {
             }
             Clear::Comment => self.forms.comment.clear(),
             Clear::Person => self.forms.person = PersonForm::default(),
-            Clear::Dialog => self.dialog = None,
+            Clear::Dialog => self.close_dialog(),
             Clear::ProjectEdit => self.forms.project = None,
         }
     }

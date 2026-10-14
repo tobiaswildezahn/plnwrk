@@ -29,7 +29,12 @@ pub fn panel(
     let ws = doc.session.workspace();
     let Some(task) = ws.task(id) else { return };
     let mut draft = match state.forms.task.take() {
-        Some(draft) if &draft.source == task => draft,
+        Some(mut draft) if draft.source.id == id => {
+            if &draft.source != task {
+                draft.rebase(task);
+            }
+            draft
+        }
         _ => TaskDraft::of(task),
     };
     let today = doc.session.clock().today();
@@ -52,6 +57,7 @@ pub fn panel(
                 });
                 let title = ui.add(
                     egui::TextEdit::singleline(&mut draft.title)
+                        .id_salt(("task-title", id))
                         .font(egui::TextStyle::Heading)
                         .desired_width(f32::INFINITY),
                 );
@@ -114,6 +120,7 @@ pub fn panel(
                             let response = ui
                                 .add(
                                     egui::TextEdit::singleline(value)
+                                        .id_salt((field, id))
                                         .hint_text("TT.MM.JJJJ")
                                         .desired_width(110.0),
                                 )
@@ -146,7 +153,11 @@ pub fn panel(
 
                         let caption = ui.label(text::TAGS);
                         let response = ui
-                            .add(egui::TextEdit::singleline(&mut draft.tags).hint_text("a, b, c"))
+                            .add(
+                                egui::TextEdit::singleline(&mut draft.tags)
+                                    .id_salt(("task-tags", id))
+                                    .hint_text("a, b, c"),
+                            )
                             .labelled_by(caption.id);
                         if commit_field(&response) && tags(&draft.tags) != task.tags {
                             out.push(update(id, "tags", json!(tags(&draft.tags))));
@@ -160,12 +171,15 @@ pub fn panel(
                 }
 
                 ui.add_space(6.0);
-                ui.strong(text::DESCRIPTION);
-                let response = ui.add(
-                    egui::TextEdit::multiline(&mut draft.description)
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY),
-                );
+                let caption = ui.strong(text::DESCRIPTION);
+                let response = ui
+                    .add(
+                        egui::TextEdit::multiline(&mut draft.description)
+                            .id_salt(("task-description", id))
+                            .desired_rows(4)
+                            .desired_width(f32::INFINITY),
+                    )
+                    .labelled_by(caption.id);
                 if commit_field(&response) && draft.description != task.description {
                     out.push(update(id, "description", json!(draft.description)));
                 }

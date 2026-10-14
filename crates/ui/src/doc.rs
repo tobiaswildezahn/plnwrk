@@ -136,18 +136,36 @@ impl OpenDoc {
     /// Saves to a new place (replacing a file there) and keeps working on it.
     pub fn save_as(&mut self, path: &Path) -> Result<(), StoreError> {
         use plnwrk_store::file;
-        let path = with_extension(path);
+        let path = resolve_target(&with_extension(path))?;
         if self.path.as_deref() == Some(path.as_path()) {
             return self.save();
         }
         let lock = file::lock(&path)?;
         let bytes = self.to_bytes()?;
         file::write_atomic(&path, &bytes)?;
-        self.path = Some(file::resolve(&path)?);
+        self.path = Some(path);
         self._lock = Some(lock);
         self.saved = self.session.log().len();
         Ok(())
     }
+}
+
+/// The real place of a file that may not exist yet: links and `..` of an existing file or of
+/// its folder are resolved, so locks and comparisons see one path per file.
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_target(path: &Path) -> Result<PathBuf, StoreError> {
+    use plnwrk_store::file;
+    if path.exists() {
+        return file::resolve(path);
+    }
+    let name = path.file_name().ok_or_else(|| StoreError::Io {
+        reason: format!("{} is not a file name", path.display()),
+    })?;
+    let folder = match path.parent() {
+        Some(folder) if !folder.as_os_str().is_empty() => folder,
+        _ => Path::new("."),
+    };
+    Ok(file::resolve(folder)?.join(name))
 }
 
 /// Adds `.plnwrk` if the name has no extension.

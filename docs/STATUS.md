@@ -97,8 +97,10 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
   de/en (Texte stehen zentral in `crates/ui/src/text.rs`), Befehlspalette, Verschlüsseln aus
   der App, Doppelklick auf `.plnwrk`-Dateien im Finder (macOS liefert Dateien per Apple Event,
   nicht als Argument), App-Symbol.
-- **Bekannte MVP-Grenzen**: Speichern verschlüsselter Dateien dauert ≈ 1 s und blockiert kurz
-  die Oberfläche; Kommentare/Verlauf zeigen Feldnamen technisch (`due`); die Liste ist noch
+- **Bekannte MVP-Grenzen**: Notkopie `.<name>.autosave.plnwrk` (beim Beenden über Dock/Abmelden)
+  wird noch nicht zum Wiederherstellen angeboten; Dateien in schreibgeschützten Ordnern lassen
+  sich nicht öffnen (Sperrdatei); Speichern verschlüsselter Dateien dauert ≈ 1 s und blockiert
+  kurz die Oberfläche; Kommentare/Verlauf zeigen Feldnamen technisch (`due`); die Liste ist noch
   nicht direkt editierbar (Details rechts).
 - **Phase 4**: Web-App braucht `getrandom` 0.2 `js` / 0.4 `wasm_js` (im store bereits gesetzt);
   Entscheidung 4.1.

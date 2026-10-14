@@ -3232,6 +3232,7 @@ dependencies = [
  "eframe",
  "plnwrk-ui",
  "rfd",
+ "winit",
 ]
 
 [[package]]
@@ -3339,6 +3340,7 @@ dependencies = [
  "plnwrk-store",
  "serde_json",
  "ulid",
+ "zeroize",
 ]
 
 [[package]]
