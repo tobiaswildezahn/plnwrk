@@ -44,6 +44,11 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   `INSTA_UPDATE=always cargo test -p plnwrk-engine --test queries` erneuern und Diff prüfen.
 - Dateiformat (`crates/store`): jede Änderung am Format braucht eine neue `manifest::VERSION`
   und einen Migrationsschritt; Tests in `crates/store/tests/store.rs` decken Manipulationen ab.
+  Neue Felder im Modell immer mit `#[serde(default, skip_serializing_if = …)]`, sonst passen
+  alte Dateien nicht mehr byte-genau zu ihrem Protokoll. Echte Dateien älterer Versionen liegen in
+  `crates/store/tests/fixtures/` und müssen immer öffnen. Datenumbauten laufen als Befehl
+  (`workspace.upgrade`), nie durch Umschreiben der Geschichte; stillgelegte Befehle bleiben in
+  `LEGACY` (`crates/engine/src/command.rs`), damit alte Protokolle prüfbar bleiben.
 - Skript-Ersetzungen in Quelltexten immer mit `assert old in s` absichern (nach `cargo fmt`
   passen Muster oft nicht mehr) und Testbehauptungen per Mutationsprobe belegen.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).

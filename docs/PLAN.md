@@ -368,7 +368,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 0 Fundament | fertig (2026-10-14) |
 | 1 Kern | fertig (2026-10-14, PR #2, zwei Reviews) |
 | 2 Speicherung | fertig (2026-10-14, PR #3, Security-Review + Nachreview, CI grün auf Linux/macOS/Windows/Web) |
-| 3 Desktop-UI | 3a Desktop-MVP fertig (2026-10-14, PR #4, Review + Nachreview); 3b-1 Termine und Meilensteine in Arbeit |
+| 3 Desktop-UI | 3a Desktop-MVP fertig (2026-10-14, PR #4, Review + Nachreview); 3b-1 Termine und Meilensteine umgesetzt, PR offen (Format 2) |
 | 4 Web | offen |
 | 5 Zeitplanung | offen |
 | 6 KI | offen |

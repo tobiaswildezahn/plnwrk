@@ -16,7 +16,7 @@ voll KI-steuerbar, Fernziel VS-NfD. Projekt und Vorgang sind **ein** Datenmodell
 | 1 Kern (Modell, 23 Befehle, 9 Abfragen, Undo/Redo, CLI) | **fertig**, gemergt, 2 Reviews | [#2](https://github.com/tobiaswildezahn/plnwrk/pull/2) |
 | 2 Speicherung (`.plnwrk`, Verschlüsselung, Export, CLI auf Dateien) | **fertig**, gemergt, 2 Security-Reviews | [#3](https://github.com/tobiaswildezahn/plnwrk/pull/3) |
 | 3a Desktop-MVP (Dateien, Übersicht, Liste, Board, Meilensteine, Details, Vorlagen) | **fertig**, gemergt, Review + Nachreview, von Tobi getestet | [#4](https://github.com/tobiaswildezahn/plnwrk/pull/4) |
-| 3b-1 Termine und Meilensteine (Datumsauswahl, Uhrzeiten, Meilenstein = Aufgabe) | **in Arbeit** | Branch `phase-3b` |
+| 3b-1 Termine und Meilensteine (Datumsauswahl, Uhrzeiten, Meilenstein = Aufgabe; Format 2) | **umgesetzt, PR offen** | Branch `phase-3b` |
 | 3b-2 Desktop-Ausbau (Autosave, Inline-Bearbeitung, Befehlspalette, Englisch …) | offen | – |
 | 4 Web | offen | – |
 | 5 Zeitplanung | offen | – |
