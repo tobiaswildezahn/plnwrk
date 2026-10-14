@@ -235,6 +235,9 @@ pub struct Texts {
     pub more_results: &'static str,
     pub downloaded: &'static str,
     pub download_failed: &'static str,
+    pub vs_blocked: &'static str,
+    pub browser_not_vs: &'static str,
+    pub browser_not_vs_hint: &'static str,
     /// Suggestions for the kind of a project.
     pub kinds: [&'static str; 2],
     /// Names of the months, January first.
@@ -398,6 +401,9 @@ pub static DE: Texts = Texts {
     more_results: "… weitere Treffer: Suche genauer eingeben.",
     downloaded: "Heruntergeladen – die Datei liegt im Download-Ordner:",
     download_failed: "Herunterladen nicht möglich:",
+    vs_blocked: "VS-NfD ist im Browser gesperrt. Bitte die Desktop-App verwenden.",
+    browser_not_vs: "Browser: nicht für VS-NfD freigegeben",
+    browser_not_vs_hint: "Der Browser ist keine für Verschlusssachen geeignete Umgebung. VS-NfD-Dateien öffnen nur in der Desktop-App.",
     kinds: ["Projekt", "Vorgang"],
     months: [
         "Januar",
@@ -571,6 +577,9 @@ pub static EN: Texts = Texts {
     more_results: "… more results: narrow the search.",
     downloaded: "Downloaded – the file is in the downloads folder:",
     download_failed: "Download not possible:",
+    vs_blocked: "VS-NfD is blocked in the browser. Please use the desktop app.",
+    browser_not_vs: "Browser: not cleared for VS-NfD",
+    browser_not_vs_hint: "The browser is not an environment suited to classified material. VS-NfD files open only in the desktop app.",
     kinds: ["Project", "Case"],
     months: [
         "January",

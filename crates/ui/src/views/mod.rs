@@ -231,6 +231,10 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     );
                 }
             }
+            if state.browser {
+                ui.weak(text::t().browser_not_vs)
+                    .on_hover_text(text::t().browser_not_vs_hint);
+            }
             if doc.is_some() {
                 match &state.recovery {
                     Some(crate::autosave::Written::At(time)) => {
@@ -270,6 +274,12 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
             text::t().version,
             env!("CARGO_PKG_VERSION")
         ));
+        if state.browser {
+            ui.add_space(8.0);
+            ui.label(RichText::new(text::t().browser_not_vs).strong())
+                .on_hover_text(text::t().browser_not_vs_hint);
+            ui.weak(text::t().browser_not_vs_hint);
+        }
         ui.add_space(16.0);
         let big = |label: &str| {
             egui::Button::new(RichText::new(label).size(16.0)).min_size(egui::vec2(220.0, 34.0))

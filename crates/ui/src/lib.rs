@@ -22,7 +22,7 @@ mod views;
 
 use std::path::PathBuf;
 
-use plnwrk_core::{EntityKey, PersonId, ProjectId, TaskId};
+use plnwrk_core::{Classification, EntityKey, PersonId, ProjectId, TaskId};
 use plnwrk_engine::Origin;
 use plnwrk_store::{SecretString, StoreError};
 use serde_json::Value;
@@ -33,6 +33,12 @@ use state::{Dialog, FileAction, FileSource, Message, State, Tab, View};
 
 /// Name shown in the window title and the app header.
 pub const APP_NAME: &str = "plnwrk";
+
+/// Whether the browser may hold this workspace: nothing classified VS-NfD or higher
+/// (decision 4.1: the browser is not an environment for classified material).
+fn browser_may_hold(workspace: &plnwrk_core::Workspace) -> bool {
+    workspace.highest_classification() < Classification::VsNfd
+}
 
 /// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
 /// `/private/var` on macOS).
@@ -585,6 +591,13 @@ impl PlnwrkApp {
     fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) {
         let Some(doc) = &mut self.doc else { return };
         match doc.session.run(command, params, Origin::User) {
+            Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
+                // Taken back at once: VS-NfD content never stays in the browser.
+                let _ = doc
+                    .session
+                    .run("undo", &serde_json::json!({}), Origin::User);
+                self.state.message = Some(Message::error(text::t().vs_blocked));
+            }
             Ok(outcome) => {
                 self.state.message = None;
                 if let (Then::ShowProject, Some(EntityKey::Project(id))) =
@@ -763,10 +776,20 @@ impl PlnwrkApp {
         }
     }
 
-    /// Opens a file chosen in the browser.
+    /// Opens a file chosen in the browser. VS-NfD is refused – by its readable head before
+    /// any passphrase is asked for, and by its content after reading.
     fn open_upload(&mut self, upload: Upload, passphrase: Option<SecretString>) {
+        let classified = plnwrk_store::peek(&upload.bytes)
+            .is_ok_and(|head| head.classification >= Classification::VsNfd);
+        if self.state.browser && classified {
+            self.state.message = Some(Message::error(text::t().vs_blocked));
+            return;
+        }
         let retry = passphrase.is_some();
         match OpenDoc::from_upload(&upload.name, &upload.bytes, passphrase) {
+            Ok(doc) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
+                self.state.message = Some(Message::error(text::t().vs_blocked));
+            }
             Ok(doc) => self.replace(doc),
             Err(error) => self.open_failed(FileSource::Upload(upload), error, retry),
         }

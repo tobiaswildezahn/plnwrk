@@ -2524,3 +2524,110 @@ fn the_browser_has_no_quit() {
     assert!(!harness.state().wants_to_quit());
     assert!(harness.query_by_label(text::t().unsaved_title).is_none());
 }
+
+/// An encrypted VS-NfD file (cheap encryption for tests).
+fn classified_file() -> Vec<u8> {
+    let mut doc = crate::OpenDoc::new();
+    doc.session
+        .run(
+            "project.create",
+            &serde_json::json!({"title": "Geheim", "classification": "vs_nfd"}),
+            plnwrk_engine::Origin::User,
+        )
+        .unwrap();
+    let (document, _) = doc.snapshot();
+    let secret = plnwrk_store::SecretString::from("richtig-lang-genug".to_owned());
+    plnwrk_store::save_with(
+        &document,
+        &plnwrk_store::Protection::Passphrase(secret),
+        plnwrk_store::SaveOptions {
+            work_factor: Some(10),
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_browser_refuses_vs_nfd_before_asking_for_a_passphrase() {
+    let (mut harness, browser) = in_browser();
+    assert!(
+        harness.query_all_by_label(text::t().browser_not_vs).count() >= 1,
+        "the start page says so"
+    );
+    choose_upload(&mut harness, &browser, "geheim.plnwrk", classified_file());
+    let app = harness.state();
+    assert!(app.doc().is_none());
+    assert!(app.state.dialog.is_none(), "no passphrase asked");
+    let message = app.state.message.clone().unwrap();
+    assert!(message.error);
+    assert_eq!(message.text, text::t().vs_blocked);
+}
+
+#[test]
+fn the_browser_takes_back_what_would_make_the_work_vs_nfd() {
+    let (mut harness, _browser) = in_browser();
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Lage", false);
+    click(&mut harness, text::t().create);
+    let id = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": id, "classification": "vs_nfd"}),
+    ));
+    let app = harness.state();
+    assert!(
+        app.doc()
+            .unwrap()
+            .session
+            .workspace()
+            .highest_classification()
+            < plnwrk_core::Classification::VsNfd
+    );
+    assert_eq!(
+        app.state.message.clone().unwrap().text,
+        text::t().vs_blocked
+    );
+    // Redo brings it back – and it is taken back again.
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("redo", serde_json::json!({})));
+    assert!(
+        harness
+            .state()
+            .doc()
+            .unwrap()
+            .session
+            .workspace()
+            .highest_classification()
+            < plnwrk_core::Classification::VsNfd
+    );
+}
+
+#[test]
+fn the_desktop_keeps_vs_nfd_and_shows_no_browser_hint() {
+    let mut harness = harness(PlnwrkApp::default());
+    assert_eq!(
+        harness.query_all_by_label(text::t().browser_not_vs).count(),
+        0
+    );
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    type_into(&mut harness, text::t().title, "Lage", false);
+    click(&mut harness, text::t().create);
+    let id = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": id, "classification": "vs_nfd"}),
+    ));
+    assert_eq!(
+        harness
+            .state()
+            .doc()
+            .unwrap()
+            .session
+            .workspace()
+            .highest_classification(),
+        plnwrk_core::Classification::VsNfd
+    );
+}
