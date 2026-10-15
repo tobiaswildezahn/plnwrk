@@ -109,8 +109,8 @@ mod queries {
             .collect();
         assert_eq!(
             todo,
+            // Subtasks such as "Vergabevermerk" are in their parent's card, not cards.
             [
-                "Vergabevermerk",
                 "Einbau Wache 11",
                 "Schulung Einsatzkräfte",
                 "Zuschlag erteilt",

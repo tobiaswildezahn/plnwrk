@@ -146,6 +146,7 @@ impl World {
         let host = Scripted {
             open: Vec::new(),
             save: vec![file.to_path_buf(); 64],
+            ..Scripted::default()
         };
         let mut app = PlnwrkApp::with_host(Box::new(host));
         app.set_autosave(Some(recovery.to_path_buf()), background, autosave::INTERVAL);

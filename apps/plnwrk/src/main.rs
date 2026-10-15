@@ -37,6 +37,13 @@ impl plnwrk_ui::Host for SystemDialogs {
         let path = self.dialog().set_file_name(suggested_name).save_file();
         self.remember(path)
     }
+
+    fn pick_export(&mut self, suggested_name: &str, extension: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .add_filter(extension, &[extension])
+            .set_file_name(suggested_name)
+            .save_file()
+    }
 }
 
 fn main() -> ExitCode {

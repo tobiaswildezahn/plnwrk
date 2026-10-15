@@ -250,6 +250,50 @@ mod commands {
     }
 
     #[test]
+    fn task_move_to_done_closes_open_subtasks_in_the_same_step() {
+        let mut h = Harness::new();
+        let p = h.project(json!({"title": "P"}));
+        let parent = h.task(p, "Hauptaufgabe", json!({}));
+        let child = h.task(p, "Teil", json!({"parent": parent.to_string()}));
+        let grandchild = h.task(p, "Unterteil", json!({"parent": child.to_string()}));
+        let finished = h.task(p, "fertig", json!({"parent": parent.to_string()}));
+        h.ok(
+            "task.set_status",
+            json!({"task": finished.to_string(), "status": "done"}),
+        );
+        let other = h.task(p, "anderes", json!({}));
+        let changes = h.s.log().len();
+        h.ok(
+            "task.move",
+            json!({"task": parent.to_string(), "status": "done", "close_subtasks": true}),
+        );
+        assert_eq!(h.s.log().len(), changes + 1, "one step");
+        for id in [parent, child, grandchild, finished] {
+            assert_eq!(get(&h, id).status, TaskStatus::Done);
+        }
+        assert_eq!(
+            get(&h, other).status,
+            TaskStatus::Todo,
+            "only its own subtasks"
+        );
+        h.undo();
+        assert_eq!(get(&h, child).status, TaskStatus::Todo);
+        assert_eq!(get(&h, grandchild).status, TaskStatus::Todo);
+        assert_eq!(get(&h, finished).status, TaskStatus::Done);
+        // Without the flag the subtasks keep their status; with it, only towards done.
+        h.ok(
+            "task.move",
+            json!({"task": parent.to_string(), "status": "done"}),
+        );
+        assert_eq!(get(&h, child).status, TaskStatus::Todo);
+        let error = h.err(
+            "task.move",
+            json!({"task": parent.to_string(), "status": "review", "close_subtasks": true}),
+        );
+        assert!(is_bad_param(&error, "close_subtasks"), "{error}");
+    }
+
+    #[test]
     fn task_move_refuses_foreign_or_self_neighbours_and_wrong_order() {
         let mut h = Harness::new();
         let p = h.project(json!({"title": "P"}));

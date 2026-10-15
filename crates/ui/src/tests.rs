@@ -320,6 +320,7 @@ fn files_are_saved_reopened_and_remembered() {
     let host = Scripted {
         save: vec![dir.join("abteilung")],
         open: vec![path.clone()],
+        ..Scripted::default()
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
     click(&mut harness, text::t().open_sample);
@@ -410,6 +411,118 @@ fn cards_move_on_the_board_by_drag_and_drop() {
     );
 }
 
+/// A project with "Kisten" and its two subtasks "Bücher" and "Geschirr", on the board.
+fn board_with_subtasks() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    let parent = task_named(harness.state(), "Kisten").unwrap().id;
+    let project = parent_project(&harness, parent);
+    for title in ["Bücher", "Geschirr"] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "parent": parent.to_string()}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().board);
+    harness
+}
+
+fn parent_project(harness: &Harness<'_, PlnwrkApp>, task: TaskId) -> String {
+    harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .task(task)
+        .unwrap()
+        .project
+        .to_string()
+}
+
+/// Drags the card with this title into the column with this heading.
+fn drag_card(harness: &mut Harness<'_, PlnwrkApp>, title: &str, column: &str) {
+    let card = harness.get_by_label(title).rect().center();
+    let target = harness.get_by_label(column).rect().center() + egui::vec2(0.0, 60.0);
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(target);
+    harness.run();
+    harness.drop_at(target);
+    harness.run();
+}
+
+#[test]
+fn subtasks_are_in_their_parents_card_and_ticked_off_there() {
+    let mut harness = board_with_subtasks();
+    // Not cards of their own: the "Offen" column holds one card.
+    assert!(harness.query_by_label("Offen (1)").is_some());
+    harness
+        .get_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox && n.label().as_deref() == Some("Bücher")
+        })
+        .click();
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Bücher").unwrap().status,
+        TaskStatus::Done
+    );
+    assert_eq!(
+        task_named(harness.state(), "Kisten").unwrap().status,
+        TaskStatus::Todo,
+        "the parent keeps its own status"
+    );
+}
+
+#[test]
+fn a_card_with_open_subtasks_asks_before_it_is_done() {
+    let mut harness = board_with_subtasks();
+    let status =
+        |h: &Harness<'_, PlnwrkApp>, title: &str| task_named(h.state(), title).unwrap().status;
+    // Moving within the open columns: the subtasks keep their status, no question.
+    drag_card(&mut harness, "Kisten", "In Arbeit (0)");
+    assert_eq!(status(&harness, "Kisten"), TaskStatus::InProgress);
+    assert_eq!(status(&harness, "Bücher"), TaskStatus::Todo);
+    // To done: asked; "only this task" leaves the subtasks open.
+    drag_card(&mut harness, "Kisten", "Erledigt (0)");
+    assert!(
+        harness
+            .query_by_label(text::t().close_subtasks_title)
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_by_label(&text::subtasks_still_open(2))
+            .is_some()
+    );
+    assert_eq!(
+        status(&harness, "Kisten"),
+        TaskStatus::InProgress,
+        "not before the answer"
+    );
+    click(&mut harness, text::t().only_this_task);
+    assert_eq!(status(&harness, "Kisten"), TaskStatus::Done);
+    assert_eq!(status(&harness, "Bücher"), TaskStatus::Todo);
+    // Back, then "close them all": one step, one undo.
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    harness.run();
+    drag_card(&mut harness, "Kisten", "Erledigt (0)");
+    click(&mut harness, text::t().close_all_subtasks);
+    for title in ["Kisten", "Bücher", "Geschirr"] {
+        assert_eq!(status(&harness, title), TaskStatus::Done, "{title}");
+    }
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    assert_eq!(status(&harness, "Geschirr"), TaskStatus::Todo);
+    assert_eq!(status(&harness, "Kisten"), TaskStatus::InProgress);
+}
+
 #[test]
 fn a_click_on_a_board_card_opens_its_details() {
     let mut harness = with_project("Umzug");
@@ -436,6 +549,7 @@ fn saved_sample_with_task(name: &str, task: &str) -> (Harness<'static, PlnwrkApp
     let host = Scripted {
         save: vec![path.clone(), path.clone()],
         open: vec![path.clone()],
+        ..Scripted::default()
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
     click(&mut harness, text::t().open_sample);
@@ -596,6 +710,7 @@ fn autosave_writes_a_copy_and_saving_removes_it() {
     let host = Scripted {
         save: vec![dir.join("abteilung.plnwrk")],
         open: Vec::new(),
+        ..Scripted::default()
     };
     let mut app = PlnwrkApp::with_host(Box::new(host));
     app.set_autosave(Some(recovery.clone()), false, 0.0);
@@ -647,6 +762,7 @@ fn a_recovery_copy_opens_as_unsaved_work_and_goes_once_saved() {
     let host = Scripted {
         save: vec![dir.join("gerettet.plnwrk")],
         open: Vec::new(),
+        ..Scripted::default()
     };
     let mut app = PlnwrkApp::with_host(Box::new(host));
     app.set_autosave(Some(recovery.clone()), false, crate::autosave::INTERVAL);
@@ -747,6 +863,7 @@ fn every_action_that_drops_the_file_asks_first() {
         let host = Scripted {
             open: vec![other],
             save: Vec::new(),
+            ..Scripted::default()
         };
         let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
         click(&mut harness, text::t().open_sample);
@@ -865,6 +982,7 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
     let host = Scripted {
         open: vec![path],
         save: Vec::new(),
+        ..Scripted::default()
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
     harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
@@ -1125,6 +1243,7 @@ fn a_version_1_file_opens_upgraded_and_counts_as_changed() {
     let host = Scripted {
         open: vec![path],
         save: Vec::new(),
+        ..Scripted::default()
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
     harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
@@ -1909,6 +2028,7 @@ fn the_palette_runs_what_the_menus_and_buttons_do() {
     let host = Scripted {
         save: vec![dir.join("lage.plnwrk")],
         open: Vec::new(),
+        ..Scripted::default()
     };
     let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
     palette(&mut harness, "beispiel");
@@ -2036,6 +2156,7 @@ fn text_typed_before_the_palette_is_kept() {
     let host = Scripted {
         save: vec![dir.join("lage.plnwrk")],
         open: Vec::new(),
+        ..Scripted::default()
     };
     let mut app = PlnwrkApp::with_host(Box::new(host));
     app.file(crate::state::FileAction::New);
@@ -2177,6 +2298,7 @@ fn a_half_edited_project_form_is_not_lost() {
     let host = Scripted {
         save: vec![dir.join("lage.plnwrk")],
         open: Vec::new(),
+        ..Scripted::default()
     };
     let mut app = PlnwrkApp::with_host(Box::new(host));
     app.file(crate::state::FileAction::New);
@@ -3425,6 +3547,261 @@ fn a_date_changed_elsewhere_is_not_written_back_by_saving() {
     let t = ws.task(first).unwrap();
     assert_eq!(t.start.unwrap().to_string(), "2026-10-13", "not put back");
     assert_eq!(t.due.unwrap().to_string(), "2026-10-16");
+}
+
+#[test]
+fn the_schedule_zooms_in_and_out() {
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let width = |h: &Harness<'_, PlnwrkApp>| bar(h, "Ausschreibung").width();
+    let start = width(&harness);
+    click(&mut harness, text::t().zoom_in);
+    assert!(
+        width(&harness) > start * 1.3,
+        "{} → {}",
+        start,
+        width(&harness)
+    );
+    for _ in 0..3 {
+        click(&mut harness, text::t().zoom_out);
+    }
+    let coarse = width(&harness);
+    assert!(coarse < start / 2.0, "{start} → {coarse}");
+    // Coarsest and finest are the ends: more clicks change nothing.
+    for _ in 0..5 {
+        click(&mut harness, text::t().zoom_out);
+    }
+    assert!(width(&harness) <= coarse);
+    // Ctrl/⌘ and the mouse wheel over the chart zoom in too.
+    let over = bar(&harness, "Ausschreibung").center();
+    harness.hover_at(over);
+    harness.run();
+    let before = width(&harness);
+    harness.event(egui::Event::Zoom(1.5));
+    harness.run();
+    assert!(width(&harness) > before, "{before} → {}", width(&harness));
+}
+
+/// Opens the sample's project "Digitalfunk Umrüstung Wachen" in the schedule tab.
+fn sample_schedule(harness: &mut Harness<'_, PlnwrkApp>) {
+    click(harness, text::t().open_sample);
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(harness, text::t().schedule_tab);
+}
+
+#[test]
+fn the_schedule_is_exported_as_a_table_for_excel() {
+    let dir = scratch("export");
+    let path = dir.join("zeitplan.csv");
+    let host = Scripted {
+        export: vec![path.clone()],
+        ..Scripted::default()
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    sample_schedule(&mut harness);
+    click(&mut harness, text::t().export_schedule);
+    let csv = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert!(
+        lines[0].starts_with("\u{FEFF}Aufgabe;Ebene;Oberaufgabe;Status"),
+        "{}",
+        lines[0]
+    );
+    let row = |title: &str| {
+        lines
+            .iter()
+            .find(|l| l.starts_with(&format!("{title};")))
+            .unwrap_or_else(|| panic!("{title}: {csv}"))
+            .split(';')
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let install = row("Einbau Wache 11");
+    assert_eq!(install[1], "1");
+    assert_eq!(install[5], "02.11.2026", "German dates for German Excel");
+    assert_eq!(install[6], "20.11.2026");
+    assert_eq!(install[8], "19", "every day counts: 2 Nov to 20 Nov");
+    assert_eq!(
+        install[12], "Ausschreibung vorbereiten",
+        "what it waits for"
+    );
+    let sub = row("Vergabevermerk");
+    assert_eq!(sub[1], "2");
+    assert_eq!(sub[2], "Ausschreibung vorbereiten");
+    assert_eq!(row("Inbetriebnahme")[11], "ja");
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_some_and(|m| !m.error && m.text.contains("zeitplan.csv"))
+    );
+    // Cancelled dialog: nothing written, no message about it.
+    let before = harness.state().state.message.clone();
+    click(&mut harness, text::t().export_schedule);
+    assert_eq!(harness.state().state.message, before);
+}
+
+#[test]
+fn a_classified_schedule_carries_the_marking_and_never_leaves_the_browser() {
+    let dir = scratch("export-vs");
+    let path = dir.join("zeitplan.csv");
+    let host = Scripted {
+        export: vec![path.clone()],
+        ..Scripted::default()
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    sample_schedule(&mut harness);
+    let project = projects(harness.state())
+        .into_iter()
+        .find(|p| p.title == "Digitalfunk Umrüstung Wachen")
+        .unwrap()
+        .id;
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": project.to_string(), "classification": "vs_nfd"}),
+    ));
+    harness.run();
+    click(&mut harness, text::t().export_schedule);
+    let csv = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        csv.lines().next(),
+        Some(format!("\u{FEFF}{}", plnwrk_store::export::VS_NFD_MARK).as_str())
+    );
+    // In the browser: a download, never of anything classified (it cannot get there anyway).
+    let (mut harness, browser) = in_browser();
+    sample_schedule(&mut harness);
+    click(&mut harness, text::t().export_schedule);
+    let downloads = &browser.0.borrow().downloads;
+    assert_eq!(downloads.len(), 1);
+    assert!(downloads[0].name.ends_with(".csv"), "{}", downloads[0].name);
+    assert!(String::from_utf8_lossy(&downloads[0].bytes).contains("Einbau Wache 11"));
+}
+
+#[test]
+fn one_notch_of_the_wheel_is_one_zoom_level() {
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let width = |h: &Harness<'_, PlnwrkApp>| bar(h, "Ausschreibung").width();
+    let start = width(&harness);
+    harness.hover_at(bar(&harness, "Ausschreibung").center());
+    harness.run();
+    // egui spreads one notch (or a pinch) over several frames.
+    for _ in 0..5 {
+        harness.event(egui::Event::Zoom(1.05));
+        harness.step();
+    }
+    harness.run();
+    let one = width(&harness);
+    assert!(
+        one > start * 1.3 && one < start * 1.7,
+        "{start} → {one}: one level only"
+    );
+}
+
+#[test]
+fn zooming_keeps_the_dates_in_view() {
+    let mut harness = with_project("Weit");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    for (title, start, due) in [
+        ("Früher", day(-60), day(-58)),
+        ("Jetzt", day(0), day(2)),
+        ("Später", day(60), day(62)),
+    ] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    harness.run();
+    // From the title column's edge to the bar: a week before today, at any zoom.
+    let gap = |h: &Harness<'_, PlnwrkApp>| {
+        let titles = h
+            .get_all_by_label("Jetzt")
+            .map(|n| n.rect())
+            .find(|r| r.width() > 100.0)
+            .unwrap();
+        bar(h, "Jetzt").left() - titles.right()
+    };
+    let before = gap(&harness);
+    click(&mut harness, text::t().zoom_in);
+    let after = gap(&harness);
+    assert!(
+        (after - before * 34.0 / 22.0).abs() < 30.0,
+        "{before} → {after}: the same day stays at the left edge"
+    );
+}
+
+#[test]
+fn subtasks_of_subtasks_are_in_the_card_too() {
+    let mut harness = board_with_subtasks();
+    let books = task_named(harness.state(), "Bücher").unwrap().id;
+    let project = parent_project(&harness, books);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Krimis", "parent": books.to_string()}),
+    ));
+    harness.run();
+    harness
+        .get_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox && n.label().as_deref() == Some("Krimis")
+        })
+        .click();
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Krimis").unwrap().status,
+        TaskStatus::Done
+    );
+}
+
+#[test]
+fn an_export_never_replaces_the_open_file_and_always_ends_in_csv() {
+    let dir = scratch("export-guard");
+    let path = dir.join("abteilung.plnwrk");
+    let plain = dir.join("tabelle");
+    let host = Scripted {
+        save: vec![path.clone()],
+        // The person picks the open file itself, then a name without an ending.
+        export: vec![path.clone(), plain.clone()],
+        ..Scripted::default()
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    sample_schedule(&mut harness);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    let before = std::fs::read(&path).unwrap();
+    click(&mut harness, text::t().export_schedule);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the workspace file is untouched"
+    );
+    assert!(dir.join("abteilung.plnwrk.csv").exists());
+    click(&mut harness, text::t().export_schedule);
+    assert!(
+        std::fs::read_to_string(dir.join("tabelle.csv"))
+            .unwrap()
+            .contains("Einbau Wache 11")
+    );
+}
+
+#[test]
+fn a_project_without_dates_can_be_exported_too() {
+    let mut harness = with_project("Ohne Termine");
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    click(&mut harness, text::t().schedule_tab);
+    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label(text::t().export_schedule).is_some());
 }
 
 #[test]

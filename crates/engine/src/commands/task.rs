@@ -210,7 +210,32 @@ fn move_task(tx: &mut Tx<'_>, params: &Params<'_>) -> Result<(), CommandError> {
         let param = if before.is_some() { "before" } else { "after" };
         task.rank = place(tx, task.project, Some(task.id), (after, before), param)?;
     }
+    let close = params.opt("close_subtasks", p::boolean)?.unwrap_or(false);
+    if close && task.status != TaskStatus::Done {
+        return Err(CommandError::bad(
+            "close_subtasks",
+            "only together with status done",
+        ));
+    }
+    let id = task.id;
     tx.put(Entity::Task(task));
+    if close {
+        // Every subtask below it, at any depth, that is not done yet.
+        let mut open = vec![id];
+        let mut below = Vec::new();
+        while let Some(parent) = open.pop() {
+            for child in tx.ws().tasks().filter(|t| t.parent == Some(parent)) {
+                open.push(child.id);
+                if child.status != TaskStatus::Done {
+                    below.push(child.clone());
+                }
+            }
+        }
+        for mut child in below {
+            child.status = TaskStatus::Done;
+            tx.put(Entity::Task(child));
+        }
+    }
     Ok(())
 }
 
@@ -401,6 +426,11 @@ pub const MOVE: CommandSpec = CommandSpec {
             "before",
             K::Id(EntityKind::Task),
             "Place it right before this task",
+        ),
+        P::optional(
+            "close_subtasks",
+            K::Bool,
+            "With status done: every open subtask (at any depth) is done too, in the same step",
         ),
     ],
     enabled: always,

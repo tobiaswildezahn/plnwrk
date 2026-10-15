@@ -318,6 +318,38 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     }
                 });
             }
+            Dialog::CloseSubtasks { task, params, open } => {
+                ui.heading(text::t().close_subtasks_title);
+                let title = doc
+                    .and_then(|d| d.session.workspace().task(*task))
+                    .map(|t| t.title.clone())
+                    .unwrap_or_default();
+                ui.label(text::quoted(&title));
+                ui.label(text::subtasks_still_open(*open));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let mut with = params.clone();
+                    if let Some(fields) = with.as_object_mut() {
+                        fields.insert("close_subtasks".to_owned(), json!(true));
+                    }
+                    for (label, params) in [
+                        (text::t().close_all_subtasks, with),
+                        (text::t().only_this_task, params.clone()),
+                    ] {
+                        if ui.button(label).clicked() {
+                            out.push(Intent::Run {
+                                command: "task.move",
+                                params,
+                                then: Then::Nothing,
+                                clear: Some(Clear::Dialog),
+                            });
+                        }
+                    }
+                    if ui.button(text::t().cancel).clicked() {
+                        out.push(Intent::CloseDialog);
+                    }
+                });
+            }
             Dialog::DeleteTask(task) => {
                 ui.heading(text::t().delete_task);
                 let title = doc

@@ -268,7 +268,7 @@ static QUERIES: &[QuerySpec] = &[
     },
     QuerySpec {
         name: "board",
-        summary: "The Kanban board of a project: one column per status, cards in manual order.",
+        summary: "The Kanban board of a project: one column per status, cards in manual order. Cards are top-level tasks; subtasks are counted in their card (query `tasks` or `task` lists them).",
         params: &[PROJECT],
         run: q_board,
     },

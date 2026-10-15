@@ -1,12 +1,14 @@
-//! The Kanban board: one column per status; cards are moved by drag and drop.
+//! The Kanban board: one column per status; cards are moved by drag and drop. Cards are the
+//! top-level tasks; their subtasks are listed in the card, each with its own status (decision
+//! 2026-10-15), and go wherever the card goes.
 
 use egui::{Id, RichText};
-use plnwrk_core::{Priority, Project, TaskId, TaskStatus};
+use plnwrk_core::{Priority, Project, Task, TaskId, TaskStatus, Workspace};
 use plnwrk_engine::query::{self, TaskCard};
 use serde_json::{Map, Value, json};
 
 use crate::doc::OpenDoc;
-use crate::state::State;
+use crate::state::{Dialog, State};
 use crate::views::due_label;
 use crate::{Intent, text};
 
@@ -76,15 +78,35 @@ pub fn show(
                     let (_, dropped) = ui.dnd_drop_zone::<TaskId, ()>(frame, |ui| {
                         ui.set_min_size(egui::vec2(COLUMN_WIDTH, 160.0));
                         for card in &column.tasks {
-                            let response = ui
-                                .dnd_drag_source(Id::new(("card", card.id)), card.id, |ui| {
-                                    card_ui(ui, card, state.selected == Some(card.id), out);
-                                })
-                                .response;
-                            // The whole card selects on click; dragging stays with the
-                            // drag source (egui routes clicks and drags separately).
+                            let dragged =
+                                ui.dnd_drag_source(Id::new(("card", card.id)), card.id, |ui| {
+                                    card_ui(
+                                        ui,
+                                        card,
+                                        &children(ws, card.id),
+                                        state.selected == Some(card.id),
+                                        out,
+                                    )
+                                });
+                            let response = dragged.response;
+                            let (head, ticks) = dragged.inner;
+                            // Above the drag source, so a click on a tick reaches it.
+                            for (subtask, done, rect) in ticks {
+                                // Mouse only: keyboard and screen readers use the tick.
+                                let tick = ui.interact(
+                                    rect,
+                                    Id::new(("tick", subtask)),
+                                    egui::Sense::CLICK,
+                                );
+                                if tick.clicked() {
+                                    out.push(toggle(subtask, done));
+                                }
+                            }
+                            // The head of the card (title and details) selects on click;
+                            // dragging stays with the drag source (egui routes clicks and
+                            // drags separately). The subtasks below keep their own clicks.
                             let click = ui.interact(
-                                response.rect,
+                                head,
                                 Id::new(("card-click", card.id)),
                                 egui::Sense::click(),
                             );
@@ -109,7 +131,19 @@ pub fn show(
                             && let Some(params) =
                                 move_params(*task, from, column.status, &ids, index)
                         {
-                            out.push(Intent::run("task.move", params));
+                            let open = open_below(ws, *task);
+                            if column.status == TaskStatus::Done
+                                && from != TaskStatus::Done
+                                && open > 0
+                            {
+                                out.push(Intent::Open(Dialog::CloseSubtasks {
+                                    task: *task,
+                                    params,
+                                    open,
+                                }));
+                            } else {
+                                out.push(Intent::run("task.move", params));
+                            }
                         }
                     }
                 });
@@ -118,39 +152,113 @@ pub fn show(
     });
 }
 
-fn card_ui(ui: &mut egui::Ui, card: &TaskCard, selected: bool, out: &mut Vec<Intent>) {
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.set_width(COLUMN_WIDTH - 24.0);
-        let title = if card.milestone {
-            format!("♦ {}", card.title)
-        } else {
-            card.title.clone()
-        };
-        if ui.selectable_label(selected, title).clicked() {
-            out.push(Intent::Select(Some(card.id)));
+/// Every subtask below a task, at any depth, in the order of the list (parents before their
+/// subtasks), with its depth (1 = direct subtask).
+fn children(ws: &Workspace, task: TaskId) -> Vec<(&Task, usize)> {
+    let below = |parent: TaskId| {
+        let mut children: Vec<&Task> = ws.tasks().filter(|t| t.parent == Some(parent)).collect();
+        children.sort_by(|a, b| b.rank.cmp(&a.rank));
+        children
+    };
+    let mut out = Vec::new();
+    let mut stack: Vec<(&Task, usize)> = below(task).into_iter().map(|t| (t, 1)).collect();
+    while let Some((child, depth)) = stack.pop() {
+        out.push((child, depth));
+        stack.extend(below(child.id).into_iter().map(|t| (t, depth + 1)));
+    }
+    out
+}
+
+/// How many subtasks below a task (at any depth) are not done.
+fn open_below(ws: &Workspace, task: TaskId) -> usize {
+    let mut open = 0;
+    let mut next = vec![task];
+    while let Some(parent) = next.pop() {
+        for child in ws.tasks().filter(|t| t.parent == Some(parent)) {
+            next.push(child.id);
+            if child.status != TaskStatus::Done {
+                open += 1;
+            }
         }
-        ui.horizontal_wrapped(|ui| {
-            if let Some(person) = &card.assignee {
-                ui.label(RichText::new(&person.initials).small().weak())
-                    .on_hover_text(&person.name);
+    }
+    open
+}
+
+fn card_ui(
+    ui: &mut egui::Ui,
+    card: &TaskCard,
+    subtasks: &[(&Task, usize)],
+    selected: bool,
+    out: &mut Vec<Intent>,
+) -> (egui::Rect, Vec<(TaskId, bool, egui::Rect)>) {
+    egui::Frame::group(ui.style())
+        .show(ui, |ui| {
+            ui.set_width(COLUMN_WIDTH - 24.0);
+            let title = if card.milestone {
+                format!("♦ {}", card.title)
+            } else {
+                card.title.clone()
+            };
+            let head = ui.selectable_label(selected, title);
+            if head.clicked() {
+                out.push(Intent::Select(Some(card.id)));
             }
-            due_label(ui, card.due, card.due_time, card.overdue);
-            if card.subtasks > 0 {
-                ui.label(
-                    RichText::new(format!("☑ {}/{}", card.subtasks_done, card.subtasks))
-                        .small()
-                        .weak(),
-                );
+            let mut head = head.rect;
+            let details = ui.horizontal_wrapped(|ui| {
+                if let Some(person) = &card.assignee {
+                    ui.label(RichText::new(&person.initials).small().weak())
+                        .on_hover_text(&person.name);
+                }
+                due_label(ui, card.due, card.due_time, card.overdue);
+                if card.subtasks > 0 {
+                    ui.label(
+                        RichText::new(format!("☑ {}/{}", card.subtasks_done, card.subtasks))
+                            .small()
+                            .weak(),
+                    );
+                }
+                if card.priority >= Priority::High {
+                    ui.label(
+                        RichText::new(text::priority(card.priority))
+                            .small()
+                            .color(ui.visuals().warn_fg_color),
+                    );
+                }
+            });
+            head = head.union(details.response.rect);
+            // The subtasks travel with the card; each is ticked off on its own. A mouse click is
+            // caught above the drag source (see `show`); keyboard and screen readers act here.
+            let mut ticks = Vec::new();
+            for (subtask, depth) in subtasks {
+                let done = subtask.status == TaskStatus::Done;
+                let mut shown = done;
+                let response = ui
+                    .horizontal(|ui| {
+                        ui.add_space(depth.saturating_sub(1) as f32 * 14.0);
+                        ui.checkbox(&mut shown, &subtask.title)
+                    })
+                    .inner;
+                if response.changed() {
+                    out.push(toggle(subtask.id, done));
+                }
+                ticks.push((subtask.id, done, response.rect));
             }
-            if card.priority >= Priority::High {
-                ui.label(
-                    RichText::new(text::priority(card.priority))
-                        .small()
-                        .color(ui.visuals().warn_fg_color),
-                );
-            }
-        });
-    });
+            (head, ticks)
+        })
+        .inner
+}
+
+/// Ticks a subtask off, or opens it again.
+fn toggle(subtask: TaskId, done: bool) -> Intent {
+    let status = if done {
+        TaskStatus::Todo
+    } else {
+        TaskStatus::Done
+    };
+    Intent::run(
+        "task.set_status",
+        json!({"task": subtask.to_string(), "status": status.name()}),
+    )
 }
 
 #[cfg(test)]

@@ -99,6 +99,13 @@ pub enum Dialog {
     Unsaved(FileAction),
     /// Confirm deleting a task.
     DeleteTask(TaskId),
+    /// A task goes to "done" on the board while subtasks are open: close them too?
+    /// `params` are those of the `task.move` (without `close_subtasks`), `open` how many.
+    CloseSubtasks {
+        task: TaskId,
+        params: serde_json::Value,
+        open: usize,
+    },
     /// Protect the file with a passphrase (typed twice).
     Protect { first: String, second: String },
     /// Confirm removing the protection.
