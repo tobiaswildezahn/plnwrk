@@ -16,8 +16,10 @@ use crate::doc::OpenDoc;
 use crate::state::State;
 use crate::{Intent, dates, text};
 
-/// Width of a day.
-const DAY: f32 = 22.0;
+/// Width of a day at each zoom level, coarse to fine.
+const ZOOM: [f32; 6] = [3.0, 6.0, 11.0, 22.0, 34.0, 48.0];
+/// The level a schedule opens with.
+const ZOOM_START: usize = 3;
 /// Height of a row.
 const ROW: f32 = 24.0;
 /// Width of the column with the titles.
@@ -185,8 +187,23 @@ pub fn show(
         unscheduled_list(ui, &unscheduled, out);
         return;
     };
-    ui.weak(text::t().critical_hint);
+    // Zoom: buttons, or Ctrl/⌘ and the mouse wheel over the chart; kept per project.
+    let zoom_id = egui::Id::new(("schedule-zoom", project.id));
+    let mut level = ui
+        .data(|d| d.get_temp::<usize>(zoom_id))
+        .unwrap_or(ZOOM_START)
+        .min(ZOOM.len() - 1);
+    ui.horizontal(|ui| {
+        if super::icon_button(ui, "−", text::t().zoom_out).clicked() {
+            level = level.saturating_sub(1);
+        }
+        if super::icon_button(ui, "+", text::t().zoom_in).clicked() {
+            level = (level + 1).min(ZOOM.len() - 1);
+        }
+        ui.weak(text::t().critical_hint);
+    });
     ui.add_space(4.0);
+    let day_width = ZOOM.get(level).copied().unwrap_or(22.0);
 
     // Opens a week before today (once per project), so the current work is in view.
     let opened = ui.id().with(("schedule-opened", project.id));
@@ -196,16 +213,25 @@ pub fn show(
         .auto_shrink([false, true])
         .max_height((ui.available_height() - 70.0).max(ROW * 4.0));
     if first_time && (0..days).contains(&days_from(first, today)) {
-        let offset = (days_from(first, today) - 7).max(0) as f32 * DAY;
+        let offset = (days_from(first, today) - 7).max(0) as f32 * day_width;
         scroll = scroll.horizontal_scroll_offset(offset);
     }
     scroll.show(ui, |ui| {
-        let width = LABELS + days as f32 * DAY;
+        let width = LABELS + days as f32 * day_width;
         let height = HEADER + rows.len() as f32 * ROW;
-        let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+        let (area, hover) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+        // Anywhere over the chart, bars included.
+        if hover.contains_pointer() {
+            let zoom = ui.input(|i| i.zoom_delta());
+            if zoom > 1.01 {
+                level = (level + 1).min(ZOOM.len() - 1);
+            } else if zoom < 0.99 {
+                level = level.saturating_sub(1);
+            }
+        }
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
-        let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * DAY;
+        let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * day_width;
         let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
         // The column with the titles stays at the left edge while scrolling sideways; what
         // lies under it is hidden and cannot be dragged.
@@ -213,12 +239,12 @@ pub fn show(
         let chart = Rect::from_min_max(pos2(left + LABELS - 6.0, area.top()), area.max);
         let bar_of = |milestone: bool, (start, end): (Date, Date), y: f32| {
             if milestone {
-                let center = pos2(x_of(end) + DAY / 2.0, y + ROW / 2.0);
+                let center = pos2(x_of(end) + day_width / 2.0, y + ROW / 2.0);
                 Rect::from_center_size(center, vec2(14.0, 14.0))
             } else {
                 Rect::from_min_max(
                     pos2(x_of(start) + 1.0, y + 5.0),
-                    pos2(x_of(end) + DAY - 1.0, y + ROW - 5.0),
+                    pos2(x_of(end) + day_width - 1.0, y + ROW - 5.0),
                 )
             }
         };
@@ -227,14 +253,32 @@ pub fn show(
         for n in 0..days {
             let day = plus(first, n);
             let x = x_of(day);
-            if !office.is_working(day) {
+            if day_width >= 5.0 && !office.is_working(day) {
                 painter.rect_filled(
-                    Rect::from_min_max(pos2(x, area.top() + HEADER), pos2(x + DAY, area.bottom())),
+                    Rect::from_min_max(
+                        pos2(x, area.top() + HEADER),
+                        pos2(x + day_width, area.bottom()),
+                    ),
                     0.0,
                     visuals.faint_bg_color,
                 );
             }
-            if day.weekday() == jiff::civil::Weekday::Monday {
+            // Fine: weeks with their number; coarse: months.
+            let week_starts = day.weekday() == jiff::civil::Weekday::Monday;
+            if day_width < 10.0 && day.day() == 1 {
+                painter.line_segment(
+                    [pos2(x, area.top()), pos2(x, area.bottom())],
+                    Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
+                );
+                painter.text(
+                    pos2(x + 3.0, area.top() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    text::month(day),
+                    egui::FontId::proportional(11.0),
+                    visuals.weak_text_color(),
+                );
+            }
+            if day_width >= 10.0 && week_starts {
                 painter.line_segment(
                     [pos2(x, area.top()), pos2(x, area.bottom())],
                     Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
@@ -251,16 +295,18 @@ pub fn show(
                     visuals.weak_text_color(),
                 );
             }
-            painter.text(
-                pos2(x + DAY / 2.0, area.top() + HEADER - 4.0),
-                egui::Align2::CENTER_BOTTOM,
-                day.day().to_string(),
-                egui::FontId::proportional(10.0),
-                visuals.weak_text_color(),
-            );
+            if day_width >= 14.0 {
+                painter.text(
+                    pos2(x + day_width / 2.0, area.top() + HEADER - 4.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    day.day().to_string(),
+                    egui::FontId::proportional(10.0),
+                    visuals.weak_text_color(),
+                );
+            }
         }
         let marker = |date: Date, color, label: &str| {
-            let x = x_of(date) + DAY / 2.0;
+            let x = x_of(date) + day_width / 2.0;
             painter.line_segment(
                 [pos2(x, area.top() + HEADER), pos2(x, area.bottom())],
                 Stroke::new(1.5, color),
@@ -316,7 +362,7 @@ pub fn show(
                 && let Some(days) = ui.input(|i| {
                     let origin = i.pointer.press_origin()?;
                     let now = i.pointer.interact_pos()?;
-                    Some(((now.x - origin.x) / DAY).round() as i32)
+                    Some(((now.x - origin.x) / day_width).round() as i32)
                 })
             {
                 ui.data_mut(|d| d.insert_temp(kept, days));
@@ -450,6 +496,8 @@ pub fn show(
             );
         }
     });
+
+    ui.data_mut(|d| d.insert_temp(zoom_id, level));
 
     // What cannot hold.
     for warning in &analysis.warnings {

@@ -144,6 +144,8 @@ pub struct Texts {
     pub delete_task: &'static str,
     pub delete_task_question: &'static str,
     pub close_subtasks_title: &'static str,
+    pub zoom_in: &'static str,
+    pub zoom_out: &'static str,
     pub close_all_subtasks: &'static str,
     pub only_this_task: &'static str,
     pub name: &'static str,
@@ -334,6 +336,8 @@ pub static DE: Texts = Texts {
     delete_task: "Aufgabe löschen",
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
     close_subtasks_title: "Unteraufgaben auch erledigen?",
+    zoom_in: "Vergrößern",
+    zoom_out: "Verkleinern",
     close_all_subtasks: "Alle erledigen",
     only_this_task: "Nur die Hauptaufgabe",
     name: "Name",
@@ -530,6 +534,8 @@ pub static EN: Texts = Texts {
     delete_task: "Delete task",
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
     close_subtasks_title: "Close the subtasks too?",
+    zoom_in: "Zoom in",
+    zoom_out: "Zoom out",
     close_all_subtasks: "Close them all",
     only_this_task: "Only this task",
     name: "Name",
@@ -783,6 +789,23 @@ pub fn overdue_tasks(count: usize) -> String {
 }
 
 /// A push larger than one step can take, refused.
+/// A month on the time axis: "Okt 2026", "Oct 2026".
+pub fn month(date: jiff::civil::Date) -> String {
+    const DE: [&str; 12] = [
+        "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+    ];
+    const EN: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let names = pick(DE, EN);
+    let name = usize::try_from(date.month() - 1)
+        .ok()
+        .and_then(|i| names.get(i))
+        .copied()
+        .unwrap_or_default();
+    format!("{name} {}", date.year())
+}
+
 /// "2 Unteraufgaben sind noch offen."
 pub fn subtasks_still_open(count: usize) -> String {
     match (language(), count) {

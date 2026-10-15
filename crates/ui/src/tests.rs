@@ -3540,6 +3540,39 @@ fn a_date_changed_elsewhere_is_not_written_back_by_saving() {
 }
 
 #[test]
+fn the_schedule_zooms_in_and_out() {
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let width = |h: &Harness<'_, PlnwrkApp>| bar(h, "Ausschreibung").width();
+    let start = width(&harness);
+    click(&mut harness, text::t().zoom_in);
+    assert!(
+        width(&harness) > start * 1.3,
+        "{} → {}",
+        start,
+        width(&harness)
+    );
+    for _ in 0..3 {
+        click(&mut harness, text::t().zoom_out);
+    }
+    let coarse = width(&harness);
+    assert!(coarse < start / 2.0, "{start} → {coarse}");
+    // Coarsest and finest are the ends: more clicks change nothing.
+    for _ in 0..5 {
+        click(&mut harness, text::t().zoom_out);
+    }
+    assert!(width(&harness) <= coarse);
+    // Ctrl/⌘ and the mouse wheel over the chart zoom in too.
+    let over = bar(&harness, "Ausschreibung").center();
+    harness.hover_at(over);
+    harness.run();
+    let before = width(&harness);
+    harness.event(egui::Event::Zoom(1.5));
+    harness.run();
+    assert!(width(&harness) > before, "{before} → {}", width(&harness));
+}
+
+#[test]
 fn the_schedule_shows_bars_and_dragging_moves_what_waits() {
     let (mut harness, first, second) = two_dated_tasks();
     let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
