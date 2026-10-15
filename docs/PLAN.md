@@ -404,6 +404,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 2026-10-15 | Phase 6a gemergt (PR #10, `bb06599`) nach Tobis „ja, merge“, alle vier CI-Läufe grün (nach dem Veröffentlichen neu gestartet). Tobi hat den Server in Claude Code eingerichtet (Benutzer-Ebene, `claude mcp list`: verbunden). |
 | 2026-10-15 | **Entscheidung Tobi: Jeder Tag zählt.** „Eine Woche sind bei uns 7 Arbeitstage – in der Gefahrenabwehr wird auch am Wochenende gearbeitet.“ Ersetzt die Phase-5-Entscheidung „Arbeitstage Hamburg“: `Calendar::standard()` = `every_day()` überall (Schub, Puffer, kritischer Pfad, MCP); der Hamburg-Kalender bleibt für die Gantt-Hinterlegung und eine spätere Wahl je Projekt; die Eigenschaftstests laufen mit beiden Kalendern. Kein neues Feld, kein Formatwechsel. |
 | 2026-10-15 | Phase 6a+ (Feinschliff MCP nach dem Test durch eine zweite Claude-Instanz): Antworten nennen jede berührte Aufgabe mit neuen Terminen (`touched`), `undo`/`redo` nennen den zurückgenommenen/wiederholten Schritt; Befehlssuche durchsucht auch die Feldbeschreibungen („deadline“ findet `task.update`); neues Werkzeug `move_task` (um N Tage, Uhrzeit bleibt, Nachfolger rutschen mit, ein Schritt); passen Befehle auf alle Suchwörter, liefert die Suche nur diese („task create“: 2 statt 18). Zweiter Test durch eine Claude-Instanz: nutzt `move_task`, alle Schritte richtig. |
+| 2026-10-15 | Phase 6a+ gemergt (PR #11, `094103b`) nach Tobis „Ja merge“, alle vier CI-Läufe grün. Der erste Lauf war rot: `Cargo.lock` fehlte zum zweiten Mal im Commit (lokale Schranke prüft den Arbeitsordner, die CI den Commit) → Regel in CLAUDE.md. `plnwrk-cli` neu installiert (5 Werkzeuge). |
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
@@ -412,6 +413,6 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 3 Desktop-UI | 3a Desktop-MVP fertig (2026-10-14, PR #4); 3b-1 Termine und Meilensteine fertig (PR #5, Format 2); 3b-2 Nichts verlieren fertig (PR #6); je Review + Nachreview; 3b-3 Palette/Englisch/Theme fertig (PR #7); je Review + Nachreview – **Phase 3 abgeschlossen** |
 | 4 Web | fertig (PR #8, `21305ec`) |
 | 5 Zeitplanung | fertig (PR #9, `c67cd2b`) |
-| 6 KI | 6a MCP-Server fertig (PR #10, `bb06599`); 6b Assistent in der App ausgesetzt |
+| 6 KI | 6a MCP-Server fertig (PR #10, `bb06599`), 6a+ fertig (PR #11, `094103b`); 6b Assistent in der App ausgesetzt |
 | 7 VS-Härtung | offen |
 | 8 Veröffentlichung | offen |

@@ -1,8 +1,8 @@
 # plnwrk – Stand und offene Punkte
 
-> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14 abends:
-> Phase 6a (MCP-Server) gemergt, Repository öffentlich** (2026-10-15); 6b (Assistent in
-> der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-15 morgens:
+> Phase 6a+ gemergt (jeder Tag zählt, MCP-Feinschliff), Repository öffentlich**; 6b
+> (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -23,7 +23,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
 | 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **fertig**, Review + 3 Nachprüfungen | [#8](https://github.com/tobiaswildezahn/plnwrk/pull/8) |
 | 5 Zeitplanung (jeder Tag zählt, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
-| 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10) |
+| 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6a+ (jeder Tag zählt, `move_task`, sprechende Antworten) **fertig**; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10), [#11](https://github.com/tobiaswildezahn/plnwrk/pull/11) |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
 
@@ -70,10 +70,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Tobi probiert den MCP-Server** an `~/Desktop/test.plnwrk` / `test2.plnwrk` in einer neuen
-   Claude-Code-Sitzung (eingerichtet, `docs/mcp.md`). Wichtigste Frage: Kommt Claude ohne
-   Umwege mit den Werkzeugen zurecht? Nach jedem Update: `cargo install --path apps/plnwrk-cli
-   --locked`. Kleinigkeit notiert: „Datei existiert schon“ als eigene Fehlerart statt `io`.
+0. **Aufräumen (Tobi, am Rechner):** `git branch -D phase-6a-plus` (lokaler Branch; Agent darf
+   lokale Branches nicht löschen). `plnwrk-cli` ist auf dem Stand von `main` installiert
+   (5 Werkzeuge); nach jedem Update: `cargo install --path apps/plnwrk-cli --locked`.
+   Zwei Tests durch eine zweite Claude-Instanz bestanden (6a, 6a+).
 1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
@@ -86,9 +86,15 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    Hochladen über den echten Dateidialog (nur über Tests belegt).
 5. **Tobi testet Phase 5** (Demo im Plan `docs/plans/2026-10-14-phase-5.md`): Zeitplan,
    Balken ziehen, „Wartet auf“.
-6. **Veröffentlichen?** Der Workflow `pages` (von Hand) braucht eine eigene (Sub-)Domain.
+6. **README** fürs öffentliche Repo (was ist plnwrk, Start, MCP einrichten) – dann **Phase 8**
+   (installierbare Pakete, 0.1.0). Der Workflow `pages` (von Hand) braucht weiterhin eine
+   eigene (Sub-)Domain, weil der Browser-Speicher sonst mit anderen Pages-Seiten geteilt ist.
 7. 6b (Assistent in der App, lokales Modell) – ausgesetzt, „etwas für später“ (Tobi, 2026-10-14).
 8. Optional: `cargo xtask mutants` (5.1).
+9. Kleinigkeiten (notiert 2026-10-15): „Datei existiert schon“ als eigene Fehlerart statt `io`;
+   Git-Hook, der eine geänderte, nicht vorgemerkte `Cargo.lock` abweist (zweimal rote CI);
+   Hinweis bei Fristen auf Wochenende/Feiertag (ohne die Rechnung zu ändern) – Tobi entscheidet,
+   siehe 4.13.
 
 ### 3.1 Review-Befunde Phase 5 – behoben (2026-10-14)
 
@@ -125,6 +131,7 @@ Meilenstein wird unhaltbar.
 | 4.9 | **Wiederherstellungskopien von VS-Dateien** liegen (verschlüsselt) in einem Systemordner, den IT-Sicherheit kaum im Blick hat. Autosave bei VS aus, oder Kopie neben der Datei? | Für VS: Kopie im Ordner der Datei | vor echtem VS-Einsatz |
 | 4.10 | **Wer testet außer Tobi**, mit welchem realistischen (erfundenen) Vorgang? | Eine Person aus der Abteilung, SKA-Ablauf | vor 3b-3 |
 | 4.12 | ~~Erledigte Aufgaben im Zeitplan~~ **entschieden (Tobi, 2026-10-14):** fest wie Meilensteine, nicht kritisch, keine Warnungen über sie | – | umgesetzt |
+| 4.13 | **Fristen auf Wochenende/Feiertag**: Seit „jeder Tag zählt“ setzen Schub und `move_task` Termine auch auf Samstag/Sonntag. Für Einsatzvorhaben richtig, für Verwaltungsfristen (SKA, Senatskanzlei) evtl. falsch. Nur Hinweis anzeigen, Kalender je Projekt wählbar machen (Hamburg-Kalender liegt bereit) oder so lassen? | Erst im Realitätstest beobachten | nach 4.10 |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte
