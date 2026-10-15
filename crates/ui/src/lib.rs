@@ -812,7 +812,7 @@ impl PlnwrkApp {
             task,
             start,
             due,
-            plnwrk_schedule::Calendar::hamburg(),
+            plnwrk_schedule::Calendar::standard(),
         ) else {
             return false;
         };

@@ -100,7 +100,8 @@ pub(crate) fn search_words(query: &str) -> Vec<String> {
         .collect()
 }
 
-/// Commands matching the words of `query` in id, summary or parameter names, best first.
+/// Commands matching the words of `query` in id, summary, parameter names or their help,
+/// best first; if some match every word, only those.
 pub fn search(query: &str) -> Vec<&'static CommandSpec> {
     let words = search_words(query);
     let mut scored: Vec<(usize, &'static CommandSpec)> = REGISTRY
@@ -112,7 +113,7 @@ pub fn search(query: &str) -> Vec<&'static CommandSpec> {
                 spec.summary.to_lowercase(),
                 spec.params
                     .iter()
-                    .map(|p| p.name)
+                    .map(|p| format!("{} {}", p.name, p.help.to_lowercase()))
                     .collect::<Vec<_>>()
                     .join(" ")
             );
@@ -126,6 +127,11 @@ pub fn search(query: &str) -> Vec<&'static CommandSpec> {
             (score > 0).then_some((score, spec))
         })
         .collect();
+    // Commands that match every word, if there are any: only those.
+    let all = words.len();
+    if scored.iter().any(|(score, _)| *score >= all) {
+        scored.retain(|(score, _)| *score >= all);
+    }
     scored.sort_by(|(a, x), (b, y)| b.cmp(a).then(x.id.cmp(y.id)));
     scored.into_iter().map(|(_, spec)| spec).collect()
 }
@@ -176,6 +182,16 @@ mod tests {
         let milestone = search("milestone");
         assert!(milestone.iter().any(|s| s.id == "task.create"));
         assert!(milestone.iter().all(|s| !s.id.starts_with("milestone.")));
+        // Found by what a parameter means, not only by its name ("due" is the deadline).
+        let ids: Vec<&str> = search("deadline").iter().map(|s| s.id).collect();
+        assert!(
+            ids.contains(&"task.update") && ids.contains(&"task.create"),
+            "{ids:?}"
+        );
+        // Several words narrow the search ("task" alone is in most commands).
+        let narrowed: Vec<&str> = search("task create").iter().map(|s| s.id).collect();
+        assert!(narrowed.contains(&"task.create"), "{narrowed:?}");
+        assert!(narrowed.len() < search("task").len(), "{narrowed:?}");
         assert!(search("").is_empty());
         assert!(search("zzzzz").is_empty());
     }

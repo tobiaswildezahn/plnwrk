@@ -22,7 +22,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
 | 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **fertig**, Review + 3 Nachprüfungen | [#8](https://github.com/tobiaswildezahn/plnwrk/pull/8) |
-| 5 Zeitplanung (Arbeitstage Hamburg, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
+| 5 Zeitplanung (jeder Tag zählt, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
 | 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10) |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
@@ -154,14 +154,15 @@ Meilenstein wird unhaltbar.
   öffnet noch nichts (Apple Event). Uhrzeiten werden intern
   als `HH:MM:SS` gespeichert (Eingabe `HH:MM`). Frist „00:00“ liest sich am Vorabend als
   „morgen fällig“.
-- **Zeitplan:** Nachfolger rutschen bei jeder Terminänderung in der Oberfläche mit (Detailbereich,
-  auch beim Speichern/Schließen mit getipptem Termin, und Ziehen) – nicht bei `task.update` über
-  CLI/MCP (dort `task.reschedule` mit selbst berechneten Schüben). Ein Termin auf Wochenende
-  oder Feiertag zählt als der Arbeitstag, für den er steht (Ende Sonntag = Freitag, Beginn
-  Samstag = Montag; ganz auf freien Tagen = Arbeitstag vor der Frist, bei nur einem Beginn der
-  danach). Ein Schritt über Jahrtausende (Aufgabe 0001–9999) dauert ≈ 0,25 s. Erledigte Aufgaben stehen fest
-  (4.12). Mehr als 1000 Schübe in einem Schritt werden mit Meldung abgelehnt. Eine neue Abhängigkeit verschiebt nichts,
-  sondern wird gewarnt, falls sie nicht passt. Kalender fest Hamburg (Mo–Fr ohne Feiertage);
+- **Zeitplan:** Gerechnet wird mit **jedem Tag** (Entscheidung 2026-10-15: Gefahrenabwehr
+  arbeitet auch am Wochenende und an Feiertagen; eine Woche = 7 Tage). Der Gantt hinterlegt
+  Wochenenden und Hamburger Feiertage nur zur Orientierung; der Hamburg-Kalender (Mo–Fr) steht
+  in `plnwrk-schedule` für eine spätere Wahl je Projekt bereit. Nachfolger rutschen bei jeder
+  Terminänderung in der Oberfläche und über MCP (`task.update`, `move_task`) mit – nicht bei
+  `task.update` über die CLI (dort `task.reschedule` mit selbst berechneten Schüben). Erledigte
+  Aufgaben stehen fest (4.12). Mehr als 1000 Schübe in einem Schritt werden mit Meldung
+  abgelehnt. Eine neue Abhängigkeit verschiebt nichts, sondern wird gewarnt, falls sie nicht
+  passt.
   Oberaufgaben fassen ihre Unteraufgaben nicht zusammen; in der Oberfläche nur „Ende →
   Anfang“ anlegbar (die anderen Arten über CLI). Der Zeitplan zeigt höchstens 800 Tage: alles,
   wenn es passt, sonst ab der frühesten offenen Aufgabe (heute bleibt sichtbar).

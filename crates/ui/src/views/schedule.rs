@@ -59,7 +59,7 @@ fn worked(ui: &egui::Ui, doc: &OpenDoc, project: &Project) -> Arc<Worked> {
     {
         return kept;
     }
-    let plan = Plan::of(doc.session.workspace(), project.id, Calendar::hamburg());
+    let plan = Plan::of(doc.session.workspace(), project.id, Calendar::standard());
     let analysis = plan.analyse();
     let fresh = Arc::new(Worked {
         key,
@@ -156,7 +156,8 @@ pub fn show(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
-    let calendar = Calendar::hamburg();
+    // Only to show weekends and holidays; plnwrk counts every day (Calendar::standard).
+    let office = Calendar::hamburg();
     let worked = worked(ui, doc, project);
     let (plan, analysis) = (&worked.plan, &worked.analysis);
     let today = doc.session.clock().today();
@@ -226,7 +227,7 @@ pub fn show(
         for n in 0..days {
             let day = plus(first, n);
             let x = x_of(day);
-            if !calendar.is_working(day) {
+            if !office.is_working(day) {
                 painter.rect_filled(
                     Rect::from_min_max(pos2(x, area.top() + HEADER), pos2(x + DAY, area.bottom())),
                     0.0,

@@ -197,7 +197,13 @@ fn the_tools_are_listed_with_schemas() {
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert_eq!(
         names,
-        ["overview", "query", "search_commands", "run_command"]
+        [
+            "overview",
+            "query",
+            "search_commands",
+            "run_command",
+            "move_task"
+        ]
     );
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
@@ -302,7 +308,11 @@ fn a_later_deadline_moves_what_waits_and_one_undo_takes_it_back() {
             "12:00".parse().ok()
         )
     );
-    assert_eq!(dates(&stored, second).0, "2026-11-09", "moved to Monday");
+    assert_eq!(
+        dates(&stored, second).0,
+        "2026-11-07",
+        "the day after, a Saturday: every day counts"
+    );
     assert_eq!(
         stored.workspace().task(first).unwrap().title,
         "Leitstelle anbinden (verlängert)"
@@ -585,6 +595,139 @@ fn a_push_too_big_is_refused_before_anything_runs() {
 }
 
 #[test]
+fn answers_say_what_changed_and_what_undo_took_back() {
+    let (path, _, _) = sample("answers");
+    let project = open(&path).workspace().projects().next().unwrap().id;
+    let mut server = Server::new();
+    let (answer, error) = tool_on(
+        &mut server,
+        "run_command",
+        json!({"file": s(&path), "command": "task.create",
+               "params": {"project": project.to_string(), "title": "Funkprobe Wache 12", "due": "2026-11-20"}}),
+    );
+    assert!(!error, "{answer}");
+    let touched = &answer["steps"][0]["touched"][0];
+    assert_eq!(touched["created"], "task");
+    assert_eq!(touched["title"], "Funkprobe Wache 12");
+    assert_eq!(touched["due"], "2026-11-20");
+    let (answer, error) = tool_on(
+        &mut server,
+        "run_command",
+        json!({"file": s(&path), "command": "undo"}),
+    );
+    assert!(!error, "{answer}");
+    assert_eq!(answer["steps"][0]["takes_back"]["command"], "task.create");
+    assert_eq!(answer["steps"][0]["touched"][0]["removed"], "task");
+    assert_eq!(
+        answer["steps"][0]["touched"][0]["title"],
+        "Funkprobe Wache 12"
+    );
+    let (answer, _) = tool_on(
+        &mut server,
+        "run_command",
+        json!({"file": s(&path), "command": "redo"}),
+    );
+    assert_eq!(answer["steps"][0]["repeats"]["command"], "task.create");
+}
+
+#[test]
+fn a_task_moves_by_days_and_takes_what_waits_along() {
+    let (path, first, second) = sample("move");
+    // A deadline with a time keeps it.
+    let mut s_ = open(&path);
+    s_.run(
+        "task.update",
+        &json!({"task": first.to_string(), "due": "2026-11-04T14:00"}),
+        Origin::User,
+    )
+    .unwrap();
+    write(&path, &s_, &Protection::None);
+    let mut server = Server::new();
+    let (answer, error) = tool_on(
+        &mut server,
+        "move_task",
+        json!({"file": s(&path), "task": first.to_string(), "days": 7}),
+    );
+    assert!(!error, "{answer}");
+    assert_eq!(answer["steps"].as_array().unwrap().len(), 1, "one step");
+    assert_eq!(answer["steps"][0]["moved_along"], 1);
+    let stored = open(&path);
+    let t = stored.workspace().task(first).unwrap();
+    assert_eq!(
+        t.start.unwrap().to_string(),
+        "2026-11-09",
+        "a week is seven days"
+    );
+    assert_eq!(t.due.unwrap().to_string(), "2026-11-11");
+    assert_eq!(t.due_time, "14:00".parse().ok());
+    assert_eq!(
+        stored
+            .workspace()
+            .task(second)
+            .unwrap()
+            .start
+            .unwrap()
+            .to_string(),
+        "2026-11-12"
+    );
+    // Back by a week: the successor stays (nothing is pulled earlier).
+    let (_, error) = tool_on(
+        &mut server,
+        "move_task",
+        json!({"file": s(&path), "task": first.to_string(), "days": -7}),
+    );
+    assert!(!error);
+    let stored = open(&path);
+    assert_eq!(
+        stored
+            .workspace()
+            .task(first)
+            .unwrap()
+            .start
+            .unwrap()
+            .to_string(),
+        "2026-11-02"
+    );
+    assert_eq!(
+        stored
+            .workspace()
+            .task(second)
+            .unwrap()
+            .start
+            .unwrap()
+            .to_string(),
+        "2026-11-12"
+    );
+    // A task without dates, a bad number: said plainly, nothing changed.
+    let undated = open(&path)
+        .workspace()
+        .tasks()
+        .find(|t| t.start.is_none() && t.due.is_none())
+        .unwrap()
+        .id;
+    let before = std::fs::read(&path).unwrap();
+    let (reason, error) = tool_on(
+        &mut server,
+        "move_task",
+        json!({"file": s(&path), "task": undated.to_string(), "days": 7}),
+    );
+    assert!(
+        error && reason.as_str().unwrap().contains("no dates"),
+        "{reason}"
+    );
+    let (reason, error) = tool_on(
+        &mut server,
+        "move_task",
+        json!({"file": s(&path), "task": first.to_string(), "days": 99999}),
+    );
+    assert!(
+        error && reason.as_str().unwrap().contains("days"),
+        "{reason}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
 fn undo_does_not_reach_over_a_change_made_elsewhere() {
     let (path, first, _) = sample("elsewhere");
     let mut server = Server::new();
@@ -768,6 +911,7 @@ fn junk_arguments_never_break_the_server() {
         "query",
         "search_commands",
         "run_command",
+        "move_task",
         "nope",
     ] {
         for a in &junk {
@@ -777,8 +921,13 @@ fn junk_arguments_never_break_the_server() {
                     json!({"file": file, "name": a, "params": b}),
                     json!({"file": file, "command": a, "params": b}),
                     json!({"words": a}),
+                    json!({"file": file, "task": a, "days": b}),
                     json!({"file": file, "extra": a}),
                 ];
+                // A whole number of days is a real move, not junk.
+                if !a.is_i64() {
+                    calls.push(json!({"file": file, "task": first.to_string(), "days": a}));
+                }
                 // null would clear the dates: a real change, not junk.
                 if !a.is_null() && !b.is_null() {
                     calls.push(json!({"file": file, "command": "task.update",

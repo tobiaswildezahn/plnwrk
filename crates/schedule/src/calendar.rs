@@ -1,5 +1,7 @@
-//! Working days: Monday to Friday without public holidays. The holidays are those of Hamburg
-//! (decision 2026-10-14); other states or shift work can follow as further calendars.
+//! Working days. plnwrk counts **every day** (decision 2026-10-15: in public safety work goes on
+//! at weekends and on holidays; a week is seven days) – [`Calendar::standard`]. The calendar of
+//! Hamburg offices (Monday to Friday without public holidays) stays for showing days off and
+//! for a later choice per project.
 
 use jiff::civil::{Date, Weekday};
 
@@ -10,10 +12,13 @@ pub struct Calendar {
     region: Region,
 }
 
-/// Whose public holidays count.
+/// Which days are worked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Region {
+    /// Monday to Friday without the public holidays of Hamburg.
     Hamburg,
+    /// Every day, weekends and holidays too.
+    EveryDay,
 }
 
 /// Easter Sunday of a year (Gregorian; Meeus/Jones/Butcher).
@@ -47,6 +52,18 @@ fn plus(date: Date, days: i32) -> Date {
 }
 
 impl Calendar {
+    /// The calendar plnwrk counts with: every day (see the module documentation).
+    pub const fn standard() -> Self {
+        Self::every_day()
+    }
+
+    /// Every day is a working day, weekends and public holidays too (around the clock).
+    pub const fn every_day() -> Self {
+        Self {
+            region: Region::EveryDay,
+        }
+    }
+
     /// Working days in Hamburg: Monday to Friday without the public holidays there (New Year,
     /// Good Friday, Easter Monday, 1 May, Ascension, Whit Monday, 3 October, Reformation Day
     /// since 2017, Christmas Day and Boxing Day).
@@ -74,6 +91,7 @@ impl Calendar {
             }
         };
         match self.region {
+            Region::EveryDay => {}
             Region::Hamburg => {
                 [(1, 1), (5, 1), (10, 3), (12, 25), (12, 26)]
                     .into_iter()
@@ -109,6 +127,9 @@ impl Calendar {
 
     /// Whether people work on `date`.
     pub fn is_working(&self, date: Date) -> bool {
+        if self.region == Region::EveryDay {
+            return true;
+        }
         !matches!(date.weekday(), Weekday::Saturday | Weekday::Sunday) && !self.is_holiday(date)
     }
 
@@ -176,6 +197,9 @@ impl Calendar {
         if days == 0 {
             return from;
         }
+        if self.region == Region::EveryDay {
+            return plus(from, days);
+        }
         // Working days in the range, both ends included, that the result must reach.
         let need = days.unsigned_abs().saturating_add(1);
         // Never fewer than 4 working days a week: twice the days plus a fortnight is enough.
@@ -233,6 +257,9 @@ impl Calendar {
             .until(end)
             .map_or(0, |span| span.get_days())
             .saturating_add(1);
+        if self.region == Region::EveryDay {
+            return total;
+        }
         let weekday = |d: Date| !matches!(d.weekday(), Weekday::Saturday | Weekday::Sunday);
         let weeks = total / 7;
         let mut n = weeks.saturating_mul(5);
@@ -376,6 +403,27 @@ mod tests {
             "{:?}",
             start.elapsed()
         );
+    }
+
+    #[test]
+    fn every_day_counts_weekends_and_holidays_too() {
+        let all = Calendar::every_day();
+        assert_eq!(Calendar::standard(), all, "decision 2026-10-15");
+        // Friday 2026-10-16 + 1 → Saturday; Christmas is a day like any other.
+        assert_eq!(all.add(d("2026-10-16"), 1), d("2026-10-17"));
+        assert_eq!(all.add(d("2026-12-24"), 1), d("2026-12-25"));
+        assert_eq!(all.add(d("2026-10-19"), -2), d("2026-10-17"));
+        assert_eq!(all.after_end(d("2026-10-18"), 1), d("2026-10-19"));
+        assert_eq!(
+            all.count(d("2026-10-12"), d("2026-10-18")),
+            7,
+            "a week is seven days"
+        );
+        assert_eq!(all.between(d("2026-10-16"), d("2026-10-23")), 7);
+        assert!(all.holidays(2026).is_empty());
+        assert!(all.is_working(d("2026-10-03")));
+        let _ = all.add(Date::MAX, 10);
+        let _ = all.add(Date::MIN, -10);
     }
 
     #[test]

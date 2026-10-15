@@ -3070,7 +3070,7 @@ fn a_later_deadline_moves_what_waits_in_one_step() {
             .dependencies()
             .any(|d| d.from == first && d.to == second)
     );
-    // The first now ends on Friday: the second starts Monday, still two days long.
+    // The first now ends on Friday: the second starts Saturday (every day counts), still two days long.
     // The list comes first (the detail panel names it too, under "Wartet auf").
     harness
         .get_all_by_label("Ausschreibung")
@@ -3092,7 +3092,7 @@ fn a_later_deadline_moves_what_waits_in_one_step() {
     );
     assert_eq!(
         day(&harness, second),
-        ("2026-10-19".into(), "2026-10-20".into())
+        ("2026-10-17".into(), "2026-10-18".into())
     );
     assert_eq!(
         harness.state().state.message.clone().unwrap().text,
@@ -3131,7 +3131,7 @@ fn a_deadline_typed_and_left_by_saving_moves_what_waits_too() {
         (t.start.unwrap().to_string(), t.due.unwrap().to_string())
     };
     assert_eq!(dates(first), ("2026-10-12".into(), "2026-10-16".into()));
-    assert_eq!(dates(second), ("2026-10-19".into(), "2026-10-20".into()));
+    assert_eq!(dates(second), ("2026-10-17".into(), "2026-10-18".into()));
 }
 
 #[test]
@@ -3305,7 +3305,7 @@ fn a_push_too_big_for_one_step_is_refused_plainly() {
 fn the_drag_preview_names_the_working_days_it_will_land_on() {
     let (mut harness, first, _) = two_dated_tasks();
     click(&mut harness, text::t().schedule_tab);
-    // Mon 12 – Wed 14, dragged four days on: Friday 16th, so it lands Fri 16 – Tue 20.
+    // Mon 12 – Wed 14, dragged four days on: Friday 16th, so it lands Fri 16 – Sun 18 (every day counts).
     let from = bar(&harness, "Ausschreibung").center();
     let to = from + egui::vec2(4.0 * 22.0, 0.0);
     harness.drag_at(from);
@@ -3316,7 +3316,7 @@ fn the_drag_preview_names_the_working_days_it_will_land_on() {
     harness.run_steps(2);
     assert!(
         harness
-            .query_by_label("Ausschreibung: 16.10.2026 – 20.10.2026")
+            .query_by_label("Ausschreibung: 16.10.2026 – 18.10.2026")
             .is_some()
     );
     harness.drop_at(to);
@@ -3325,7 +3325,7 @@ fn the_drag_preview_names_the_working_days_it_will_land_on() {
     let t = ws.task(first).unwrap();
     assert_eq!(
         (t.start.unwrap().to_string(), t.due.unwrap().to_string()),
-        ("2026-10-16".into(), "2026-10-20".into()),
+        ("2026-10-16".into(), "2026-10-18".into()),
         "lands where the preview showed"
     );
 }
@@ -3459,7 +3459,7 @@ fn the_schedule_shows_bars_and_dragging_moves_what_waits() {
         (t.start.unwrap().to_string(), t.due.unwrap().to_string())
     };
     assert_eq!(day(first), ("2026-10-14".into(), "2026-10-16".into()));
-    assert_eq!(day(second), ("2026-10-19".into(), "2026-10-20".into()));
+    assert_eq!(day(second), ("2026-10-17".into(), "2026-10-18".into()));
     harness
         .state_mut()
         .apply(crate::Intent::run("undo", serde_json::json!({})));

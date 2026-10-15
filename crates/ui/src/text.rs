@@ -800,13 +800,13 @@ pub fn week(number: i8) -> String {
     pick(format!("KW {number}"), format!("CW {number}"))
 }
 
-/// "Puffer: 3 Arbeitstage".
+/// "Puffer: 3 Tage".
 pub fn float(days: i32) -> String {
     match (language(), days) {
-        (Language::German, 1) => "Puffer: 1 Arbeitstag".to_owned(),
-        (Language::German, n) => format!("Puffer: {n} Arbeitstage"),
-        (Language::English, 1) => "Float: 1 working day".to_owned(),
-        (Language::English, n) => format!("Float: {n} working days"),
+        (Language::German, 1) => "Puffer: 1 Tag".to_owned(),
+        (Language::German, n) => format!("Puffer: {n} Tage"),
+        (Language::English, 1) => "Float: 1 day".to_owned(),
+        (Language::English, n) => format!("Float: {n} days"),
     }
 }
 

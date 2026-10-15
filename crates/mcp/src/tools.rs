@@ -2,10 +2,10 @@
 //! run one. Every tool names its file; every change is saved at once, is one undo step (two,
 //! when dates and other fields of a task change together) and is marked as made by an AI.
 
-use plnwrk_core::TaskId;
+use plnwrk_core::{Entity, TaskId};
 use plnwrk_engine::params::{self, MOVES_MAX};
 use plnwrk_engine::query::query_registry;
-use plnwrk_engine::{CommandSpec, Origin, Session, registry, search};
+use plnwrk_engine::{CommandSpec, Event, Origin, Session, registry, search};
 use plnwrk_schedule::{Calendar, Reschedule};
 use serde_json::{Map, Value, json};
 
@@ -74,7 +74,7 @@ pub fn list() -> Value {
         {
             "name": "run_command",
             "title": "Change a plnwrk file",
-            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (Hamburg working days), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD.",
+            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (every calendar day counts, weekends and holidays too), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -86,6 +86,22 @@ pub fn list() -> Value {
                 "additionalProperties": false
             },
             "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false}
+        },
+        {
+            "name": "move_task",
+            "title": "Move a task by days",
+            "description": "Moves a task's start and deadline by a number of days (negative: earlier), keeping its length and the time of its deadline; every day counts, a week is 7 days. What waits for it moves along in the same step, as with task.update. Saved at once; one undo step.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file": file,
+                    "task": {"type": "string", "description": "Id of the task (from overview or a query)."},
+                    "days": {"type": "integer", "minimum": -3650, "maximum": 3650, "description": "Days to move by, e.g. 7 for a week."}
+                },
+                "required": ["file", "task", "days"],
+                "additionalProperties": false
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false}
         }
     ])
 }
@@ -97,6 +113,7 @@ pub fn call(name: &str, arguments: &Map<String, Value>, kept: &mut Kept) -> Answ
         "query" => &["file", "name", "params"],
         "search_commands" => &["words"],
         "run_command" => &["file", "command", "params"],
+        "move_task" => &["file", "task", "days"],
         _ => return Err(format!("There is no tool {name:?}.")),
     };
     if let Some(unknown) = arguments.keys().find(|k| !allowed.contains(&k.as_str())) {
@@ -129,6 +146,7 @@ pub fn call(name: &str, arguments: &Map<String, Value>, kept: &mut Kept) -> Answ
                     .collect::<Vec<_>>(),
             ))
         }
+        "move_task" => move_task(arguments, kept),
         _ => run(arguments, kept),
     }
 }
@@ -179,17 +197,70 @@ fn run(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
     if params::asks_for_classified(&params) {
         return Err(Refusal::ClassifiedCommand.message());
     }
+    change(arguments, kept, |session| {
+        if command == "task.update" {
+            update_task(session, params)
+        } else {
+            step(session, &command, &params).map(|outcome| vec![outcome])
+        }
+    })
+}
+
+/// Moves a task by whole days (start and deadline, the time of day kept); what waits for it
+/// moves along as with any date change.
+fn move_task(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
+    let task = arguments
+        .get("task")
+        .ok_or("task is missing.")
+        .and_then(|v| params::id::<TaskId>("task", v).map_err(|_| "task is not a task id."))?;
+    let days = match arguments.get("days") {
+        Some(value) => params::integer("days", value, -3650, 3650)
+            .map_err(|_| "days must be a whole number from -3650 to 3650.".to_owned())?,
+        None => return Err("days is missing.".to_owned()),
+    };
+    change(arguments, kept, |session| {
+        let Some(current) = session.workspace().task(task).cloned() else {
+            return Err(format!("There is no task {task}."));
+        };
+        if current.start.is_none() && current.due.is_none() {
+            return Err(format!(
+                "{:?} has no dates to move; give it a start or due with task.update.",
+                current.title
+            ));
+        }
+        let shift = |date: jiff::civil::Date| {
+            date.checked_add(jiff::Span::new().days(days))
+                .map_err(|_| "The new date lies beyond the calendar.".to_owned())
+        };
+        let mut fields = Map::new();
+        fields.insert("task".to_owned(), Value::String(task.to_string()));
+        if let Some(start) = current.start {
+            fields.insert("start".to_owned(), Value::String(shift(start)?.to_string()));
+        }
+        if let Some(due) = current.due {
+            let day = shift(due)?.to_string();
+            let due = match current.due_time {
+                Some(t) => format!("{day}T{:02}:{:02}", t.hour(), t.minute()),
+                None => day,
+            };
+            fields.insert("due".to_owned(), Value::String(due));
+        }
+        update_task(session, Value::Object(fields))
+    })
+}
+
+/// Opens the named file for a change, runs `act` on its session and saves it if anything
+/// changed. A refusal leaves the file as it was and keeps what can be undone.
+fn change(
+    arguments: &Map<String, Value>,
+    kept: &mut Kept,
+    act: impl FnOnce(&mut Session) -> Result<Vec<Value>, String>,
+) -> Answer {
     let path = files::path(&text(arguments, "file")?).map_err(|r| r.message())?;
     let mut file = Changing::open(&path, kept).map_err(|r| r.message())?;
     let upgraded = file.opened.upgraded;
-    let session = &mut file.opened.session;
-    let logged = session.log().len();
-    let result = if command == "task.update" {
-        update_task(session, params)
-    } else {
-        step(session, &command, &params).map(|outcome| vec![outcome])
-    };
-    let steps = match result {
+    let logged = file.opened.session.log().len();
+    let steps = match act(&mut file.opened.session) {
         Ok(steps) => steps,
         Err(reason) => {
             // Refused as a whole: the session is as it was and keeps its undo steps. A
@@ -222,7 +293,65 @@ fn step(session: &mut Session, command: &str, params: &Value) -> Answer {
     let outcome = session
         .run(command, params, Origin::Assistant)
         .map_err(error)?;
-    serde_json::to_value(outcome).map_err(|e| e.to_string())
+    let mut answer = serde_json::to_value(&outcome).map_err(|e| e.to_string())?;
+    if let (Some(seq), Some(fields)) = (outcome.change, answer.as_object_mut()) {
+        describe(session, seq, fields);
+    }
+    Ok(answer)
+}
+
+/// Adds to an answer what change `seq` did, so the model can tell the person exactly: every
+/// entity it touched (as it is afterwards, or as it was if removed) and, for undo and redo,
+/// which step it took back or repeated.
+fn describe(session: &Session, seq: u64, answer: &mut Map<String, Value>) {
+    let log = session.log();
+    let Some(change) = log.iter().rev().find(|c| c.seq == seq) else {
+        return;
+    };
+    let touched: Vec<Value> = change
+        .events
+        .iter()
+        .map(|event| match event {
+            Event::Put { before, after } => entity(
+                after,
+                if before.is_none() {
+                    "created"
+                } else {
+                    "changed"
+                },
+            ),
+            Event::Remove { before } => entity(before, "removed"),
+        })
+        .collect();
+    answer.insert("touched".to_owned(), Value::from(touched));
+    let other = |n: u64| {
+        log.iter()
+            .find(|c| c.seq == n)
+            .map(|c| json!({"change": n, "command": c.command}))
+    };
+    if let Some(back) = change.undoes.and_then(other) {
+        answer.insert("takes_back".to_owned(), back);
+    }
+    if let Some(again) = change.redoes.and_then(other) {
+        answer.insert("repeats".to_owned(), again);
+    }
+}
+
+/// One touched entity, briefly.
+fn entity(entity: &Entity, what: &str) -> Value {
+    match entity {
+        Entity::Task(t) => json!({
+            what: "task", "id": t.id, "title": t.title, "start": t.start, "due": t.due,
+            "due_time": t.due_time, "status": t.status, "milestone": t.milestone,
+        }),
+        Entity::Project(p) => json!({what: "project", "id": p.id, "title": p.title}),
+        Entity::Milestone(m) => json!({what: "milestone", "id": m.id, "title": m.title}),
+        Entity::Dependency(d) => {
+            json!({what: "dependency", "id": d.id, "from": d.from, "to": d.to})
+        }
+        Entity::Person(p) => json!({what: "person", "id": p.id, "name": p.name}),
+        Entity::Comment(c) => json!({what: "comment", "id": c.id, "task": c.task}),
+    }
 }
 
 /// `task.update` with new dates: whatever waits for the task moves along, as in the app.
@@ -265,7 +394,7 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         return plain(session, &params).map(|steps| with_along(steps, 0));
     }
     let Some(reschedule) =
-        Reschedule::of(session.workspace(), task, start, day, Calendar::hamburg())
+        Reschedule::of(session.workspace(), task, start, day, Calendar::standard())
     else {
         return plain(session, &params);
     };
@@ -291,7 +420,7 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         task,
         now.start,
         now.due,
-        Calendar::hamburg(),
+        Calendar::standard(),
     ) else {
         return Ok(with_along(steps, 0));
     };
