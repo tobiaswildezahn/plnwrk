@@ -1,8 +1,8 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14 abends:
-> Phase 5 (Zeitplanung) gemergt, Phase 6a (MCP-Server) in Arbeit** (Branch `phase-6a`);
-> 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Phase 6a (MCP-Server) gemergt, Repository öffentlich** (2026-10-15); 6b (Assistent in
+> der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -23,7 +23,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
 | 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **fertig**, Review + 3 Nachprüfungen | [#8](https://github.com/tobiaswildezahn/plnwrk/pull/8) |
 | 5 Zeitplanung (Arbeitstage Hamburg, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
-| 6 KI (MCP, Assistent) | 6a MCP-Server in Arbeit; 6b ausgesetzt (Tobi) | – |
+| 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10) |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
 
@@ -70,10 +70,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Phase 6a – MCP-Server** (Plan `docs/plans/2026-10-14-phase-6a.md`, Anleitung
-   `docs/mcp.md`): umgesetzt, Review und Nachreview eingearbeitet; PR offen, Merge nach Tobis
-   „ja, merge“. Danach: Tobi richtet den Server in Claude Code ein (`docs/mcp.md`) und probiert
-   ihn an einer Testdatei.
+0. **Tobi probiert den MCP-Server** an `~/Desktop/test.plnwrk` / `test2.plnwrk` in einer neuen
+   Claude-Code-Sitzung (eingerichtet, `docs/mcp.md`). Wichtigste Frage: Kommt Claude ohne
+   Umwege mit den Werkzeugen zurecht? Nach jedem Update: `cargo install --path apps/plnwrk-cli
+   --locked`. Kleinigkeit notiert: „Datei existiert schon“ als eigene Fehlerart statt `io`.
 1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
@@ -118,7 +118,7 @@ Meilenstein wird unhaltbar.
 | 4.2 | **Herabstufung**: Wer darf eine Datei herabstufen, braucht es vier Augen? Herabstufung erzeugt eine neue Datei ohne Geschichte. | Eigener, protokollierter Vorgang mit Begründung; Vier-Augen-Prinzip | vor Phase 7 |
 | 4.3 | **Passphrase vergessen = Daten verloren.** Hinterlegung oder zweiter Schlüssel (age kann mehrere Empfänger)? Wer entscheidet in der Organisation? | Zweiter Empfänger (Behördenschlüssel) als Option | vor echtem VS-Einsatz |
 | 4.4 | ~~Tempo vs. VS-Niveau in Phase 3~~ **entschieden:** früh zeigbar, VS später | – | erledigt |
-| 4.5 | **Lizenz**: Apache-2.0 (wie RustGIS) oder EUPL-1.2 (öffentliche Hand, openCode)? | EUPL-1.2 prüfen | vor Phase 8 |
+| 4.5 | ~~Lizenz~~ **faktisch entschieden (2026-10-15):** mit dem Veröffentlichen gilt Apache-2.0 (LICENSE); EUPL bliebe für spätere Versionen möglich | – | erledigt |
 | 4.6 | ~~KI früher?~~ **entschieden (Tobi, 2026-10-14):** MCP-Server jetzt (6a), Assistent in der App ausgesetzt (6b) | – | umgesetzt mit 6a |
 | 4.7 | **Identität im Protokoll**: „Ich arbeite als“ ist frei wählbar, nicht nachgewiesen – der Verlauf wirkt wie ein Nachweis, ist aber keiner. Signatur (Dienstausweis, Schlüsseldatei)? Bis dahin in der App kennzeichnen? | Klären vor Phase 7; Hinweis in der App erwägen | vor Phase 7 |
 | 4.8 | **VS-NfD ohne Passphrase**: Beim Anlegen eines VS-NfD-Projekts sofort zum Schützen zwingen? Heute lässt sich unverschlüsselt weiterarbeiten; Speichern und Autosave scheitern dann (Statuszeile rot). | Beim Einstufen direkt den Schutz-Dialog öffnen | vor Phase 7 |
