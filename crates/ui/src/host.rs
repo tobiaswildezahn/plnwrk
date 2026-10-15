@@ -30,6 +30,12 @@ pub trait Host {
     /// Asks where to save, suggesting a file name; `None` if cancelled.
     fn pick_save(&mut self, suggested_name: &str) -> Option<PathBuf>;
 
+    /// Asks where to save an export (e.g. a table), suggesting a name with this extension
+    /// (`csv`); `None` if cancelled or not offered.
+    fn pick_export(&mut self, _suggested_name: &str, _extension: &str) -> Option<PathBuf> {
+        None
+    }
+
     /// Whether files are uploaded and downloaded (the browser) instead of having paths.
     fn browser(&self) -> bool {
         false
@@ -100,6 +106,7 @@ impl Host for NoDialogs {
 pub struct Scripted {
     pub open: Vec<PathBuf>,
     pub save: Vec<PathBuf>,
+    pub export: Vec<PathBuf>,
 }
 
 #[cfg(test)]
@@ -110,6 +117,10 @@ impl Host for Scripted {
 
     fn pick_save(&mut self, _suggested_name: &str) -> Option<PathBuf> {
         (!self.save.is_empty()).then(|| self.save.remove(0))
+    }
+
+    fn pick_export(&mut self, _suggested_name: &str, _extension: &str) -> Option<PathBuf> {
+        (!self.export.is_empty()).then(|| self.export.remove(0))
     }
 }
 

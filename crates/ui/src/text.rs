@@ -145,6 +145,11 @@ pub struct Texts {
     pub delete_task_question: &'static str,
     pub close_subtasks_title: &'static str,
     pub zoom_in: &'static str,
+    /// "ja" in tables (critical, milestone).
+    pub yes: &'static str,
+    pub export_schedule: &'static str,
+    pub exported: &'static str,
+    pub export_failed: &'static str,
     pub zoom_out: &'static str,
     pub close_all_subtasks: &'static str,
     pub only_this_task: &'static str,
@@ -337,6 +342,10 @@ pub static DE: Texts = Texts {
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
     close_subtasks_title: "Unteraufgaben auch erledigen?",
     zoom_in: "Vergrößern",
+    yes: "ja",
+    export_schedule: "Als Tabelle exportieren (Excel)",
+    exported: "Exportiert:",
+    export_failed: "Export fehlgeschlagen:",
     zoom_out: "Verkleinern",
     close_all_subtasks: "Alle erledigen",
     only_this_task: "Nur die Hauptaufgabe",
@@ -535,6 +544,10 @@ pub static EN: Texts = Texts {
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
     close_subtasks_title: "Close the subtasks too?",
     zoom_in: "Zoom in",
+    yes: "yes",
+    export_schedule: "Export as table (Excel)",
+    exported: "Exported:",
+    export_failed: "Export failed:",
     zoom_out: "Zoom out",
     close_all_subtasks: "Close them all",
     only_this_task: "Only this task",
@@ -789,6 +802,44 @@ pub fn overdue_tasks(count: usize) -> String {
 }
 
 /// A push larger than one step can take, refused.
+/// The columns of the schedule table (CSV export).
+pub fn schedule_csv_header() -> [&'static str; 14] {
+    pick(
+        [
+            "Aufgabe",
+            "Ebene",
+            "Oberaufgabe",
+            "Status",
+            "Zuständig",
+            "Beginn",
+            "Frist",
+            "Uhrzeit",
+            "Dauer (Tage)",
+            "Puffer (Tage)",
+            "Kritisch",
+            "Meilenstein",
+            "Wartet auf",
+            "Fortschritt (%)",
+        ],
+        [
+            "Task",
+            "Level",
+            "Parent",
+            "Status",
+            "Assigned to",
+            "Start",
+            "Due",
+            "Time",
+            "Length (days)",
+            "Float (days)",
+            "Critical",
+            "Milestone",
+            "Waits for",
+            "Progress (%)",
+        ],
+    )
+}
+
 /// A month on the time axis: "Okt 2026", "Oct 2026".
 pub fn month(date: jiff::civil::Date) -> String {
     const DE: [&str; 12] = [

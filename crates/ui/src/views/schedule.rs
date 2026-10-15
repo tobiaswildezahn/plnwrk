@@ -100,7 +100,7 @@ fn window(
 }
 
 /// The tasks of the project in the order of the list: parents before their subtasks.
-fn rows<'a>(index: &TaskIndex<'a>, project: &Project) -> Vec<(&'a Task, usize)> {
+pub(crate) fn rows<'a>(index: &TaskIndex<'a>, project: &Project) -> Vec<(&'a Task, usize)> {
     let sorted = |tasks: &[&'a Task]| {
         let mut tasks = tasks.to_vec();
         tasks.sort_by(|a, b| a.rank.cmp(&b.rank));
@@ -199,6 +199,9 @@ pub fn show(
         }
         if super::icon_button(ui, "+", text::t().zoom_in).clicked() {
             level = (level + 1).min(ZOOM.len() - 1);
+        }
+        if ui.button(text::t().export_schedule).clicked() {
+            out.push(Intent::ExportSchedule(project.id));
         }
         ui.weak(text::t().critical_hint);
     });

@@ -7,7 +7,7 @@ mod dialogs;
 mod overview;
 mod people;
 mod project;
-mod schedule;
+pub(crate) mod schedule;
 
 use egui::{Key, RichText};
 use plnwrk_core::{Classification, TaskStatus};

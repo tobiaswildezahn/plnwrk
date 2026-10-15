@@ -15,6 +15,7 @@ mod autosave;
 mod browser_copy;
 mod dates;
 mod doc;
+mod export;
 mod host;
 mod palette;
 mod state;
@@ -39,6 +40,17 @@ pub const APP_NAME: &str = "plnwrk";
 /// (decision 4.1: the browser is not an environment for classified material).
 fn browser_may_hold(workspace: &plnwrk_core::Workspace) -> bool {
     workspace.highest_classification() < Classification::VsNfd
+}
+
+/// Writes an export to disk (never in the browser, which downloads instead).
+#[cfg(not(target_arch = "wasm32"))]
+fn write_export(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    plnwrk_store::file::write_atomic(path, bytes).map_err(|e| text::store_error(&e))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn write_export(_path: &std::path::Path, _bytes: &[u8]) -> Result<(), String> {
+    Err(String::new())
 }
 
 /// Whether two paths name the same place on disk (links resolved, e.g. `/var` and
@@ -132,6 +144,9 @@ pub(crate) enum Intent {
     FocusNewTask,
     /// Open the form to edit this project.
     EditProject(ProjectId),
+    /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
+    /// the browser.
+    ExportSchedule(ProjectId),
     /// New dates for a task; what waits for it moves along (one step). `due_time`: a new time
     /// of day for the deadline (`Some(None)` clears it), `None` keeps it.
     Reschedule {
@@ -716,6 +731,7 @@ impl PlnwrkApp {
             } => {
                 self.reschedule(task, start, due, due_time);
             }
+            Intent::ExportSchedule(project) => self.export_schedule(project),
             Intent::FocusNewTask => self.state.focus_new_task = true,
             Intent::EditProject(id) => {
                 let open = self
@@ -828,6 +844,36 @@ impl PlnwrkApp {
             self.state.message = Some(Message::info(text::moved_along(along)));
         }
         taken
+    }
+
+    /// Saves the schedule of `project` as a table. Classified content carries the marking;
+    /// in the browser nothing classified ever leaves as a file.
+    fn export_schedule(&mut self, project: ProjectId) {
+        let Some(doc) = &self.doc else { return };
+        let ws = doc.session.workspace();
+        let Some(project) = ws.project(project) else {
+            return;
+        };
+        let classified =
+            plnwrk_store::classification_of(&doc.snapshot().0) >= Classification::VsNfd;
+        let name = export::file_name(&project.title);
+        let csv = export::schedule_csv(ws, project, classified);
+        let result = if self.state.browser {
+            if classified {
+                self.state.message = Some(Message::error(text::t().vs_blocked));
+                return;
+            }
+            self.host.download(&name, csv.as_bytes()).map(|()| name)
+        } else {
+            let Some(path) = self.host.pick_export(&name, "csv") else {
+                return;
+            };
+            write_export(&path, csv.as_bytes()).map(|()| path.display().to_string())
+        };
+        self.state.message = Some(match result {
+            Ok(place) => Message::info(format!("{} {place}", text::t().exported)),
+            Err(reason) => Message::error(format!("{} {reason}", text::t().export_failed)),
+        });
     }
 
     /// Carries out a file action; actions that would drop unsaved changes ask first.
