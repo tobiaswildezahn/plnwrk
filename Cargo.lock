@@ -3286,6 +3286,7 @@ dependencies = [
 name = "plnwrk-mcp"
 version = "0.0.0"
 dependencies = [
+ "jiff",
  "plnwrk-core",
  "plnwrk-engine",
  "plnwrk-platform",
