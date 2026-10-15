@@ -139,6 +139,8 @@ pub struct Texts {
     pub new_comment_hint: &'static str,
     pub add_comment: &'static str,
     pub history: &'static str,
+    /// Marks a change in the history made by an AI (over MCP).
+    pub by_ai: &'static str,
     pub delete_task: &'static str,
     pub delete_task_question: &'static str,
     pub name: &'static str,
@@ -325,6 +327,7 @@ pub static DE: Texts = Texts {
     new_comment_hint: "Kommentar schreiben …",
     add_comment: "Kommentieren",
     history: "Verlauf",
+    by_ai: "durch KI",
     delete_task: "Aufgabe löschen",
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
     name: "Name",
@@ -517,6 +520,7 @@ pub static EN: Texts = Texts {
     new_comment_hint: "Write a comment …",
     add_comment: "Comment",
     history: "History",
+    by_ai: "by AI",
     delete_task: "Delete task",
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
     name: "Name",
@@ -1003,6 +1007,10 @@ pub fn store_error(error: &StoreError) -> String {
         StoreError::Encryption { reason } => pick(
             format!("Verschlüsselung fehlgeschlagen: {reason}"),
             format!("Encryption failed: {reason}"),
+        ),
+        StoreError::InUse { path } => pick(
+            format!("{path} ist schon in einem anderen plnwrk geöffnet."),
+            format!("{path} is already open in another plnwrk."),
         ),
         StoreError::Io { reason } => pick(
             format!("Dateizugriff fehlgeschlagen: {reason}"),

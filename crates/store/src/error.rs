@@ -69,6 +69,12 @@ pub enum StoreError {
         /// Details.
         reason: String,
     },
+    /// Another plnwrk program (the app, the command line, the MCP server) has the file open.
+    #[error("{path} is in use by another plnwrk")]
+    InUse {
+        /// The file.
+        path: String,
+    },
     /// Reading or writing the file on disk failed.
     #[error("file access failed: {reason}")]
     Io {

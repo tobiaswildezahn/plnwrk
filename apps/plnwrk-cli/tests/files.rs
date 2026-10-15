@@ -293,15 +293,10 @@ mod files {
         let project = project_id(s(&file), None);
         let params = json!({"project": project, "title": "parallel"}).to_string();
         let busy = fails(&["run", s(&file), "task.create", &params], None);
-        assert!(
-            busy["reason"].as_str().unwrap().contains("in use"),
-            "{busy}"
-        );
-        assert!(
-            fails(&["encrypt", s(&file)], Some("Lagezentrum-2026"))["reason"]
-                .as_str()
-                .unwrap()
-                .contains("in use")
+        assert_eq!(busy["error"], "in_use", "{busy}");
+        assert_eq!(
+            fails(&["encrypt", s(&file)], Some("Lagezentrum-2026"))["error"],
+            "in_use"
         );
         assert_eq!(std::fs::read(&file).unwrap(), before);
         drop(held);

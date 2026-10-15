@@ -125,6 +125,16 @@ fn cli() -> Command {
                 .about("Lists every query with its parameters (JSON schema)")
                 .arg(search()),
         )
+        .subcommand(
+            Command::new("mcp")
+                .about("Runs the MCP server on standard input/output (for Claude Code, Claude Desktop)")
+                .long_about(
+                    "Runs the Model Context Protocol server on standard input/output. Every tool \
+                     names its .plnwrk file; changes are saved at once and marked as made by an \
+                     AI. Encrypted files and anything classified VS-NfD are refused.\n\n\
+                     Claude Code: claude mcp add plnwrk -- plnwrk-cli mcp",
+                ),
+        )
         .subcommand(Command::new("demo").about(
             "Builds the sample workspace in memory and shows overview, board and overdue items",
         ))
@@ -337,6 +347,16 @@ fn print_raw(text: &str) -> ExitCode {
 
 fn main() -> ExitCode {
     let matches = cli().get_matches();
+    if matches.subcommand_name() == Some("mcp") {
+        // Answers go to standard output, one JSON message per line; nothing else may.
+        return match plnwrk_mcp::serve(std::io::stdin().lock(), std::io::stdout().lock()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("plnwrk-cli mcp: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     match run(&matches) {
         Ok(Output::Json(value)) => print(&serde_json::to_string_pretty(&value).unwrap_or_default()),
         Ok(Output::Text(text)) => print_raw(&text),

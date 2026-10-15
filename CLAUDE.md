@@ -77,6 +77,12 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 - Zeitplanung: Rechnen nur in `plnwrk-schedule` (rein, Daten als Parameter); die Oberfläche
   berechnet Schübe dort und schickt **einen** `task.reschedule` (ein Rückgängig-Schritt).
   Browser-Vorschau zeigt nach Änderungen alte Stände? Seite mit `?v=<n>` neu laden (Cache).
+- MCP-Server (`crates/mcp`, `plnwrk-cli mcp`, Anleitung `docs/mcp.md`): eigenes JSON-RPC über
+  stdio (kein `rmcp`), Protokollteil `Server::handle` ohne Prozess testbar. Nichts VS-NfD und
+  nichts Verschlüsseltes über MCP – geprüft vor dem Lesen, vor `Session::run` und vor dem
+  Speichern. Änderungen mit `Origin::Assistant`. Gemeinsame Logik mit der Oberfläche liegt in
+  `plnwrk_engine::params::asks_for_classified` und `plnwrk_schedule::Reschedule`, nie doppelt.
+  Neue Befehle sind über `run_command` automatisch erreichbar.
 - Neuer Befehl im Register → Eintrag in der Befehlspalette (`crates/ui/src/palette.rs`) oder
   mit Begründung in `palette::ELSEWHERE`; ein Test prüft das.
 - kittest: Untermenü-Knöpfe heißen „Name⏵“ (Hilfsfunktion `submenu` in `tests.rs`); Tippen in

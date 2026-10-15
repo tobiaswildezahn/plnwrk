@@ -3248,6 +3248,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "plnwrk-engine",
+ "plnwrk-mcp",
  "plnwrk-platform",
  "plnwrk-store",
  "rpassword",
@@ -3285,7 +3286,12 @@ dependencies = [
 name = "plnwrk-mcp"
 version = "0.0.0"
 dependencies = [
+ "plnwrk-core",
  "plnwrk-engine",
+ "plnwrk-platform",
+ "plnwrk-schedule",
+ "plnwrk-store",
+ "serde_json",
 ]
 
 [[package]]
@@ -3305,6 +3311,7 @@ dependencies = [
  "jiff",
  "plnwrk-core",
  "proptest",
+ "serde_json",
  "ulid",
 ]
 

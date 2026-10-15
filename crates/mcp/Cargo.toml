@@ -9,7 +9,12 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+plnwrk-core.workspace = true
 plnwrk-engine.workspace = true
+plnwrk-platform.workspace = true
+plnwrk-schedule.workspace = true
+plnwrk-store.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

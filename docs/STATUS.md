@@ -1,9 +1,8 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-14 abends:
-> Phase 5 (Zeitplanung) fertig, Review + Nachreview eingearbeitet, wartet auf Merge** (Branch
-> `phase-5`, PR #9 offen);
-> Phase 4 (Web) ist gemergt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Phase 5 (Zeitplanung) gemergt, Phase 6a (MCP-Server) in Arbeit** (Branch `phase-6a`);
+> 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -23,8 +22,8 @@ sind Aufgaben mit Merkmal `milestone`.
 | 3b-2 Autosave/Wiederherstellung, Umbenennen in der Liste, Schutz aus der App, Screenreader-Namen | **fertig** | [#6](https://github.com/tobiaswildezahn/plnwrk/pull/6) |
 | 3b-3 Zustandsautomat-Test Autosave, Befehlspalette, Englisch, Hell/Dunkel | **fertig**, Review + Nachreview + Kurzprüfung | [#7](https://github.com/tobiaswildezahn/plnwrk/pull/7) |
 | 4 Web (Upload/Download, Zwischenstand im Browser, VS-NfD-Sperre) | **fertig**, Review + 3 Nachprüfungen | [#8](https://github.com/tobiaswildezahn/plnwrk/pull/8) |
-| 5 Zeitplanung (Arbeitstage Hamburg, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview eingearbeitet, Merge offen | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
-| 6 KI (MCP, Assistent) | offen | – |
+| 5 Zeitplanung (Arbeitstage Hamburg, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
+| 6 KI (MCP, Assistent) | 6a MCP-Server in Arbeit; 6b ausgesetzt (Tobi) | – |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | offen | – |
 
@@ -71,8 +70,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Phase 5 mergen** nach Tobis „ja, merge“ (Windows per Label `merge`). Review- und
-   Nachreview-Befunde sind behoben (§3.1).
+0. **Phase 6a – MCP-Server** (Plan `docs/plans/2026-10-14-phase-6a.md`, Anleitung
+   `docs/mcp.md`): umgesetzt, Review und Nachreview eingearbeitet; PR offen, Merge nach Tobis
+   „ja, merge“. Danach: Tobi richtet den Server in Claude Code ein (`docs/mcp.md`) und probiert
+   ihn an einer Testdatei.
 1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
@@ -86,7 +87,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 5. **Tobi testet Phase 5** (Demo im Plan `docs/plans/2026-10-14-phase-5.md`): Zeitplan,
    Balken ziehen, „Wartet auf“.
 6. **Veröffentlichen?** Der Workflow `pages` (von Hand) braucht eine eigene (Sub-)Domain.
-7. Danach **4.6 / Phase 6 (KI, MCP)** – von Tobi für „heute Nacht“ angekündigt.
+7. 6b (Assistent in der App, lokales Modell) – ausgesetzt, „etwas für später“ (Tobi, 2026-10-14).
 8. Optional: `cargo xtask mutants` (5.1).
 
 ### 3.1 Review-Befunde Phase 5 – behoben (2026-10-14)
@@ -118,7 +119,7 @@ Meilenstein wird unhaltbar.
 | 4.3 | **Passphrase vergessen = Daten verloren.** Hinterlegung oder zweiter Schlüssel (age kann mehrere Empfänger)? Wer entscheidet in der Organisation? | Zweiter Empfänger (Behördenschlüssel) als Option | vor echtem VS-Einsatz |
 | 4.4 | ~~Tempo vs. VS-Niveau in Phase 3~~ **entschieden:** früh zeigbar, VS später | – | erledigt |
 | 4.5 | **Lizenz**: Apache-2.0 (wie RustGIS) oder EUPL-1.2 (öffentliche Hand, openCode)? | EUPL-1.2 prüfen | vor Phase 8 |
-| 4.6 | **KI früher?** MCP-Server (Phase 6) könnte schon auf Dateien laufen und plnwrk vor weiterer UI-Arbeit aus Claude bedienbar machen. | Option, ändert Phasenfolge | jederzeit |
+| 4.6 | ~~KI früher?~~ **entschieden (Tobi, 2026-10-14):** MCP-Server jetzt (6a), Assistent in der App ausgesetzt (6b) | – | umgesetzt mit 6a |
 | 4.7 | **Identität im Protokoll**: „Ich arbeite als“ ist frei wählbar, nicht nachgewiesen – der Verlauf wirkt wie ein Nachweis, ist aber keiner. Signatur (Dienstausweis, Schlüsseldatei)? Bis dahin in der App kennzeichnen? | Klären vor Phase 7; Hinweis in der App erwägen | vor Phase 7 |
 | 4.8 | **VS-NfD ohne Passphrase**: Beim Anlegen eines VS-NfD-Projekts sofort zum Schützen zwingen? Heute lässt sich unverschlüsselt weiterarbeiten; Speichern und Autosave scheitern dann (Statuszeile rot). | Beim Einstufen direkt den Schutz-Dialog öffnen | vor Phase 7 |
 | 4.9 | **Wiederherstellungskopien von VS-Dateien** liegen (verschlüsselt) in einem Systemordner, den IT-Sicherheit kaum im Blick hat. Autosave bei VS aus, oder Kopie neben der Datei? | Für VS: Kopie im Ordner der Datei | vor echtem VS-Einsatz |
