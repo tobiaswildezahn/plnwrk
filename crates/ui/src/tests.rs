@@ -3685,6 +3685,126 @@ fn a_classified_schedule_carries_the_marking_and_never_leaves_the_browser() {
 }
 
 #[test]
+fn one_notch_of_the_wheel_is_one_zoom_level() {
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let width = |h: &Harness<'_, PlnwrkApp>| bar(h, "Ausschreibung").width();
+    let start = width(&harness);
+    harness.hover_at(bar(&harness, "Ausschreibung").center());
+    harness.run();
+    // egui spreads one notch (or a pinch) over several frames.
+    for _ in 0..5 {
+        harness.event(egui::Event::Zoom(1.05));
+        harness.step();
+    }
+    harness.run();
+    let one = width(&harness);
+    assert!(
+        one > start * 1.3 && one < start * 1.7,
+        "{start} → {one}: one level only"
+    );
+}
+
+#[test]
+fn zooming_keeps_the_dates_in_view() {
+    let mut harness = with_project("Weit");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    for (title, start, due) in [
+        ("Früher", day(-60), day(-58)),
+        ("Jetzt", day(0), day(2)),
+        ("Später", day(60), day(62)),
+    ] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    harness.run();
+    // From the title column's edge to the bar: a week before today, at any zoom.
+    let gap = |h: &Harness<'_, PlnwrkApp>| {
+        let titles = h
+            .get_all_by_label("Jetzt")
+            .map(|n| n.rect())
+            .find(|r| r.width() > 100.0)
+            .unwrap();
+        bar(h, "Jetzt").left() - titles.right()
+    };
+    let before = gap(&harness);
+    click(&mut harness, text::t().zoom_in);
+    let after = gap(&harness);
+    assert!(
+        (after - before * 34.0 / 22.0).abs() < 30.0,
+        "{before} → {after}: the same day stays at the left edge"
+    );
+}
+
+#[test]
+fn subtasks_of_subtasks_are_in_the_card_too() {
+    let mut harness = board_with_subtasks();
+    let books = task_named(harness.state(), "Bücher").unwrap().id;
+    let project = parent_project(&harness, books);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Krimis", "parent": books.to_string()}),
+    ));
+    harness.run();
+    harness
+        .get_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox && n.label().as_deref() == Some("Krimis")
+        })
+        .click();
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Krimis").unwrap().status,
+        TaskStatus::Done
+    );
+}
+
+#[test]
+fn an_export_never_replaces_the_open_file_and_always_ends_in_csv() {
+    let dir = scratch("export-guard");
+    let path = dir.join("abteilung.plnwrk");
+    let plain = dir.join("tabelle");
+    let host = Scripted {
+        save: vec![path.clone()],
+        // The person picks the open file itself, then a name without an ending.
+        export: vec![path.clone(), plain.clone()],
+        ..Scripted::default()
+    };
+    let mut harness = harness(PlnwrkApp::with_host(Box::new(host)));
+    sample_schedule(&mut harness);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    let before = std::fs::read(&path).unwrap();
+    click(&mut harness, text::t().export_schedule);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the workspace file is untouched"
+    );
+    assert!(dir.join("abteilung.plnwrk.csv").exists());
+    click(&mut harness, text::t().export_schedule);
+    assert!(
+        std::fs::read_to_string(dir.join("tabelle.csv"))
+            .unwrap()
+            .contains("Einbau Wache 11")
+    );
+}
+
+#[test]
+fn a_project_without_dates_can_be_exported_too() {
+    let mut harness = with_project("Ohne Termine");
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    click(&mut harness, text::t().schedule_tab);
+    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label(text::t().export_schedule).is_some());
+}
+
+#[test]
 fn the_schedule_shows_bars_and_dragging_moves_what_waits() {
     let (mut harness, first, second) = two_dated_tasks();
     let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});

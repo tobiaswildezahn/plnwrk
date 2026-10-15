@@ -849,6 +849,8 @@ impl PlnwrkApp {
     /// Saves the schedule of `project` as a table. Classified content carries the marking;
     /// in the browser nothing classified ever leaves as a file.
     fn export_schedule(&mut self, project: ProjectId) {
+        // Typed but not taken yet: part of what is exported, as when saving.
+        self.flush_draft();
         let Some(doc) = &self.doc else { return };
         let ws = doc.session.workspace();
         let Some(project) = ws.project(project) else {
@@ -868,6 +870,22 @@ impl PlnwrkApp {
             let Some(path) = self.host.pick_export(&name, "csv") else {
                 return;
             };
+            // Always a .csv (dialogs on Windows and Linux do not insist), and never over the
+            // open workspace file.
+            let path = if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("csv"))
+            {
+                path
+            } else {
+                let mut name = path.into_os_string();
+                name.push(".csv");
+                std::path::PathBuf::from(name)
+            };
+            if doc.path().is_some_and(|open| same_place(open, &path)) {
+                self.state.message = Some(Message::error(text::t().export_over_open_file));
+                return;
+            }
             write_export(&path, csv.as_bytes()).map(|()| path.display().to_string())
         };
         self.state.message = Some(match result {

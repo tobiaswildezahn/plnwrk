@@ -91,6 +91,8 @@ pub fn file_name(title: &str) -> String {
             }
         })
         .collect();
+    // File systems allow 255 bytes per name: 120 characters leave room for the rest.
+    let clean: String = clean.chars().take(120).collect();
     let clean = clean.trim().trim_start_matches('.');
     let clean = if clean.is_empty() { "plnwrk" } else { clean };
     format!("{clean} – {}.csv", text::t().schedule_tab)

@@ -150,6 +150,7 @@ pub struct Texts {
     pub export_schedule: &'static str,
     pub exported: &'static str,
     pub export_failed: &'static str,
+    pub export_over_open_file: &'static str,
     pub zoom_out: &'static str,
     pub close_all_subtasks: &'static str,
     pub only_this_task: &'static str,
@@ -346,6 +347,7 @@ pub static DE: Texts = Texts {
     export_schedule: "Als Tabelle exportieren (Excel)",
     exported: "Exportiert:",
     export_failed: "Export fehlgeschlagen:",
+    export_over_open_file: "Nicht exportiert: Das ist die geöffnete plnwrk-Datei. Bitte einen anderen Namen wählen.",
     zoom_out: "Verkleinern",
     close_all_subtasks: "Alle erledigen",
     only_this_task: "Nur die Hauptaufgabe",
@@ -548,6 +550,7 @@ pub static EN: Texts = Texts {
     export_schedule: "Export as table (Excel)",
     exported: "Exported:",
     export_failed: "Export failed:",
+    export_over_open_file: "Not exported: that is the open plnwrk file. Please choose another name.",
     zoom_out: "Zoom out",
     close_all_subtasks: "Close them all",
     only_this_task: "Only this task",
@@ -801,7 +804,6 @@ pub fn overdue_tasks(count: usize) -> String {
     pick(format!("{count} überfällig"), format!("{count} overdue"))
 }
 
-/// A push larger than one step can take, refused.
 /// The columns of the schedule table (CSV export).
 pub fn schedule_csv_header() -> [&'static str; 14] {
     pick(
@@ -867,6 +869,7 @@ pub fn subtasks_still_open(count: usize) -> String {
     }
 }
 
+/// A push larger than one step can take, refused.
 pub fn too_many_moves(count: usize) -> String {
     pick(
         format!(

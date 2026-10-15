@@ -92,10 +92,11 @@ pub fn show(
                             let (head, ticks) = dragged.inner;
                             // Above the drag source, so a click on a tick reaches it.
                             for (subtask, done, rect) in ticks {
+                                // Mouse only: keyboard and screen readers use the tick.
                                 let tick = ui.interact(
                                     rect,
                                     Id::new(("tick", subtask)),
-                                    egui::Sense::click(),
+                                    egui::Sense::CLICK,
                                 );
                                 if tick.clicked() {
                                     out.push(toggle(subtask, done));
@@ -151,11 +152,21 @@ pub fn show(
     });
 }
 
-/// The direct subtasks of a task, in their order.
-fn children(ws: &Workspace, task: TaskId) -> Vec<&Task> {
-    let mut children: Vec<&Task> = ws.tasks().filter(|t| t.parent == Some(task)).collect();
-    children.sort_by(|a, b| a.rank.cmp(&b.rank));
-    children
+/// Every subtask below a task, at any depth, in the order of the list (parents before their
+/// subtasks), with its depth (1 = direct subtask).
+fn children(ws: &Workspace, task: TaskId) -> Vec<(&Task, usize)> {
+    let below = |parent: TaskId| {
+        let mut children: Vec<&Task> = ws.tasks().filter(|t| t.parent == Some(parent)).collect();
+        children.sort_by(|a, b| b.rank.cmp(&a.rank));
+        children
+    };
+    let mut out = Vec::new();
+    let mut stack: Vec<(&Task, usize)> = below(task).into_iter().map(|t| (t, 1)).collect();
+    while let Some((child, depth)) = stack.pop() {
+        out.push((child, depth));
+        stack.extend(below(child.id).into_iter().map(|t| (t, depth + 1)));
+    }
+    out
 }
 
 /// How many subtasks below a task (at any depth) are not done.
@@ -176,7 +187,7 @@ fn open_below(ws: &Workspace, task: TaskId) -> usize {
 fn card_ui(
     ui: &mut egui::Ui,
     card: &TaskCard,
-    subtasks: &[&Task],
+    subtasks: &[(&Task, usize)],
     selected: bool,
     out: &mut Vec<Intent>,
 ) -> (egui::Rect, Vec<(TaskId, bool, egui::Rect)>) {
@@ -218,10 +229,15 @@ fn card_ui(
             // The subtasks travel with the card; each is ticked off on its own. A mouse click is
             // caught above the drag source (see `show`); keyboard and screen readers act here.
             let mut ticks = Vec::new();
-            for subtask in subtasks {
+            for (subtask, depth) in subtasks {
                 let done = subtask.status == TaskStatus::Done;
                 let mut shown = done;
-                let response = ui.checkbox(&mut shown, &subtask.title);
+                let response = ui
+                    .horizontal(|ui| {
+                        ui.add_space(depth.saturating_sub(1) as f32 * 14.0);
+                        ui.checkbox(&mut shown, &subtask.title)
+                    })
+                    .inner;
                 if response.changed() {
                     out.push(toggle(subtask.id, done));
                 }

@@ -43,8 +43,6 @@ pub fn json(doc: &Document) -> Result<String, StoreError> {
 
 /// A CSV field: quoted when needed; a leading `=`, `+`, `-`, `@`, tab or carriage return is
 /// neutralised with `'` so spreadsheets never run it as a formula.
-/// One CSV field: quoted if needed, and never read as a formula by a spreadsheet (a leading
-/// `=`, `+`, `-` or `@` gets an apostrophe).
 pub fn field(text: &str) -> String {
     let safe = if text.starts_with(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠'])
     {
