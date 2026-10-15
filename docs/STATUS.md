@@ -91,7 +91,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    eigene (Sub-)Domain, weil der Browser-Speicher sonst mit anderen Pages-Seiten geteilt ist.
 7. 6b (Assistent in der App, lokales Modell) – ausgesetzt, „etwas für später“ (Tobi, 2026-10-14).
 8. Optional: `cargo xtask mutants` (5.1).
-9. Kleinigkeiten (notiert 2026-10-15): „Datei existiert schon“ als eigene Fehlerart statt `io`;
+9. **Board/Zoom/Export** (Tobis drei Wünsche vom 2026-10-15): umgesetzt auf Branch
+   `board-zoom-export`, PR offen – Merge nach „ja, merge“. Tobi probiert: Board (Unteraufgaben
+   in der Karte, Rückfrage bei „Erledigt“), Zeitplan −/+ und Strg/⌘ + Mausrad, „Als Tabelle
+   exportieren (Excel)“ und die Datei in Excel öffnen.
+10. Kleinigkeiten (notiert 2026-10-15): „Datei existiert schon“ als eigene Fehlerart statt `io`;
    Git-Hook, der eine geänderte, nicht vorgemerkte `Cargo.lock` abweist (zweimal rote CI);
    Hinweis bei Fristen auf Wochenende/Feiertag (ohne die Rechnung zu ändern) – Tobi entscheidet,
    siehe 4.13.
