@@ -74,8 +74,10 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 - Sperren und Prüfungen (z. B. VS-NfD im Browser) **vor** `Session::run`, nie durch
   Rückgängig danach: Das Protokoll hängt nur an, ein zurückgenommener Befehl bleibt im Verlauf
   und zählt für die Einstufung der Datei (`plnwrk_store::classification_of`).
-- Zeitplanung: Rechnen nur in `plnwrk-schedule` (rein, Daten als Parameter); die Oberfläche
-  berechnet Schübe dort und schickt **einen** `task.reschedule` (ein Rückgängig-Schritt).
+- Zeitplanung: Rechnen nur in `plnwrk-schedule` (rein, Daten als Parameter), immer mit
+  `Calendar::standard()` (jeder Tag zählt, Entscheidung 2026-10-15), nie mit einem fest
+  gewählten Kalender. Oberfläche und MCP berechnen Schübe über `Reschedule` und schicken
+  **einen** `task.reschedule` (ein Rückgängig-Schritt).
   Browser-Vorschau zeigt nach Änderungen alte Stände? Seite mit `?v=<n>` neu laden (Cache).
 - MCP-Server (`crates/mcp`, `plnwrk-cli mcp`, Anleitung `docs/mcp.md`): eigenes JSON-RPC über
   stdio (kein `rmcp`), Protokollteil `Server::handle` ohne Prozess testbar. Nichts VS-NfD und

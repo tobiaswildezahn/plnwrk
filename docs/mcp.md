@@ -17,9 +17,13 @@ lesen und ändern, etwa so:
   Unterhaltungen. Wurde die Datei inzwischen woanders geändert, gibt es nichts mehr rückgängig
   zu machen. Eine Änderung eines Menschen nimmt Claude nie zurück.
 - **Termine:** Verschiebt Claude Beginn oder Frist einer Aufgabe, rutschen die Nachfolger mit,
-  genau wie in der App (Arbeitstage Hamburg). Nur Termine: ein Rückgängig-Schritt. Termine
-  zusammen mit anderen Feldern (z. B. Titel): zwei Schritte, erst die Änderung, dann der
-  Schub.
+  genau wie in der App. Jeder Tag zählt, auch Wochenende und Feiertag; eine Woche sind 7 Tage.
+  Nur Termine: ein Rückgängig-Schritt. Termine zusammen mit anderen Feldern (z. B. Titel): zwei
+  Schritte, erst die Änderung, dann der Schub. Termine, die gleich bleiben, schieben nichts.
+- **Verschieben um Tage:** Das Werkzeug `move_task` schiebt eine Aufgabe um N Tage („um eine
+  Woche“ = 7), Uhrzeit der Frist bleibt.
+- **Antworten** nennen, was sich geändert hat (Aufgabe, neue Termine, mitgerutschte
+  Nachfolger); bei „undo“ auch, welcher Schritt zurückgenommen wurde.
 - **Gesperrt:**
   - **VS-NfD:** Eine Datei, die VS-NfD ist (oder es je war), wird nicht geöffnet. Ein Befehl,
     der etwas auf VS-NfD hebt, wird abgelehnt.
@@ -44,8 +48,8 @@ lesen und ändern, etwa so:
    claude mcp add plnwrk -- ~/.cargo/bin/plnwrk-cli mcp
    ```
 
-   In Claude Code erscheinen dann die Werkzeuge `overview`, `query`, `search_commands` und
-   `run_command`. Vor jeder Änderung fragt Claude Code nach, wenn du es nicht anders
+   In Claude Code erscheinen dann die Werkzeuge `overview`, `query`, `search_commands`,
+   `run_command` und `move_task`. Vor jeder Änderung fragt Claude Code nach, wenn du es nicht anders
    einstellst.
 
 3. **Oder in Claude Desktop:** In der Datei
@@ -77,8 +81,9 @@ steht „durch KI“.
 
 - **Protokoll:** MCP über stdio, zeilenweises JSON-RPC 2.0 (`crates/mcp`), ohne `rmcp`.
   Unterstützte Protokollversionen: `2025-06-18`, `2025-03-26`, `2024-11-05`.
-- **Werkzeuge:** `overview`, `query` (alle Abfragen der Engine), `search_commands` und
-  `run_command` (alle Befehle). Jedes Werkzeug außer `search_commands` nennt seine Datei.
+- **Werkzeuge:** `overview`, `query` (alle Abfragen der Engine), `search_commands` (sucht auch
+  in den Feldbeschreibungen), `run_command` (alle Befehle) und `move_task` (um N Tage). Jedes
+  Werkzeug außer `search_commands` nennt seine Datei.
 - **Sitzungen:** Der Server hält je Datei die Sitzung, solange die Datei auf der Platte
   unverändert ist, für höchstens 16 Dateien. Darum reichen `undo`/`redo` über mehrere Aufrufe.
 - **Eingaben:** Nachrichten bis 4 MiB je Zeile. Gelesen werden nur gewöhnliche Dateien, keine

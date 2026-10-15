@@ -25,7 +25,7 @@ const INSTRUCTIONS: &str = "plnwrk manages projects and cases (Vorgänge) with t
 milestones and dependencies, each workspace in one .plnwrk file. Every tool names the file by \
 its absolute path. Start with overview to get project ids, then query (e.g. tasks, overdue, \
 project, task, history) for more. To change something, find the command with search_commands \
-and call run_command; each change is saved at once, is an undo step and is marked as made by an \
+and call run_command (to move a task by days: move_task); each change is saved at once, is an undo step and is marked as made by an \
 AI. Dates are YYYY-MM-DD, deadlines optionally YYYY-MM-DDTHH:MM. Changing a task's start or due \
 moves the tasks that wait for it later as needed (every day counts); together with other \
 fields that is two undo steps. \"undo\" takes back your own last step, as long as the file was \
@@ -146,7 +146,15 @@ fn call(params: &Map<String, Value>, kept: &mut files::Kept) -> Result<Value, St
         Some(Value::Object(arguments)) => arguments.clone(),
         Some(_) => return Err("arguments must be an object".to_owned()),
     };
-    if !["overview", "query", "search_commands", "run_command"].contains(&name) {
+    if ![
+        "overview",
+        "query",
+        "search_commands",
+        "run_command",
+        "move_task",
+    ]
+    .contains(&name)
+    {
         return Err(format!("unknown tool {name:?}"));
     }
     let (text, is_error) = match tools::call(name, &arguments, kept) {
