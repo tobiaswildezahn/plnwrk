@@ -1272,8 +1272,9 @@ mod tests {
 
     proptest! {
         #[test]
-        fn slipping_by_the_float_is_harmless_and_one_day_more_is_not((items, links) in random_plan(), pick in 0usize..12) {
-            let p = plan(items.clone(), links.clone());
+        fn slipping_by_the_float_is_harmless_and_one_day_more_is_not((items, links) in random_plan(), pick in 0usize..12, every in any::<bool>()) {
+            let cal = if every { Calendar::every_day() } else { Calendar::hamburg() };
+            let p = Plan::new(cal, items.clone(), links.clone(), None);
             let a = p.analyse();
             // Float only means something for a plan that holds.
             if !a.warnings.is_empty() {
@@ -1289,7 +1290,7 @@ mod tests {
             let Some(&float) = a.float.get(&target.id) else {
                 return Ok(());
             };
-            let cal = Calendar::hamburg();
+
             let start = p.placed(target).unwrap().0;
             let before = outcome(&p);
             let slipped = |days: i32| {
@@ -1302,15 +1303,16 @@ mod tests {
                         None => i.clone(),
                     })
                     .collect();
-                outcome(&plan(after, links.clone()))
+                outcome(&Plan::new(cal, after, links.clone(), None))
             };
             prop_assert_eq!(slipped(float), before, "float {} of {:?} is too much", float, target.id);
             prop_assert_ne!(slipped(float + 1), before, "float {} of {:?} is too little", float, target.id);
         }
 
         #[test]
-        fn pushing_keeps_every_dependency_and_every_length((items, links) in random_plan(), pick in 0usize..12, later in 0i32..15) {
-            let p = plan(items.clone(), links.clone());
+        fn pushing_keeps_every_dependency_and_every_length((items, links) in random_plan(), pick in 0usize..12, later in 0i32..15, every in any::<bool>()) {
+            let cal = if every { Calendar::every_day() } else { Calendar::hamburg() };
+            let p = Plan::new(cal, items.clone(), links.clone(), None);
             let Some(target) = items.iter().filter(|i| i.span().is_some() && !i.milestone).nth(pick % items.len().max(1)) else {
                 return Ok(());
             };
@@ -1342,7 +1344,7 @@ mod tests {
             // Every task that waits for the moved one (directly or not) keeps all its
             // dependencies; milestones stay and are warned about instead.
             let reach = p.reachable(target.id);
-            for warning in plan(after.clone(), links.clone()).analyse().warnings {
+            for warning in Plan::new(cal, after.clone(), links.clone(), None).analyse().warnings {
                 if let Warning::Violated { to, .. } = warning {
                     prop_assert!(!reach.contains(&to), "{:?} still waits too short after the push", to);
                 }

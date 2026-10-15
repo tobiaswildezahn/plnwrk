@@ -302,7 +302,11 @@ fn a_later_deadline_moves_what_waits_and_one_undo_takes_it_back() {
             "12:00".parse().ok()
         )
     );
-    assert_eq!(dates(&stored, second).0, "2026-11-09", "moved to Monday");
+    assert_eq!(
+        dates(&stored, second).0,
+        "2026-11-07",
+        "the day after, a Saturday: every day counts"
+    );
     assert_eq!(
         stored.workspace().task(first).unwrap().title,
         "Leitstelle anbinden (verlängert)"

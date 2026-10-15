@@ -74,7 +74,7 @@ pub fn list() -> Value {
         {
             "name": "run_command",
             "title": "Change a plnwrk file",
-            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (Hamburg working days), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD.",
+            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (every calendar day counts, weekends and holidays too), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -265,7 +265,7 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         return plain(session, &params).map(|steps| with_along(steps, 0));
     }
     let Some(reschedule) =
-        Reschedule::of(session.workspace(), task, start, day, Calendar::hamburg())
+        Reschedule::of(session.workspace(), task, start, day, Calendar::standard())
     else {
         return plain(session, &params);
     };
@@ -291,7 +291,7 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         task,
         now.start,
         now.due,
-        Calendar::hamburg(),
+        Calendar::standard(),
     ) else {
         return Ok(with_along(steps, 0));
     };

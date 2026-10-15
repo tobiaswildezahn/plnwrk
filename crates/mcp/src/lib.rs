@@ -27,7 +27,7 @@ its absolute path. Start with overview to get project ids, then query (e.g. task
 project, task, history) for more. To change something, find the command with search_commands \
 and call run_command; each change is saved at once, is an undo step and is marked as made by an \
 AI. Dates are YYYY-MM-DD, deadlines optionally YYYY-MM-DDTHH:MM. Changing a task's start or due \
-moves the tasks that wait for it later as needed (Hamburg working days); together with other \
+moves the tasks that wait for it later as needed (every day counts); together with other \
 fields that is two undo steps. \"undo\" takes back your own last step, as long as the file was \
 not changed elsewhere since (never a change made in the app). Files \
 classified VS-NfD and encrypted files are never opened.";
