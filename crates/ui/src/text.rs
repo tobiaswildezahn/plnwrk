@@ -143,6 +143,9 @@ pub struct Texts {
     pub by_ai: &'static str,
     pub delete_task: &'static str,
     pub delete_task_question: &'static str,
+    pub close_subtasks_title: &'static str,
+    pub close_all_subtasks: &'static str,
+    pub only_this_task: &'static str,
     pub name: &'static str,
     pub role: &'static str,
     pub initials: &'static str,
@@ -330,6 +333,9 @@ pub static DE: Texts = Texts {
     by_ai: "durch KI",
     delete_task: "Aufgabe löschen",
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
+    close_subtasks_title: "Unteraufgaben auch erledigen?",
+    close_all_subtasks: "Alle erledigen",
+    only_this_task: "Nur die Hauptaufgabe",
     name: "Name",
     role: "Funktion",
     initials: "Kürzel",
@@ -523,6 +529,9 @@ pub static EN: Texts = Texts {
     by_ai: "by AI",
     delete_task: "Delete task",
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
+    close_subtasks_title: "Close the subtasks too?",
+    close_all_subtasks: "Close them all",
+    only_this_task: "Only this task",
     name: "Name",
     role: "Role",
     initials: "Initials",
@@ -774,6 +783,16 @@ pub fn overdue_tasks(count: usize) -> String {
 }
 
 /// A push larger than one step can take, refused.
+/// "2 Unteraufgaben sind noch offen."
+pub fn subtasks_still_open(count: usize) -> String {
+    match (language(), count) {
+        (Language::German, 1) => "1 Unteraufgabe ist noch offen.".to_owned(),
+        (Language::German, n) => format!("{n} Unteraufgaben sind noch offen."),
+        (Language::English, 1) => "1 subtask is still open.".to_owned(),
+        (Language::English, n) => format!("{n} subtasks are still open."),
+    }
+}
+
 pub fn too_many_moves(count: usize) -> String {
     pick(
         format!(

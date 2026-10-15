@@ -410,6 +410,118 @@ fn cards_move_on_the_board_by_drag_and_drop() {
     );
 }
 
+/// A project with "Kisten" and its two subtasks "Bücher" and "Geschirr", on the board.
+fn board_with_subtasks() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Umzug");
+    type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
+    let parent = task_named(harness.state(), "Kisten").unwrap().id;
+    let project = parent_project(&harness, parent);
+    for title in ["Bücher", "Geschirr"] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "parent": parent.to_string()}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().board);
+    harness
+}
+
+fn parent_project(harness: &Harness<'_, PlnwrkApp>, task: TaskId) -> String {
+    harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .task(task)
+        .unwrap()
+        .project
+        .to_string()
+}
+
+/// Drags the card with this title into the column with this heading.
+fn drag_card(harness: &mut Harness<'_, PlnwrkApp>, title: &str, column: &str) {
+    let card = harness.get_by_label(title).rect().center();
+    let target = harness.get_by_label(column).rect().center() + egui::vec2(0.0, 60.0);
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(target);
+    harness.run();
+    harness.drop_at(target);
+    harness.run();
+}
+
+#[test]
+fn subtasks_are_in_their_parents_card_and_ticked_off_there() {
+    let mut harness = board_with_subtasks();
+    // Not cards of their own: the "Offen" column holds one card.
+    assert!(harness.query_by_label("Offen (1)").is_some());
+    harness
+        .get_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox && n.label().as_deref() == Some("Bücher")
+        })
+        .click();
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Bücher").unwrap().status,
+        TaskStatus::Done
+    );
+    assert_eq!(
+        task_named(harness.state(), "Kisten").unwrap().status,
+        TaskStatus::Todo,
+        "the parent keeps its own status"
+    );
+}
+
+#[test]
+fn a_card_with_open_subtasks_asks_before_it_is_done() {
+    let mut harness = board_with_subtasks();
+    let status =
+        |h: &Harness<'_, PlnwrkApp>, title: &str| task_named(h.state(), title).unwrap().status;
+    // Moving within the open columns: the subtasks keep their status, no question.
+    drag_card(&mut harness, "Kisten", "In Arbeit (0)");
+    assert_eq!(status(&harness, "Kisten"), TaskStatus::InProgress);
+    assert_eq!(status(&harness, "Bücher"), TaskStatus::Todo);
+    // To done: asked; "only this task" leaves the subtasks open.
+    drag_card(&mut harness, "Kisten", "Erledigt (0)");
+    assert!(
+        harness
+            .query_by_label(text::t().close_subtasks_title)
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_by_label(&text::subtasks_still_open(2))
+            .is_some()
+    );
+    assert_eq!(
+        status(&harness, "Kisten"),
+        TaskStatus::InProgress,
+        "not before the answer"
+    );
+    click(&mut harness, text::t().only_this_task);
+    assert_eq!(status(&harness, "Kisten"), TaskStatus::Done);
+    assert_eq!(status(&harness, "Bücher"), TaskStatus::Todo);
+    // Back, then "close them all": one step, one undo.
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    harness.run();
+    drag_card(&mut harness, "Kisten", "Erledigt (0)");
+    click(&mut harness, text::t().close_all_subtasks);
+    for title in ["Kisten", "Bücher", "Geschirr"] {
+        assert_eq!(status(&harness, title), TaskStatus::Done, "{title}");
+    }
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    assert_eq!(status(&harness, "Geschirr"), TaskStatus::Todo);
+    assert_eq!(status(&harness, "Kisten"), TaskStatus::InProgress);
+}
+
 #[test]
 fn a_click_on_a_board_card_opens_its_details() {
     let mut harness = with_project("Umzug");

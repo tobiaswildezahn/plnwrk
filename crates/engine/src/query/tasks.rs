@@ -297,11 +297,18 @@ pub struct Board {
     pub columns: Vec<Column>,
 }
 
-/// The board of a project (all tasks, subtasks included); `None` if it does not exist.
+/// The board of a project: its top-level tasks, each column one status; `None` if it does not
+/// exist. Subtasks are not cards of their own – they belong to their parent's card (its
+/// `subtasks` counts them) and keep their own status (decision 2026-10-15).
 pub fn board(ws: &Workspace, project: ProjectId, now: DateTime) -> Option<Board> {
     let title = ws.project(project)?.title.clone();
     let index = TaskIndex::new(ws);
-    let mut all: Vec<&Task> = index.tasks_of(project).to_vec();
+    let mut all: Vec<&Task> = index
+        .tasks_of(project)
+        .iter()
+        .copied()
+        .filter(|t| t.parent.is_none())
+        .collect();
     sort(&mut all, TaskSort::Rank);
     let columns = TaskStatus::ALL
         .iter()

@@ -8,28 +8,6 @@ expression: "snapshot_value(&s, \"board\", project.clone())"
       "status": "todo",
       "tasks": [
         {
-          "assignee": {
-            "id": "00000000000000000000000002",
-            "initials": "AB",
-            "name": "Anna Berg"
-          },
-          "classification": "open",
-          "due": null,
-          "due_time": null,
-          "id": "00000000000000000000000007",
-          "milestone": false,
-          "overdue": false,
-          "parent": "00000000000000000000000005",
-          "priority": "normal",
-          "progress": 0,
-          "project": "00000000000000000000000003",
-          "status": "todo",
-          "subtasks": 0,
-          "subtasks_done": 0,
-          "tags": [],
-          "title": "Vergabevermerk"
-        },
-        {
           "assignee": null,
           "classification": "open",
           "due": "2026-11-20",
@@ -160,24 +138,6 @@ expression: "snapshot_value(&s, \"board\", project.clone())"
           "subtasks_done": 0,
           "tags": [],
           "title": "Bestandsaufnahme Geräte"
-        },
-        {
-          "assignee": null,
-          "classification": "open",
-          "due": null,
-          "due_time": null,
-          "id": "00000000000000000000000006",
-          "milestone": false,
-          "overdue": false,
-          "parent": "00000000000000000000000005",
-          "priority": "normal",
-          "progress": 100,
-          "project": "00000000000000000000000003",
-          "status": "done",
-          "subtasks": 0,
-          "subtasks_done": 0,
-          "tags": [],
-          "title": "Leistungsverzeichnis"
         }
       ]
     }
