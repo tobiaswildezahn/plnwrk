@@ -73,6 +73,10 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: read
+    env:
+      # Smaller programs without symbol tables (only here: stripping would also remove what
+      # wasm-opt needs from the browser build).
+      RUSTFLAGS: -C strip=symbols
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -112,8 +116,8 @@ jobs:
     permissions:
       contents: read
     env:
-      # No Visual C++ runtime needed on the target computer.
-      RUSTFLAGS: -C target-feature=+crt-static
+      # No Visual C++ runtime needed on the target computer; no symbol tables.
+      RUSTFLAGS: -C target-feature=+crt-static -C strip=symbols
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -140,6 +144,8 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+    env:
+      RUSTFLAGS: -C strip=symbols
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
