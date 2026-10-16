@@ -51,6 +51,11 @@ fn main() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(plnwrk_ui::APP_NAME)
+            .with_icon(std::sync::Arc::new(eframe::egui::IconData {
+                rgba: include_bytes!("../assets/icon-128.rgba").to_vec(),
+                width: 128,
+                height: 128,
+            }))
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([720.0, 480.0]),
         event_loop_builder: Some(Box::new(|builder| {

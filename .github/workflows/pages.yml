@@ -5,9 +5,11 @@ name: pages
 # anywhere; files stay on the computer (upload/download). Needs Pages enabled in the
 # repository settings with "GitHub Actions" as source. docs/plans/2026-10-14-phase-4.md.
 #
-# Before the first publish: the browser's storage (recovery copies, in plain text) is shared by
-# every page of the same address. Under <owner>.github.io every other Pages site of the same
-# owner could read it – use an own (sub)domain for plnwrk (Pages → Custom domain).
+# Served under an own subdomain (decision 2026-10-16, docs/plans/2026-10-16-phase-8.md): the
+# browser's storage (recovery copies, in plain text) is shared by every page of the same
+# address, so plnwrk must not live under <owner>.github.io next to other Pages sites. The
+# domain is set in the repository's Pages settings; its DNS name points (CNAME) to
+# <owner>.github.io.
 #
 # Actions are pinned to commits (tag in the comment); only the deploy job may publish.
 on:
@@ -32,8 +34,8 @@ jobs:
           tool: trunk@0.21.14
       - name: trunk build
         working-directory: apps/plnwrk-web
-        # Served below https://<owner>.github.io/<repository>/ (or "/" on an own domain).
-        run: trunk build --release --locked --public-url "/${{ github.event.repository.name }}/"
+        # Served at the root of the own subdomain.
+        run: trunk build --release --locked --public-url "/"
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: apps/plnwrk-web/dist

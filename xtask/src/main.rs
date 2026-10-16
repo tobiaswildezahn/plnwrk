@@ -12,10 +12,10 @@ fn main() -> ExitCode {
     let task = std::env::args().nth(1).unwrap_or_default();
     let result = match task.as_str() {
         "ci" => ci::all(),
-        "app" => app::build(),
+        "app" => app::build(std::env::args().any(|a| a == "--universal")),
         "layers" => ci::layers(),
         "purity" => ci::purity(),
-        _ => Err("usage: cargo xtask <ci|layers|purity|app>".to_owned()),
+        _ => Err("usage: cargo xtask <ci|layers|purity|app [--universal]>".to_owned()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

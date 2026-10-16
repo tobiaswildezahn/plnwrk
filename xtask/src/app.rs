@@ -1,5 +1,6 @@
 //! `cargo xtask app`: builds the desktop app in release mode and, on macOS, wraps it as
 //! `target/plnwrk.app`, which starts with a double click and can be moved to Programme.
+//! `cargo xtask app --universal` (macOS): one app for Apple silicon and Intel, as released.
 
 use std::fs;
 use std::path::Path;
@@ -14,6 +15,7 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleDisplayName</key><string>plnwrk</string>
   <key>CFBundleIdentifier</key><string>app.plnwrk.desktop</string>
   <key>CFBundleExecutable</key><string>plnwrk</string>
+  <key>CFBundleIconFile</key><string>plnwrk</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>VERSION</string>
   <key>CFBundleShortVersionString</key><string>VERSION</string>
@@ -23,11 +25,43 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 "#;
 
-pub fn build() -> Result<(), String> {
-    step("build (release)");
-    cargo(&["build", "--release", "--locked", "-p", "plnwrk"])?;
+/// The two Mac targets of a universal app.
+const MAC_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
+
+pub fn build(universal: bool) -> Result<(), String> {
     let target = root().join("target");
-    let binary = target.join("release").join(binary_name());
+    let binary = if universal && cfg!(target_os = "macos") {
+        step("build (release, universal)");
+        let mut parts = Vec::new();
+        for triple in MAC_TARGETS {
+            cargo(&[
+                "build",
+                "--release",
+                "--locked",
+                "-p",
+                "plnwrk",
+                "--target",
+                triple,
+            ])?;
+            parts.push(target.join(triple).join("release").join("plnwrk"));
+        }
+        let joined = target.join("plnwrk-universal");
+        let status = std::process::Command::new("lipo")
+            .arg("-create")
+            .args(&parts)
+            .arg("-output")
+            .arg(&joined)
+            .status()
+            .map_err(|e| format!("lipo: {e}"))?;
+        if !status.success() {
+            return Err("lipo failed".to_owned());
+        }
+        joined
+    } else {
+        step("build (release)");
+        cargo(&["build", "--release", "--locked", "-p", "plnwrk"])?;
+        target.join("release").join(binary_name())
+    };
     if !cfg!(target_os = "macos") {
         eprintln!("\nfertig: {}", binary.display());
         return Ok(());
@@ -38,6 +72,12 @@ pub fn build() -> Result<(), String> {
     let macos = bundle.join("Contents").join("MacOS");
     fs::create_dir_all(&macos).map_err(|e| format!("{}: {e}", macos.display()))?;
     copy(&binary, &macos.join("plnwrk"))?;
+    let resources = bundle.join("Contents").join("Resources");
+    fs::create_dir_all(&resources).map_err(|e| format!("{}: {e}", resources.display()))?;
+    copy(
+        &root().join("apps/plnwrk/assets/plnwrk.icns"),
+        &resources.join("plnwrk.icns"),
+    )?;
     let plist = INFO_PLIST.replace("VERSION", env!("CARGO_PKG_VERSION"));
     let plist_path = bundle.join("Contents").join("Info.plist");
     fs::write(&plist_path, plist).map_err(|e| format!("{}: {e}", plist_path.display()))?;
