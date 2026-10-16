@@ -1,6 +1,10 @@
 //! plnwrk desktop app: opens the window, provides the system file dialogs and hands everything
 //! to `plnwrk_ui`. A file given on the command line is opened right away.
 
+// A window program on Windows: no console window next to it (closing that would end plnwrk
+// and lose what is typed).
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 

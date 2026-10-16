@@ -29,8 +29,11 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 const MAC_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
 
 pub fn build(universal: bool) -> Result<(), String> {
+    if universal && !cfg!(target_os = "macos") {
+        return Err("--universal builds a macOS app and works only on a Mac".to_owned());
+    }
     let target = root().join("target");
-    let binary = if universal && cfg!(target_os = "macos") {
+    let binary = if universal {
         step("build (release, universal)");
         let mut parts = Vec::new();
         for triple in MAC_TARGETS {
@@ -42,7 +45,8 @@ pub fn build(universal: bool) -> Result<(), String> {
                 "plnwrk",
                 "--target",
                 triple,
-            ])?;
+            ])
+            .map_err(|e| format!("{e} (target missing? rustup target add {triple})"))?;
             parts.push(target.join(triple).join("release").join("plnwrk"));
         }
         let joined = target.join("plnwrk-universal");
@@ -81,6 +85,16 @@ pub fn build(universal: bool) -> Result<(), String> {
     let plist = INFO_PLIST.replace("VERSION", env!("CARGO_PKG_VERSION"));
     let plist_path = bundle.join("Contents").join("Info.plist");
     fs::write(&plist_path, plist).map_err(|e| format!("{}: {e}", plist_path.display()))?;
+    // Sealed ad hoc (no certificate): resources and Info.plist belong to the signature, so
+    // macOS treats a downloaded copy as unsigned rather than as damaged.
+    let status = std::process::Command::new("codesign")
+        .args(["--force", "--sign", "-"])
+        .arg(&bundle)
+        .status()
+        .map_err(|e| format!("codesign: {e}"))?;
+    if !status.success() {
+        return Err("codesign failed".to_owned());
+    }
     eprintln!(
         "\nfertig: {} (Doppelklick startet plnwrk)",
         bundle.display()

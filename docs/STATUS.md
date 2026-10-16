@@ -32,7 +32,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 2. Technischer Ist-Zustand
 
-- **Repo:** `~/projekte/plnwrk/`, GitHub privat `tobiaswildezahn/plnwrk`. `main` enthält
+- **Repo:** `~/projekte/plnwrk/`, GitHub öffentlich (seit 2026-10-15) `tobiaswildezahn/plnwrk`. `main` enthält
   Phase 0–4 (Merge `21305ec`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.

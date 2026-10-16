@@ -9,7 +9,10 @@ name: pages
 # browser's storage (recovery copies, in plain text) is shared by every page of the same
 # address, so plnwrk must not live under <owner>.github.io next to other Pages sites. The
 # domain is set in the repository's Pages settings; its DNS name points (CNAME) to
-# <owner>.github.io.
+# <owner>.github.io. Before the first run: enter the domain (Settings → Pages → Custom domain),
+# verify it for the account (protects against a takeover of the subdomain) and switch on
+# "Enforce HTTPS". Run before that, the site would be served under /<repository>/ and stay
+# empty, because it is built for the root.
 #
 # Actions are pinned to commits (tag in the comment); only the deploy job may publish.
 on:

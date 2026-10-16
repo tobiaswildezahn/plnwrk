@@ -34,13 +34,24 @@ lesen und ändern, etwa so:
 
 ## Einrichten
 
-1. **Programm installieren** (einmalig, und nach jedem Update erneut):
+1. **Programm bereitlegen** – eine der beiden Arten:
 
-   ```sh
-   cd ~/projekte/plnwrk && cargo install --path apps/plnwrk-cli --locked
-   ```
+   - **Aus dem Paket (ohne Rust):** `plnwrk-cli` liegt im Download neben der App (macOS: im
+     .dmg; Windows: `plnwrk-cli.exe` im .zip; Linux: im .tar.gz). An einen festen Ort kopieren,
+     z. B. macOS/Linux `~/bin/plnwrk-cli`, Windows `C:\Users\DEINNAME\plnwrk\plnwrk-cli.exe`.
+     **macOS** sperrt das heruntergeladene Programm zunächst wie die App: einmal im Terminal
+     `~/bin/plnwrk-cli --version` aufrufen, die Meldung schließen und unter
+     **Systemeinstellungen → Datenschutz & Sicherheit → Dennoch erlauben** freigeben.
+   - **Aus dem Quelltext (mit Rust):**
 
-   Danach liegt es unter `~/.cargo/bin/plnwrk-cli`.
+     ```sh
+     cd ~/projekte/plnwrk && cargo install --path apps/plnwrk-cli --locked
+     ```
+
+     Danach liegt es unter `~/.cargo/bin/plnwrk-cli`.
+
+   Nach jedem Update erneut bereitlegen. In den folgenden Schritten den eigenen Pfad statt
+   `~/.cargo/bin/plnwrk-cli` einsetzen.
 
 2. **In Claude Code anmelden:**
 

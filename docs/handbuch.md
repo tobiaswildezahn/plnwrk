@@ -29,6 +29,9 @@ Die App läuft auf Apple-Silicon- und Intel-Macs ab macOS 11.
 2. `plnwrk.exe` doppelklicken. Windows zeigt „Der Computer wurde durch Windows geschützt“ →
    **Weitere Informationen** → **Trotzdem ausführen**.
 
+Auf **Dienst- und Behördenrechnern** entscheidet meist die IT, welche Programme starten dürfen;
+dort fehlt der Knopf „Trotzdem ausführen“ oft ganz. Dann bitte die IT fragen – nicht umgehen.
+
 ### Linux
 
 ```sh
@@ -36,14 +39,22 @@ tar -xzf plnwrk-*-linux-x86_64.tar.gz
 cd plnwrk-*/ && ./plnwrk
 ```
 
-`plnwrk.desktop` und `plnwrk.png` lassen sich nach `~/.local/share/applications` bzw.
-`~/.local/share/icons` kopieren, dann erscheint plnwrk im Startmenü.
+Für das Startmenü einmalig:
+
+```sh
+mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons
+cp plnwrk plnwrk-cli ~/.local/bin/
+cp plnwrk.desktop ~/.local/share/applications/
+cp plnwrk.png ~/.local/share/icons/
+```
+
+Läuft auf Ubuntu ab 22.04, Debian ab 12 und vergleichbar aktuellen Systemen.
 
 ### Im Browser
 
-Ohne Installation: die Browser-Version öffnen (Adresse steht im README). Dateien werden dort
-hochgeladen und heruntergeladen. **Nicht für Verschlusssachen** – VS-NfD lehnt die
-Browser-Version ab.
+Ohne Installation: die Browser-Version unter `https://plnwrk.wildezahn.de` öffnen (sobald sie
+eingerichtet ist). Dateien werden dort hochgeladen und heruntergeladen. **Nicht für
+Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 
 ## 2. Erste Schritte
 
@@ -87,12 +98,13 @@ Browser-Version ab.
 - **Sprache und Darstellung:** Menü **Ansicht** (Deutsch/English, hell/dunkel).
 - **Schützen:** Menü **Datei → Mit Passphrase schützen** verschlüsselt die Datei. Ohne
   Passphrase ist der Inhalt dann nicht lesbar – sie lässt sich nicht wiederherstellen.
-- **Verschlusssachen:** plnwrk kann Inhalte als VS-NfD einstufen und verlangt dann
-  Verschlüsselung. Eine **Freigabe für VS-NfD hat plnwrk nicht** – darüber entscheidet die
-  zuständige Geheimschutzstelle.
+- **Verschlusssachen:** **Version 0.1.0 ist nicht für echte Verschlusssachen gedacht.**
+  plnwrk kann Inhalte als VS-NfD kennzeichnen und verlangt dann Verschlüsselung, aber eine
+  Freigabe hat es nicht – darüber entscheidet allein die zuständige Geheimschutzstelle, und
+  die dafür nötige Härtung ist noch nicht gebaut.
 - **KI:** Claude kann plnwrk-Dateien lesen und ändern – Anleitung in [mcp.md](mcp.md). Das
-  Programm dafür (`plnwrk-cli`) liegt in jedem Paket neben der App. VS-NfD und verschlüsselte
-  Dateien bekommt die KI nie zu sehen.
+  Programm dafür (`plnwrk-cli`) liegt in jedem Paket neben der App. Über diese Schnittstelle
+  bekommt die KI VS-NfD-Dateien und verschlüsselte Dateien nie zu sehen.
 
 ## 5. Fragen und Fehler
 
