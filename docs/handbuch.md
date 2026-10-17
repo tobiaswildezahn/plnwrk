@@ -127,8 +127,9 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   - **Tabelle:** Spalten unter **Zeitplan-Werkzeuge › Anzeigen** ab- und zuschalten; die
     Titelspalte am Rand breiter ziehen; Unteraufgaben mit dem Pfeil zuklappen. In schmalen
     Fenstern fallen Spalten von rechts weg.
-  - **Meilensteine** stehen zusätzlich in einer eigenen Zeile ganz oben; sie bleibt stehen, wenn
-    man durch viele Zeilen scrollt.
+  - **Datumsleiste und Meilensteine** bleiben oben stehen, wenn man durch viele Zeilen scrollt:
+    die Wochen und Tage, „Heute“ und die Projektfrist, darunter eine eigene Zeile mit allen
+    Meilensteinen.
   - **Mit der Tastatur:** Termine und Abhängigkeiten ändert man im Detailbereich der Aufgabe
     (Beginn, Frist, **Wartet auf**); Ziehen im Zeitplan ist der Weg mit der Maus.
   - **Als Tabelle exportieren (Excel):** speichert den Zeitplan als Datei, die Excel direkt

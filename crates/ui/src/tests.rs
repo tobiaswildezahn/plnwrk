@@ -5792,7 +5792,7 @@ fn escape_on_the_milestone_question_is_cancel() {
 
 /// The wide schedule with a milestone "Ziel" in 10 days, its rows scrolled down: the pinned row
 /// lies over some of them. Returns the pinned row's rect and a row hidden under it.
-fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, String) {
+fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, String, f32) {
     let mut harness = wide_schedule(40);
     let project = projects(harness.state()).first().unwrap().id.to_string();
     let due = day_from_today(&harness, 10);
@@ -5805,25 +5805,30 @@ fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, S
     for _ in 0..3 {
         wheel(&mut harness, at, Modifiers::NONE);
     }
-    let band = harness
+    // The whole milestone row (32 px high) around its diamond.
+    let diamond = harness
         .get_by(|n| n.label().is_some_and(|l| l.starts_with("♦ Ziel: ")))
         .rect();
-    let hidden = (0..40)
+    let band = egui::Rect::from_center_size(diamond.center(), egui::vec2(diamond.width(), 32.0));
+    // A bar wholly under it (bars are 16 px high), and the height of its middle.
+    let (hidden, y) = (0..40)
         .map(|n| format!("Zeile {n}"))
-        .find(|title| {
+        .find_map(|title| {
             let start = format!("{title}: ");
-            harness
+            let y = harness
                 .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
-                .any(|n| (n.rect().center().y - band.center().y).abs() < 6.0)
+                .map(|n| n.rect().center().y)
+                .find(|y| *y - 8.0 >= band.top() && *y + 8.0 <= band.bottom())?;
+            Some((title, y))
         })
         .expect("a row under the milestone row");
-    (harness, band, hidden)
+    (harness, band, hidden, y)
 }
 
 /// Review 9d (F1): a bar hidden under the pinned row cannot be dragged through it.
 #[test]
 fn a_bar_under_the_milestone_row_cannot_be_dragged_through_it() {
-    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let (mut harness, band, hidden, y) = rows_under_the_milestone_row();
     let id = task_named(harness.state(), &hidden).unwrap().id;
     let before = dates_of(&harness, id);
     // On the pinned row, over the hidden bar, away from the diamond.
@@ -5838,18 +5843,14 @@ fn a_bar_under_the_milestone_row_cannot_be_dragged_through_it() {
         (x - ziel).abs() > 30.0,
         "the hidden bar lies apart from the diamond"
     );
-    drag(
-        &mut harness,
-        egui::pos2(x, band.center().y),
-        egui::vec2(66.0, 0.0),
-    );
+    drag(&mut harness, egui::pos2(x, y), egui::vec2(66.0, 0.0));
     assert_eq!(dates_of(&harness, id), before);
 }
 
 /// Review 9d (K3): a task chosen elsewhere whose row lies under the pinned row comes into view.
 #[test]
 fn a_chosen_task_under_the_milestone_row_comes_into_view() {
-    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let (mut harness, band, hidden, _) = rows_under_the_milestone_row();
     let id = task_named(harness.state(), &hidden).unwrap().id;
     harness.state_mut().apply(crate::Intent::Select(Some(id)));
     harness.run_steps(30);
@@ -6222,7 +6223,7 @@ fn protecting_waits_for_the_answer_about_a_typed_milestone_date() {
 /// Follow-up review 9d: a link cannot be dropped onto a bar hidden under the milestone row.
 #[test]
 fn a_link_cannot_be_dropped_onto_a_bar_under_the_milestone_row() {
-    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let (mut harness, band, hidden, y) = rows_under_the_milestone_row();
     let links = |h: &Harness<'_, PlnwrkApp>| {
         h.state()
             .doc()
@@ -6251,7 +6252,7 @@ fn a_link_cannot_be_dropped_onto_a_bar_under_the_milestone_row() {
     drag(
         &mut harness,
         handle.center(),
-        egui::pos2(x, band.center().y) - handle.center(),
+        egui::pos2(x, y) - handle.center(),
     );
     assert_eq!(links(&harness), before);
 }
@@ -7100,4 +7101,145 @@ fn the_hint_sits_below_a_tall_held_card() {
     assert!((hint.left() - done.x).abs() < 40.0, "{hint:?} at {done:?}");
     harness.drop_at(done);
     harness.run();
+}
+
+/// What the last frame painted as text, in paint order (later lies on top), with where –
+/// for checks the accessibility tree cannot make: what is drawn, and what covers what.
+fn painted_texts(harness: &Harness<'_, PlnwrkApp>) -> Vec<(String, egui::Rect)> {
+    fn texts_in(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(text) => {
+                out.push((text.galley.text().to_owned(), text.visual_bounding_rect()));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    texts_in(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for clipped in &harness.output().shapes {
+        // Only what is inside its clip shows.
+        let before = out.len();
+        texts_in(&clipped.shape, &mut out);
+        for (_, rect) in out.iter_mut().skip(before) {
+            *rect = rect.intersect(clipped.clip_rect);
+        }
+    }
+    out.retain(|(_, rect)| rect.width() > 0.0 && rect.height() > 0.0);
+    out
+}
+
+/// The helper itself: a heading painted in the overview is found where its label is.
+#[test]
+fn painted_texts_finds_what_is_drawn_and_where() {
+    let harness = harness_with_sample();
+    let painted = painted_texts(&harness);
+    let label = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .rect();
+    assert!(
+        painted
+            .iter()
+            .any(|(t, r)| t == "Digitalfunk Umrüstung Wachen" && r.intersects(label)),
+        "{painted:?}"
+    );
+    assert!(!painted.iter().any(|(t, _)| t == "Nicht gezeichnet"));
+}
+
+/// Phase 9f (Tobi: "Datumsleiste anheften"): the time axis – weeks, "Heute", the headings of
+/// the table – stays at the top of the view while the rows scroll, painted over them.
+#[test]
+fn the_time_axis_stays_in_view_when_the_rows_scroll() {
+    let mut harness = wide_schedule(40);
+    let week = |h: &Harness<'_, PlnwrkApp>| {
+        painted_texts(h)
+            .into_iter()
+            .find(|(t, _)| t.starts_with(text::week(1).split(' ').next().unwrap_or("KW")))
+            .map(|(_, r)| r)
+    };
+    let painted = |h: &Harness<'_, PlnwrkApp>, said: &str| {
+        painted_texts(h)
+            .into_iter()
+            .filter(|(t, _)| t == said)
+            .map(|(_, r)| r)
+            .collect::<Vec<_>>()
+    };
+    let week_before = week(&harness).expect("a week label");
+    let heading_before = painted(&harness, text::t().ribbon.task)[0];
+    let today_before = painted(&harness, text::t().today);
+    let first = bar(&harness, "Jetzt").top();
+    let at = bar(&harness, "Jetzt").center() + egui::vec2(120.0, 0.0);
+    for _ in 0..3 {
+        wheel(&mut harness, at, Modifiers::NONE);
+    }
+    let moved = bar(&harness, "Jetzt").top();
+    assert!(
+        moved < first - 100.0,
+        "the rows scrolled: {first} → {moved}"
+    );
+    let week_after = week(&harness).expect("still painted");
+    assert!(
+        (week_after.top() - week_before.top()).abs() < 1.0,
+        "{week_before:?} → {week_after:?}"
+    );
+    let heading_after = painted(&harness, text::t().ribbon.task)[0];
+    assert!((heading_after.top() - heading_before.top()).abs() < 1.0);
+    // "Heute" (the button above says it too): the one in the axis stays in the axis.
+    let in_axis = |r: &egui::Rect| {
+        r.top() >= heading_before.top() - 40.0 && r.bottom() <= heading_before.bottom() + 2.0
+    };
+    assert!(today_before.iter().any(in_axis), "{today_before:?}");
+    assert!(painted(&harness, text::t().today).iter().any(in_axis));
+    // Over the rows scrolled under it: nothing is painted on top of the heading.
+    let texts = painted_texts(&harness);
+    let last = texts
+        .iter()
+        .rposition(|(_, r)| r.intersects(heading_after.shrink(1.0)))
+        .unwrap();
+    assert_eq!(texts[last].0, text::t().ribbon.task, "{:?}", texts[last]);
+}
+
+/// Phase 9f: a bar hidden under the pinned time axis cannot be dragged through it.
+#[test]
+fn a_bar_under_the_time_axis_cannot_be_dragged_through_it() {
+    let mut harness = wide_schedule(40);
+    let at = bar(&harness, "Jetzt").center() + egui::vec2(120.0, 0.0);
+    for _ in 0..3 {
+        wheel(&mut harness, at, Modifiers::NONE);
+    }
+    // The axis: from the top of the view down to just below its headings.
+    let heading = painted_texts(&harness)
+        .into_iter()
+        .find(|(t, _)| t == text::t().ribbon.task)
+        .map(|(_, r)| r)
+        .unwrap();
+    let axis = egui::Rect::from_min_max(
+        egui::pos2(0.0, heading.bottom() + 3.0 - 40.0),
+        egui::pos2(f32::INFINITY, heading.bottom() + 3.0),
+    );
+    let (hidden, y) = (0..40)
+        .map(|n| format!("Zeile {n}"))
+        .find_map(|title| {
+            let start = format!("{title}: ");
+            let y = harness
+                .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+                .map(|n| n.rect().center().y)
+                .find(|y| *y - 8.0 >= axis.top() && *y + 8.0 <= axis.bottom())?;
+            Some((title, y))
+        })
+        .expect("a bar under the axis");
+    let id = task_named(harness.state(), &hidden).unwrap().id;
+    let before = dates_of(&harness, id);
+    let start = format!("{hidden}: ");
+    let x = harness
+        .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+        .map(|n| n.rect().center().x)
+        .fold(f32::MIN, f32::max);
+    drag(&mut harness, egui::pos2(x, y), egui::vec2(66.0, 0.0));
+    assert_eq!(dates_of(&harness, id), before);
 }
