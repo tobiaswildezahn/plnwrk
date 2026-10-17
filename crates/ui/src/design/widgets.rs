@@ -114,6 +114,7 @@ fn draw_button(
     let (rect, response) =
         ui.allocate_exact_size(vec2(width.max(min_width), size::CONTROL), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, text));
+    hand(ui, &response);
     if ui.is_rect_visible(rect) {
         let p = palette(ui);
         let (fill, stroke, fore) = colours(p, kind, &response, enabled);
@@ -146,6 +147,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, name: &str) -> Response {
     let enabled = ui.is_enabled();
     let (rect, response) = ui.allocate_exact_size(vec2(size::TARGET, size::TARGET), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name));
+    hand(ui, &response);
     if ui.is_rect_visible(rect) {
         let p = palette(ui);
         let corner = CornerRadius::same(radius::SMALL);
@@ -159,6 +161,16 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, name: &str) -> Response {
         icon.paint(ui.painter(), square(rect.center(), size::ICON), color);
     }
     response.on_hover_text(name)
+}
+
+/// The hand over something that can be clicked, as egui's own buttons show it.
+fn hand(ui: &Ui, response: &Response) {
+    if response.hovered()
+        && ui.is_enabled()
+        && let Some(cursor) = ui.visuals().interact_cursor
+    {
+        ui.ctx().set_cursor_icon(cursor);
+    }
 }
 
 /// The ring around what has the keyboard focus (WCAG 2.4.7), in the accent.
@@ -285,6 +297,7 @@ pub fn progress(ui: &mut Ui, fraction: f32, text: &str) -> Response {
 /// person changed it.
 pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> bool {
     let mut changed = false;
+    let enabled = ui.is_enabled();
     let p = palette(ui);
     Frame::new()
         .stroke(Stroke::new(1.0, p.control))
@@ -304,8 +317,9 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
                     let size = vec2(galley.size().x + 2.0 * space::M, size::ROW - 6.0);
                     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
                     response.widget_info(|| {
-                        WidgetInfo::selected(WidgetType::RadioButton, true, selected, *label)
+                        WidgetInfo::selected(WidgetType::RadioButton, enabled, selected, *label)
                     });
+                    hand(ui, &response);
                     if response.clicked() && !selected {
                         *value = *option;
                         changed = true;
@@ -487,6 +501,21 @@ mod tests {
             );
         }
         assert!(harness.get_by_label("Anlegen").rect().height() >= size::CONTROL);
+    }
+
+    #[test]
+    fn the_pointer_becomes_a_hand_over_every_button() {
+        let mut harness = harness();
+        harness.run();
+        for name in ["Anlegen", "Heute", "Projekt"] {
+            harness.hover_at(harness.get_by_label(name).rect().center());
+            harness.run();
+            assert_eq!(
+                harness.output().platform_output.cursor_icon,
+                egui::CursorIcon::PointingHand,
+                "{name}"
+            );
+        }
     }
 
     #[test]

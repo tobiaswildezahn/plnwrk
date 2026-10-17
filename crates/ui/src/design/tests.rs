@@ -71,6 +71,17 @@ fn pairs(p: &Palette) -> Vec<(String, Color32, Color32, f64)> {
         ("danger_fill on surface", p.danger_fill, p.surface, 3.0),
     ];
     all.extend(more.map(|(name, fore, back, least)| (name.to_owned(), fore, back, least)));
+    // Schedule bars (open, critical, done) on everything a row of the chart can show: the
+    // panel and days off (the chosen row is framed, never filled, in views/schedule.rs).
+    for (bar, fill) in [
+        ("open bar", p.accent_fill),
+        ("critical bar", p.danger_fill),
+        ("done bar", p.control),
+    ] {
+        for (back_name, back) in [("background", p.background), ("shade", p.shade)] {
+            all.push((format!("{bar} on {back_name}"), fill, back, 3.0));
+        }
+    }
     all
 }
 
@@ -138,15 +149,10 @@ fn sources() -> Vec<(std::path::PathBuf, String)> {
     found
 }
 
-#[test]
-fn colours_come_only_from_the_design_tokens() {
-    let forbidden = [
-        "Color32::from_rgb",
-        "Color32::from_rgba",
-        "Color32::from_gray",
-        "Color32::from_black_alpha",
-        "Color32::from_white_alpha",
-        "Color32::from_hex",
+/// Colour values: built from numbers, or egui's named colours.
+fn forbidden_colour(line: &str) -> bool {
+    const FORBIDDEN: [&str; 26] = [
+        "Color32::from_",
         "Color32::RED",
         "Color32::GREEN",
         "Color32::BLUE",
@@ -160,14 +166,31 @@ fn colours_come_only_from_the_design_tokens() {
         "Color32::KHAKI",
         "Color32::BROWN",
         "Color32::ORANGE",
+        "Color32::CYAN",
+        "Color32::MAGENTA",
+        "Color32::PURPLE",
+        "Color32::DEBUG_COLOR",
+        "Rgba::",
+        "Hsva",
+        "HsvaGamma",
+        "ecolor::",
+        "gamma_multiply",
+        "linear_multiply",
+        "as Color32",
+        "Color32 as",
     ];
+    FORBIDDEN.iter().any(|f| line.contains(f))
+}
+
+#[test]
+fn colours_come_only_from_the_design_tokens() {
     let mut found = Vec::new();
     for (path, text) in sources() {
         if path.ends_with("tests.rs") || path.ends_with("model_tests.rs") {
             continue;
         }
         for (n, line) in text.lines().enumerate() {
-            if forbidden.iter().any(|f| line.contains(f)) {
+            if forbidden_colour(line) {
                 found.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
             }
         }
@@ -176,6 +199,62 @@ fn colours_come_only_from_the_design_tokens() {
         found.is_empty(),
         "colours belong in design/tokens.rs: {found:#?}"
     );
+}
+
+/// Type sizes outside the design system: a fixed font size or size number.
+fn fixed_type_size(line: &str) -> bool {
+    line.contains("FontId::proportional(")
+        || line.contains("FontId::new(")
+        || line.contains("FontId::monospace(")
+        || line
+            .split(".size(")
+            .skip(1)
+            .any(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+#[test]
+fn type_sizes_come_only_from_the_design_tokens() {
+    let mut found = Vec::new();
+    for (path, text) in sources() {
+        if path.ends_with("tests.rs") || path.ends_with("model_tests.rs") {
+            continue;
+        }
+        for (n, line) in text.lines().enumerate() {
+            if fixed_type_size(line) {
+                found.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "sizes belong in design/tokens.rs: {found:#?}"
+    );
+}
+
+#[test]
+fn the_guards_find_what_they_forbid() {
+    // Planted lines: each guard must answer.
+    for line in [
+        "egui::FontId::proportional(10.0)",
+        "RichText::new(t).size(16.0)",
+        "FontId::new(9.0, family)",
+    ] {
+        assert!(fixed_type_size(line), "{line}");
+    }
+    for line in [
+        "RichText::new(t).size(size::DISPLAY)",
+        "TextStyle::Small.resolve(style)",
+    ] {
+        assert!(!fixed_type_size(line), "{line}");
+    }
+    for line in [
+        "let c = egui::Color32::from_rgb(1, 2, 3);",
+        "Color32::from_gray(9)",
+        "epaint::Color32::RED",
+    ] {
+        assert!(forbidden_colour(line), "{line}");
+    }
+    assert!(!forbidden_colour("palette.accent"));
 }
 
 #[test]

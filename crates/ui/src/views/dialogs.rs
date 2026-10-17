@@ -52,7 +52,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 Dialog::NewProject(form) => {
                     ui.heading(text::t().new_project_title);
                     ui.weak(text::t().new_project_hint);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     egui::Grid::new("new-project")
                         .num_columns(2)
                         .show(ui, |ui| {
@@ -103,7 +103,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             person_choice(ui, "new-owner", &mut form.owner, &people);
                             ui.end_row();
                         });
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Primary, text::t().create).clicked() {
                             match form.create_params() {
@@ -116,7 +116,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                                 Err(error) => message = Some(error),
                             }
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -124,7 +124,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 Dialog::FromTemplate(form) => {
                     ui.heading(text::t().from_template_title);
                     ui.weak(text::t().from_template_hint);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     let templates: Vec<_> = doc
                         .map(|d| {
                             query::templates(d.session.workspace(), d.session.clock().now_local())
@@ -186,7 +186,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     if templates.is_empty() {
                         ui.weak(text::t().no_template);
                     }
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Primary, text::t().create).clicked() {
                             match form.params() {
@@ -199,7 +199,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                                 Err(error) => message = Some(error),
                             }
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -221,7 +221,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             let secret = SecretString::from(std::mem::take(secret));
                             out.push(Intent::Unlock(source.clone(), secret));
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -229,12 +229,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 Dialog::Unsaved(action) => {
                     ui.heading(text::t().unsaved_title);
                     ui.label(text::t().unsaved_question);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Primary, text::t().save).clicked() {
                             out.push(Intent::SaveThen(action.clone()));
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                         // Discarding is set apart from saving: no slip of the pointer.
@@ -247,7 +247,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 Dialog::Protect { first, second } => {
                     ui.heading(text::t().protect.trim_end_matches('…'));
                     ui.label(text::t().protect_hint);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     egui::Grid::new("protect").num_columns(2).show(ui, |ui| {
                         let label = ui.label(text::t().passphrase);
                         let field = ui
@@ -260,7 +260,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             .labelled_by(label.id);
                         ui.end_row();
                     });
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Primary, text::t().protect_button).clicked() {
                             if first != second {
@@ -273,7 +273,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                                 out.push(Intent::Protect(secret));
                             }
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -281,12 +281,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 Dialog::Unprotect => {
                     ui.heading(format!("{}?", text::t().unprotect_button));
                     ui.label(text::t().unprotect_question);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Primary, text::t().unprotect_button).clicked() {
                             out.push(Intent::Unprotect);
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -299,12 +299,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             .unwrap_or_default(),
                     );
                     ui.label(text::t().delete_copy_question);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Destructive, text::t().delete).clicked() {
                             out.push(Intent::DeleteCopy(path.clone()));
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -313,12 +313,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     ui.heading(format!("{}?", text::t().delete_copy));
                     ui.label(name.as_str());
                     ui.label(text::t().delete_copy_question);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Destructive, text::t().delete).clicked() {
                             out.push(Intent::DeleteStoredCopy(key.clone()));
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -326,12 +326,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 Dialog::DeleteAllStoredCopies => {
                     ui.heading(format!("{}?", text::t().delete_all_copies));
                     ui.label(text::t().delete_all_copies_question);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Destructive, text::t().delete).clicked() {
                             out.push(Intent::DeleteAllStoredCopies);
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -344,7 +344,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         .unwrap_or_default();
                     ui.label(text::quoted(&title));
                     ui.label(text::subtasks_still_open(*open));
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         let mut with = params.clone();
                         if let Some(fields) = with.as_object_mut() {
@@ -363,7 +363,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                                 });
                             }
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });
@@ -376,7 +376,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         .unwrap_or_default();
                     ui.label(text::quoted(&title));
                     ui.label(text::t().delete_task_question);
-                    ui.add_space(6.0);
+                    ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Destructive, text::t().delete).clicked() {
                             out.push(Intent::Run {
@@ -386,7 +386,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                                 clear: Some(Clear::Dialog),
                             });
                         }
-                        if ui.button(text::t().cancel).clicked() {
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
                         }
                     });

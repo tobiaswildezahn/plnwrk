@@ -26,7 +26,7 @@ const ROW: f32 = 24.0;
 /// Width of the column with the titles.
 const LABELS: f32 = 220.0;
 /// Height of the time axis on top.
-const HEADER: f32 = 34.0;
+const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
 
@@ -216,9 +216,11 @@ pub fn show(
     // factor is gathered and one level taken per 25 %.
     let anchor_id = egui::Id::new(("schedule-zoom-anchor", project.id));
     let region = Rect::from_min_max(pos2(ui.max_rect().left(), top), ui.max_rect().max);
+    // Through the layer, so a dialog or menu on top still takes the gesture.
     if let Some(pointer) = ui.ctx().pointer_hover_pos()
-        && region.contains(pointer)
-        && ui.ui_contains_pointer()
+        && ui
+            .ctx()
+            .rect_contains_pointer(ui.layer_id(), region.intersect(ui.clip_rect()))
     {
         let gesture_id = egui::Id::new(("schedule-zoom-gesture", project.id));
         let zoom = ui.input(|i| i.zoom_delta());
@@ -292,6 +294,8 @@ pub fn show(
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
         let palette = crate::design::palette(ui);
+        // Dates and markers in the smallest size there is (12.5), never smaller.
+        let small = egui::TextStyle::Small.resolve(ui.style());
         let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * day_width;
         let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
         // The column with the titles stays at the left edge while scrolling sideways; what
@@ -339,7 +343,7 @@ pub fn show(
                     pos2(x + 3.0, area.top() + 2.0),
                     egui::Align2::LEFT_TOP,
                     text::month(day),
-                    egui::FontId::proportional(11.0),
+                    small.clone(),
                     visuals.weak_text_color(),
                 );
             }
@@ -356,16 +360,17 @@ pub fn show(
                         text::week(day.iso_week_date().week()),
                         dates::format(day)
                     ),
-                    egui::FontId::proportional(11.0),
+                    small.clone(),
                     visuals.weak_text_color(),
                 );
             }
-            if day_width >= 14.0 {
+            // Two digits in the small size need about 16 px.
+            if day_width >= 18.0 {
                 painter.text(
-                    pos2(x + day_width / 2.0, area.top() + HEADER - 4.0),
+                    pos2(x + day_width / 2.0, area.top() + HEADER - 3.0),
                     egui::Align2::CENTER_BOTTOM,
                     day.day().to_string(),
-                    egui::FontId::proportional(10.0),
+                    small.clone(),
                     visuals.weak_text_color(),
                 );
             }
@@ -380,7 +385,7 @@ pub fn show(
                 pos2(x + 2.0, area.top() + HEADER),
                 egui::Align2::LEFT_TOP,
                 label,
-                egui::FontId::proportional(10.0),
+                small.clone(),
                 color,
             );
         };
@@ -397,12 +402,12 @@ pub fn show(
         let mut boxes: BTreeMap<TaskId, Rect> = BTreeMap::new();
         for (i, (task, _)) in rows.iter().enumerate() {
             let y = row_y(i);
+            // The chosen row is framed, not filled: bars keep their contrast (3:1) on it.
             if state.selected == Some(task.id) {
-                painter.rect_filled(
-                    Rect::from_min_max(pos2(area.left(), y), pos2(area.right(), y + ROW)),
-                    0.0,
-                    palette.accent_soft,
-                );
+                let line = Stroke::new(1.0, palette.accent);
+                for edge in [y + 0.5, y + ROW - 0.5] {
+                    painter.hline(area.left()..=area.right(), edge, line);
+                }
             }
 
             let Some((start, end)) = spans.get(&task.id).copied() else {
@@ -556,7 +561,7 @@ pub fn show(
                 pos2(left + 4.0 + *depth as f32 * 14.0, y + ROW / 2.0),
                 egui::Align2::LEFT_CENTER,
                 &task.title,
-                egui::FontId::proportional(13.0),
+                egui::TextStyle::Body.resolve(ui.style()),
                 visuals.text_color(),
             );
         }

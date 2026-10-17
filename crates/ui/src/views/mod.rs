@@ -270,7 +270,7 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
 fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() * 0.2);
-        ui.heading(RichText::new(crate::APP_NAME).size(32.0));
+        ui.heading(RichText::new(crate::APP_NAME).size(design::tokens::size::DISPLAY));
         ui.label(text::t().welcome);
         ui.weak(format!(
             "{} {}",

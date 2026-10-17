@@ -492,6 +492,8 @@ impl PlnwrkApp {
     /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
         design::install(ui.ctx());
+        // Before anything that may close a dialog (an upload replacing the work, too).
+        let had_dialog = self.state.dialog.is_some();
         text::set_language(self.state.language);
         // A file chosen in the browser arrives some frames after it was asked for.
         // Another tab opened or closed: its copies are offered or no longer.
@@ -516,7 +518,6 @@ impl PlnwrkApp {
         if self.state.dialog.is_none() {
             views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
         }
-        let had_dialog = self.state.dialog.is_some();
         views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
         for intent in intents {
             self.apply(intent);

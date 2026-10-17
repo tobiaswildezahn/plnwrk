@@ -162,6 +162,8 @@ pub mod size {
     pub const SUBHEADING: f32 = 18.0;
     /// View titles, dialog titles.
     pub const HEADING: f32 = 22.0;
+    /// The name of the app on the start page.
+    pub const DISPLAY: f32 = 32.0;
     /// Height of buttons with text.
     pub const CONTROL: f32 = 32.0;
     /// Height of a row in lists, forms and the schedule.

@@ -3919,11 +3919,17 @@ fn tap(harness: &mut Harness<'_, PlnwrkApp>, at: egui::Pos2) {
 fn the_first_click_after_a_dialog_counts() {
     let mut harness = harness_with_sample();
     let closing: [fn(&mut Harness<'_, PlnwrkApp>); 3] = [
-        // The palette, closed with Escape.
+        // The palette, closed with Escape (only the press: a release would spend the frame).
         |h| {
             h.key_press_modifiers(Modifiers::COMMAND, Key::K);
             h.run();
-            h.key_press(Key::Escape);
+            h.event(egui::Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            });
         },
         // "From template", closed with its button.
         |h| {
@@ -3948,13 +3954,15 @@ fn the_first_click_after_a_dialog_counts() {
     harness.run();
     for (n, close) in closing.iter().enumerate() {
         click(&mut harness, text::t().list);
+        // Where the tab is (it does not move; without the fix the closed palette would still
+        // be drawn in the next frame, with an entry of the same name).
+        let at = harness.get_by_label(text::t().schedule_tab).rect().center();
         close(&mut harness);
         // The closing input and nothing more: the next press comes in the very next frame.
         harness.step();
         assert!(harness.state().state.dialog.is_none(), "dialog {n} closed");
         // Like a tap or a quick click: the pointer arrives and presses in the first frame
         // after the dialog is gone.
-        let at = harness.get_by_label(text::t().schedule_tab).rect().center();
         tap(&mut harness, at);
         assert_eq!(
             harness.state().state.tab,
@@ -3962,6 +3970,28 @@ fn the_first_click_after_a_dialog_counts() {
             "click after dialog {n}"
         );
     }
+    // "Discard" in the question about unsaved work: the sample opens anew, on the overview.
+    let sidebar_project = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .rect()
+        .center();
+    harness
+        .state_mut()
+        .state
+        .open_dialog(crate::state::Dialog::Unsaved(
+            crate::state::FileAction::Sample,
+        ));
+    harness.run();
+    harness.get_by_label(text::t().discard).click();
+    harness.step();
+    assert!(harness.state().state.dialog.is_none(), "discarded");
+    tap(&mut harness, sidebar_project);
+    assert!(
+        matches!(harness.state().state.view, View::Project(_)),
+        "click after discarding"
+    );
 }
 
 /// A project whose dates reach far beyond the window: from 60 days ago to 60 days ahead, with

@@ -78,7 +78,7 @@ fn project_card(
             line.push(text::project_status(card.status).to_owned());
             ui.weak(line.join(" · "));
             if ui
-                .link(RichText::new(&card.title).strong().size(16.0))
+                .link(RichText::new(&card.title).text_style(design::subheading()))
                 .clicked()
             {
                 out.push(Intent::Go(View::Project(card.id)));
