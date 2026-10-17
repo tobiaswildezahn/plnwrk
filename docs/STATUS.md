@@ -1,8 +1,9 @@
 # plnwrk – Stand und offene Punkte
 
-> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17:
-> plnwrk 0.1.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); 6b (Assistent in
-> der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17 abends:
+> plnwrk 0.1.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); **Phase 9
+> (Gestaltung) läuft:** 9a–9e gemergt, 9f geprüft und wartet auf den Merge (PR #21), dann 9g.
+> 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -26,6 +27,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6a+ (jeder Tag zählt, `move_task`, sprechende Antworten) **fertig**; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10), [#11](https://github.com/tobiaswildezahn/plnwrk/pull/11) |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0), Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
+| 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board **fertig**, je Review + Nachreview; **9f** (Dialoge, Start, Übersicht, Liste, Details, Leerzustände) **fertig geprüft, wartet auf Merge**; 9g offen | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#20](https://github.com/tobiaswildezahn/plnwrk/pull/20), [#21](https://github.com/tobiaswildezahn/plnwrk/pull/21) offen |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
@@ -33,7 +35,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub öffentlich (seit 2026-10-15) `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–4 (Merge `21305ec`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–8 und 9a–9e (Stand `40968aa`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
@@ -49,12 +51,16 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 - **Crates:** `core` (Modell, Invarianten, Rang, Policy, Uhr-Trait), `engine` (Befehle, Events,
   Undo/Redo, Abfragen, Fixture, `workspace.upgrade`), `store` (Dateiformat, Krypto,
   Passphrasen-Regel, Export, Dateien, `Document::open_session`), `platform` (echte Uhr,
-  Zufalls-IDs), `ui` (egui-Oberfläche inkl. Autosave), `schedule`/`assistant`/`mcp` (Gerüste);
-  Apps `plnwrk` (Desktop, Systemdialoge, ohne macOS-Standardmenü), `plnwrk-web` (dieselbe
-  Oberfläche im Browser, noch ohne Dateien), `plnwrk-cli`.
-- **Tests:** u. a. 99 Oberflächentests ohne Fenster, ein Zustandsautomat-Test (proptest) für
-  Autosave/„ungespeichert“, ein Wächtertest gegen deutsche Texte außerhalb `text.rs` (egui_kittest über den
-  Barrierefreiheitsbaum), Angriffs-/Schadenstests des Dateiformats, Müll-Parameter-Fuzzer für
+  Zufalls-IDs), `ui` (egui-Oberfläche inkl. Autosave, Gestaltungssystem `design/`, Ribbon),
+  `schedule` (Plan, Analyse, Schub, „Meilenstein überholt“), `mcp` (MCP-Server), `assistant`
+  (Gerüst, 6b ausgesetzt); Apps `plnwrk` (Desktop, Systemdialoge, ohne macOS-Standardmenü),
+  `plnwrk-web` (dieselbe Oberfläche im Browser, mit Hochladen/Herunterladen), `plnwrk-cli`.
+- **Tests:** 654 im ganzen Arbeitsbereich, davon 315 Oberflächentests ohne Fenster (egui_kittest
+  über den Barrierefreiheitsbaum, seit 9f auch über die gezeichneten Formen: `painted_texts`,
+  `painted_fills`); jede Prüfung mit Gegenprobe (CLAUDE.md). Dazu ein Zustandsautomat-Test
+  (proptest) für Autosave/„ungespeichert“, Wächter gegen deutsche Texte außerhalb `text.rs`,
+  gegen Farben/Schriftgrößen außerhalb `design/` und für jedes Eingabefeld (zählt als
+  ungespeichert oder steht mit Grund auf einer Liste), WCAG-Kontrasttest, Angriffs-/Schadenstests des Dateiformats, Müll-Parameter-Fuzzer für
   jeden Befehl, Snapshot-Tests der Abfragen.
 - **App ausprobieren (Mac):** `cd ~/projekte/plnwrk && cargo xtask app`, dann
   `open target/plnwrk.app` (oder im Finder doppelklicken; nach `/Programme` ziehen geht auch).
@@ -71,12 +77,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   **9a–9e gemergt** (#16–#20). **9f gebaut** (Branch `phase-9f`: Anlegen-Dialog Vorgang | Projekt,
-   Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten, Detailbereich in
-   Gruppen, Leerzustände, Meldungsleiste, angeheftete Datumsleiste) – Review steht aus. Danach **9g**
-   (Klickpfade, Wiederholungstest, Block „Überholte Meilensteine“, v0.2.0). Behoben in 9f:
-   „Bearbeiten/Archivieren“ über dem Projekttitel, keine Uhrzeit bei Vorgängen ohne Aktenzeichen.
-   Offen: ob die Eingabefelder „flach“ wirken – Tobis Urteil am echten Bildschirm.
+   **9a–9e gemergt** (#16–#20). **9f fertig geprüft** (PR #21, Review + Nachreview eingearbeitet:
+   Anlegen-Dialog Vorgang | Projekt mit einer Regel `Project::is_case`, Startseite, Übersicht
+   „Heute und überfällig“ mit Ampeln, Liste mit Spalten, Detailbereich in Gruppen, Leerzustände,
+   Meldungsleiste, angeheftete Datumsleiste) – **Merge auf Tobis „ja, merge“** bei grüner CI.
+   Danach **9g**: Klickpfade, Wiederholungstest mit dem Sachbearbeiter, Übersicht-Block
+   „Überholte Meilensteine“, Version 0.2.0. Vor 9g zu entscheiden: 4.14–4.17.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der
@@ -88,15 +94,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    Hochladen über den echten Dateidialog (nur über Tests belegt).
 5. **Tobi testet Phase 5** (Demo im Plan `docs/plans/2026-10-14-phase-5.md`): Zeitplan,
    Balken ziehen, „Wartet auf“.
-6. **README** fürs öffentliche Repo (was ist plnwrk, Start, MCP einrichten) – dann **Phase 8**
-   (installierbare Pakete, 0.1.0). Der Workflow `pages` (von Hand) braucht weiterhin eine
-   eigene (Sub-)Domain, weil der Browser-Speicher sonst mit anderen Pages-Seiten geteilt ist.
+6. ~~README und Phase 8~~ erledigt (#13, #14): 0.1.0 veröffentlicht, Browser unter eigener
+   Subdomain plnwrk.wildezahn.de.
 7. 6b (Assistent in der App, lokales Modell) – ausgesetzt, „etwas für später“ (Tobi, 2026-10-14).
 8. Optional: `cargo xtask mutants` (5.1).
-9. **Board/Zoom/Export** (Tobis drei Wünsche vom 2026-10-15): umgesetzt auf Branch
-   `board-zoom-export`, PR offen – Merge nach „ja, merge“. Tobi probiert: Board (Unteraufgaben
-   in der Karte, Rückfrage bei „Erledigt“), Zeitplan −/+ und Strg/⌘ + Mausrad, „Als Tabelle
-   exportieren (Excel)“ und die Datei in Excel öffnen.
+9. ~~Board/Zoom/Export~~ gemergt (#12, 2026-10-15); Board und Zeitplan seither in 9c/9e neu
+   gestaltet.
 10. Kleinigkeiten (notiert 2026-10-15): „Datei existiert schon“ als eigene Fehlerart statt `io`;
    Git-Hook, der eine geänderte, nicht vorgemerkte `Cargo.lock` abweist (zweimal rote CI);
    Hinweis bei Fristen auf Wochenende/Feiertag (ohne die Rechnung zu ändern) – Tobi entscheidet,
@@ -138,6 +141,10 @@ Meilenstein wird unhaltbar.
 | 4.10 | ~~Wer testet außer Tobi~~ **erledigt (2026-10-17):** Tobis Sachbearbeiter; Befunde → Phase 9 |
 | 4.12 | ~~Erledigte Aufgaben im Zeitplan~~ **entschieden (Tobi, 2026-10-14):** fest wie Meilensteine, nicht kritisch, keine Warnungen über sie | – | umgesetzt |
 | 4.13 | **Fristen auf Wochenende/Feiertag**: Seit „jeder Tag zählt“ setzen Schub und `move_task` Termine auch auf Samstag/Sonntag. Für Einsatzvorhaben richtig, für Verwaltungsfristen (SKA, Senatskanzlei) evtl. falsch. Nur Hinweis anzeigen, Kalender je Projekt wählbar machen (Hamburg-Kalender liegt bereit) oder so lassen? | Erst im Realitätstest beobachten | nach 4.10 |
+| 4.14 | **Ziehen nach „Erledigt“ bei offenen Vorgängern** (9e): Heute sagt plnwrk das beim Ziehen, hält aber nicht auf. Reicht der weiche Hinweis, oder soll eine kurze Rückfrage kommen (wie bei offenen Unteraufgaben)? | Weich lassen, im Wiederholungstest beobachten | vor 9g |
+| 4.15 | **Eingabefelder „flach“?** (Befund des Realitätstests) Die Felder folgen den Tokens (Rahmen, Fläche, Radius); ob sie am echten Bildschirm zu flach wirken, ist Tobis Urteil. | Am echten Bildschirm ansehen, dann ggf. Rahmen/Höhe nachschärfen | Wiederholungstest |
+| 4.16 | **Meldungen an ihren Ursprung binden** (Vorschlag aus den Reviews 9d–9f): Die meisten Funde betrafen, wo eine Meldung steht und wie lange sie gilt. Heute ist sie ein globales Feld, das jeder Weg richtig leeren muss. Meldung mit Ursprung (Dialog, Ansicht, Feld) macht „eine Meldung, ein Ort“ zur Regel im Code. | Als Umbau zu Beginn von 9g, vor den Klickpfaden | vor 9g |
+| 4.17 | **Klickpfade auch nur mit Tastatur** (Vorschlag für 9g): In 9f lagen die meisten Fehler bei Enter, Escape und Fokus. Jeder Klickpfad zusätzlich als reine Tastatur-Variante prüft das Anti-Ziel „Bedienung nur noch mit der Maus“ maschinell. | Ja, als eigene Test-Variante je Pfad | vor 9g |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte
@@ -182,10 +189,12 @@ Meilenstein wird unhaltbar.
 - **Sprache:** Kopien-Namen („– Wiederherstellung“, Ordner „Notkopien“) und die
   VS-NfD-Kennzeichnung bleiben deutsch; Daten (Titel, Art „Projekt“/„Vorgang“) bleiben, wie
   getippt. Technische Gründe aus Speicher/Engine (`reason`) erscheinen englisch hinter der
-  übersetzten Meldung. Meldungen in der Statuszeile bleiben nach einem Sprachwechsel in der alten
-  Sprache, bis die nächste kommt.
-- **Art-Vorschläge** sind sprachabhängig („Vorgang“/„Case“); weil die Art Freitext ist,
-  können Dateien beide Wörter enthalten.
+  übersetzten Meldung. Meldungen (seit 9f in der Leiste unter dem Menüband) bleiben nach einem
+  Sprachwechsel in der alten Sprache, bis die nächste kommt.
+- **Art:** Der Anlegen-Dialog schreibt „Vorgang“/„Projekt“ in der Sprache der Oberfläche; die
+  Grundwörter (Vorgang/Case, Projekt/Project) werden seit 9f in der jeweils gewählten Sprache
+  angezeigt, eigene Arten („SKA“) wie getippt. Ob etwas ein Vorgang ist, entscheidet überall
+  `Project::is_case` (Aktenzeichen oder eine Art außer „Projekt“).
 - **Getippter, nicht übernommener Text** (Feld hat noch den Cursor) steht nicht in der
   Minutenkopie, nur in der Notsicherung beim Beenden; bei einem harten Absturz ist er weg.
 - **Browser:** Zwischenstand liegt im `localStorage` (Klartext, nur nicht eingestufte,

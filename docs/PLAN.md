@@ -447,4 +447,4 @@ Zeitplan, Meilensteine (mit Bestätigung), Board, Dialoge; Klicktests und Wieder
 | 6 KI | 6a MCP-Server fertig (PR #10, `bb06599`), 6a+ fertig (PR #11, `094103b`); 6b Assistent in der App ausgesetzt |
 | 7 VS-Härtung | offen |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): Release für macOS/Windows/Linux, Browser unter plnwrk.wildezahn.de |
-| 9 Gestaltung und Bedienbarkeit | 9a–9e gemergt; 9f gebaut (Branch `phase-9f`), 9g offen |
+| 9 Gestaltung und Bedienbarkeit | 9a–9e gemergt (#16–#20); 9f fertig geprüft (PR #21, Review + Nachreview eingearbeitet), wartet auf Merge; 9g offen – vorher STATUS 4.14–4.17 |
