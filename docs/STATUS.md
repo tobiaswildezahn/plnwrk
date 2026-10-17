@@ -169,6 +169,12 @@ Meilenstein wird unhaltbar.
   **Umschalt+Tab** verlässt, verliert den Fokus (vorwärts mit Tab geht es; ohne Änderung auch
   rückwärts). Vermutlich die Fokusführung von egui nach dem Übernehmen. Noch nicht behoben,
   der Klickpfad „Balken eine Woche später“ geht deshalb vorwärts.
+- **Schmale Fenster (Durchgang 9g, 800 px):** Mit Seitenleiste und offenem Detailbereich
+  bleiben der Liste etwa 200 px; egui schneidet sie dann links ab, statt sie zu verkleinern.
+  egui merkt sich zudem die Breite des Detailbereichs, auch eine ungewollt gewachsene. Geprüft
+  ist 1280×800 und breiter (Plan §9).
+- **Seitenleiste:** Das Symbol vor „Vorlagen“ steht weiter vom Text ab als bei „Vorgänge“ und
+  „Projekte“ (Kleinigkeit, Durchgang 9g).
 - **Tastaturpfade** (gemessen 9g, `crates/ui/src/tests/paths.rs`): Vorgang 9 Tasten, Projekt 5,
   Aufgabe mit Frist 15, Heute 2, Balken eine Woche 24, Meilenstein 15, Karte erledigt 4,
   Abhängigkeit 24. Über die Befehlspalette geht alles; Felder im Detailbereich erreicht man nur

@@ -981,7 +981,7 @@ impl PlnwrkApp {
                             String::new()
                         };
                         Some(Message::error(format!(
-                            "{said}⚠ {}",
+                            "{said}{}",
                             text::overtakes(&overtaken)
                         )))
                     }

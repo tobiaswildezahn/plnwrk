@@ -6029,6 +6029,8 @@ fn moving_past_a_milestone_says_so() {
     let said = message(&harness).unwrap_or_default();
     assert!(said.contains(&overtaken), "{said}");
     assert!(harness.state().state.message().is_some_and(|m| m.error));
+    // The bar draws its own warning sign for an error; none in the text (Durchgang 9g: twice).
+    assert!(!said.contains('⚠'), "{said}");
 }
 
 /// The same while dragging in the schedule: the bar's spoken name (and the preview) say it.
@@ -8499,5 +8501,26 @@ fn the_overview_names_overtaken_milestones() {
         harness
             .query_by_label(text::t().overtaken_milestones)
             .is_none()
+    );
+}
+
+/// Durchgang 9g: a long field message wraps under its field – the detail panel keeps its width
+/// (it grew with the message and pushed the list out of view).
+#[test]
+fn a_long_field_message_does_not_widen_the_details() {
+    let (mut harness, _) = saved_sample_with_task("said-long", "Einbau Wache 11");
+    let edge = |h: &Harness<'_, PlnwrkApp>| h.get_by_label(text::t().group_dates).rect();
+    let before = edge(&harness);
+    type_into(
+        &mut harness,
+        text::t().due,
+        &"20.11.20.12.2026".repeat(3),
+        true,
+    );
+    assert!(harness.state().state.message().is_some_and(|m| m.error));
+    let after = edge(&harness);
+    assert!(
+        (after.left() - before.left()).abs() < 1.0,
+        "the panel grew: {before:?} -> {after:?}"
     );
 }
