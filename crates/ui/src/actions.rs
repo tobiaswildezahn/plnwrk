@@ -76,7 +76,7 @@ pub enum Group {
     TaskEdit,
     Navigate,
     Zoom,
-    Columns,
+    Show,
     Share,
 }
 
@@ -97,7 +97,7 @@ impl Group {
         Group::TaskEdit,
         Group::Navigate,
         Group::Zoom,
-        Group::Columns,
+        Group::Show,
         Group::Share,
     ];
 
@@ -109,7 +109,7 @@ impl Group {
             Group::New | Group::Undo | Group::Find => RibbonTab::Start,
             Group::Views | Group::Areas | Group::Appearance | Group::Language => RibbonTab::View,
             Group::TaskStatus | Group::TaskEdit => RibbonTab::Task,
-            Group::Navigate | Group::Zoom | Group::Columns | Group::Share => RibbonTab::Schedule,
+            Group::Navigate | Group::Zoom | Group::Show | Group::Share => RibbonTab::Schedule,
         }
     }
 
@@ -132,7 +132,7 @@ impl Group {
             Group::TaskEdit => r.edit,
             Group::Navigate => r.navigate,
             Group::Zoom => r.zoom,
-            Group::Columns => t.columns,
+            Group::Show => t.show,
             Group::Share => r.share,
         }
     }
@@ -628,15 +628,25 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
         for column in ScheduleColumn::ALL {
             a.push(
                 act(
-                    Group::Columns,
+                    Group::Show,
                     Icon::List,
                     column.name(),
                     vec![Intent::ToggleColumn(column)],
                 )
-                .long(format!("{}: {}", t.columns, column.name()))
+                .long(format!("{}: {}", t.show, column.name()))
                 .chosen(!state.hidden_columns.contains(&column)),
             );
         }
+        a.push(
+            act(
+                Group::Show,
+                Icon::Schedule,
+                t.critical_path,
+                vec![Intent::ToggleCritical],
+            )
+            .long(format!("{}: {}", t.show, t.critical_path))
+            .chosen(!state.hide_critical),
+        );
         a.push(
             act(
                 Group::Share,

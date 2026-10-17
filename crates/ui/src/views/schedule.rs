@@ -6,13 +6,14 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use egui::{Pos2, Rect, RichText, Sense, Shape, Stroke, pos2, vec2};
+use egui::{CornerRadius, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, pos2, vec2};
 use jiff::civil::Date;
 use plnwrk_core::{Project, Task, TaskId, TaskStatus};
 use plnwrk_engine::query::TaskIndex;
 use plnwrk_schedule::{Analysis, Calendar, Item, Plan, Warning};
 
 use crate::design::Icon;
+use crate::design::tokens::radius;
 use crate::doc::OpenDoc;
 use crate::state::{ScheduleColumn, ScheduleRequest, State};
 use crate::{Intent, dates, text};
@@ -34,6 +35,14 @@ const TITLES_MAX: f32 = 480.0;
 const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
+
+/// Which part of a bar is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Grip {
+    Move,
+    Start,
+    End,
+}
 
 /// Width of a day at zoom level `level`.
 fn day_width_of(level: usize) -> f32 {
@@ -530,77 +539,199 @@ pub fn show(
             if visible.width() <= 0.0 || visible.height() <= 0.0 {
                 continue;
             }
+            // Three handles: the middle moves the task, the ends change start or deadline
+            // (not for milestones, and not on bars too short to hit an end apart).
+            let ends = !task.milestone && visible.width() >= 18.0;
             let response = ui.interact(
                 visible,
                 ui.id().with(("bar", task.id)),
                 Sense::click_and_drag(),
             );
+            let edge = |at: f32, which: &str| {
+                let rect =
+                    Rect::from_min_max(pos2(at - 4.0, bar.top()), pos2(at + 4.0, bar.bottom()))
+                        .intersect(chart);
+                ui.interact(rect, ui.id().with((which, task.id)), Sense::drag())
+            };
+            let start_edge = ends.then(|| edge(bar.left(), "bar-start"));
+            let end_edge = ends.then(|| edge(bar.right(), "bar-end"));
+            let grip = [
+                (Grip::Start, start_edge.as_ref()),
+                (Grip::End, end_edge.as_ref()),
+                (Grip::Move, Some(&response)),
+            ];
+            // The handle held: which, whether still dragged, whether just let go.
+            let held: Option<(Grip, bool, bool)> = grip.iter().find_map(|(g, r)| {
+                r.filter(|r| r.dragged() || r.drag_stopped())
+                    .map(|r| (*g, r.dragged(), r.drag_stopped()))
+            });
+            // The pointer shows what a drag would do.
+            if start_edge.as_ref().is_some_and(Response::hovered)
+                || end_edge.as_ref().is_some_and(Response::hovered)
+            {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            } else if response.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            } else if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
             // While dragged: shown where it would land, whole days. Kept between frames:
             // when the button is released, egui no longer knows where the drag began.
             let kept = response.id.with("shift");
-            if response.dragged()
-                && let Some(days) = ui.input(|i| {
-                    let origin = i.pointer.press_origin()?;
-                    let now = i.pointer.interact_pos()?;
-                    Some(((now.x - origin.x) / day_width).round() as i32)
-                })
-            {
-                ui.data_mut(|d| d.insert_temp(kept, days));
+            let mut shift = 0;
+            if let Some((_, dragged, stopped)) = held {
+                if dragged
+                    && let Some(days) = ui.input(|i| {
+                        let origin = i.pointer.press_origin()?;
+                        let now = i.pointer.interact_pos()?;
+                        Some(((now.x - origin.x) / day_width).round() as i32)
+                    })
+                {
+                    ui.data_mut(|d| d.insert_temp(kept, days));
+                }
+                shift = ui.data(|d| d.get_temp::<i32>(kept)).unwrap_or(0);
+                if stopped {
+                    ui.data_mut(|d| d.remove::<i32>(kept));
+                }
             }
-            let shift = if response.dragged() || response.drag_stopped() {
-                ui.data(|d| d.get_temp::<i32>(kept)).unwrap_or(0)
-            } else {
-                0
+            // Where it would land: the dates, and how many tasks that wait for it move along.
+            let landing: Option<(Option<Date>, Option<Date>)> = match held {
+                _ if shift == 0 => None,
+                Some((Grip::Move, ..)) => plan
+                    .shifted(task.id, plus(start, shift))
+                    .map(|m| (m.start, m.due)),
+                Some((Grip::Start, ..)) => Some((Some(plus(start, shift).min(end)), Some(end))),
+                Some((Grip::End, ..)) => Some((task.start, Some(plus(end, shift).max(start)))),
+                None => None,
             };
-            if response.drag_stopped() {
-                ui.data_mut(|d| d.remove::<i32>(kept));
-            }
-            // Where it would land: the same working days as when it is dropped. Shown, and
-            // named for screen readers, while it is dragged.
-            let landing = (shift != 0)
-                .then(|| plan.shifted(task.id, plus(start, shift)))
-                .flatten()
-                .and_then(|m| {
-                    Item {
-                        id: task.id,
-                        start: m.start,
-                        due: m.due,
-                        milestone: task.milestone,
-                        done: false,
-                    }
-                    .span()
-                });
-            let shown = landing.map_or(bar, |span| bar_of(task.milestone, span, y));
-            let fill = if task.status == TaskStatus::Done {
-                palette.control
-            } else if critical {
-                palette.danger_fill
+            let landed = landing.and_then(|(from, to)| {
+                Item {
+                    id: task.id,
+                    start: from,
+                    due: to,
+                    milestone: task.milestone,
+                    done: false,
+                }
+                .span()
+            });
+            let along = landing
+                .and_then(|(from, to)| {
+                    plnwrk_schedule::Reschedule::of(ws, task.id, from, to, Calendar::standard())
+                })
+                .map_or(0, |r| r.along());
+            let shown = landed.map_or(bar, |span| bar_of(task.milestone, span, y));
+            let overdue = task.status != TaskStatus::Done && end < today;
+            let show_critical = critical && !state.hide_critical;
+            let (fill, darker) = if task.status == TaskStatus::Done {
+                (palette.control, palette.control)
+            } else if show_critical {
+                (palette.danger_fill, palette.danger_hover)
             } else {
-                palette.accent_fill
+                (palette.accent_fill, palette.accent_hover)
             };
             if task.milestone {
                 let c = shown.center();
                 let diamond = vec![
-                    pos2(c.x, c.y - 7.0),
-                    pos2(c.x + 7.0, c.y),
-                    pos2(c.x, c.y + 7.0),
-                    pos2(c.x - 7.0, c.y),
+                    pos2(c.x, c.y - 8.0),
+                    pos2(c.x + 8.0, c.y),
+                    pos2(c.x, c.y + 8.0),
+                    pos2(c.x - 8.0, c.y),
                 ];
-                painter.add(Shape::convex_polygon(diamond, fill, Stroke::NONE));
+                let ring = if overdue {
+                    Stroke::new(2.0, palette.danger)
+                } else {
+                    Stroke::NONE
+                };
+                painter.add(Shape::convex_polygon(diamond, fill, ring));
+                // Milestones carry their name beside them.
+                painter.text(
+                    pos2(shown.right() + 6.0, c.y),
+                    egui::Align2::LEFT_CENTER,
+                    &task.title,
+                    small.clone(),
+                    visuals.weak_text_color(),
+                );
             } else {
-                painter.rect_filled(shown, 3.0, fill);
+                let corner = CornerRadius::same(radius::MEDIUM);
+                painter.rect_filled(shown, corner, fill);
+                // Progress: the done part darker.
+                if task.status != TaskStatus::Done && task.progress > 0 {
+                    let mut done = shown;
+                    done.set_width(shown.width() * f32::from(task.progress.min(100)) / 100.0);
+                    painter.rect_filled(done, corner, darker);
+                }
+                if overdue {
+                    painter.rect_stroke(
+                        shown,
+                        corner,
+                        Stroke::new(2.0, palette.danger),
+                        egui::StrokeKind::Outside,
+                    );
+                }
             }
-            let (from, to) = landing.unwrap_or((start, end));
+            if overdue {
+                Icon::Warning.paint(
+                    &painter,
+                    crate::design::icons::square(
+                        pos2(shown.right() + 12.0, shown.center().y),
+                        14.0,
+                    ),
+                    palette.danger,
+                );
+            }
+            // While dragged: the dates at the pointer and what moves along.
+            if let Some((from, to)) = landed
+                && let Some(at) = ui.input(|i| i.pointer.interact_pos())
+            {
+                let mut lines = vec![text::span_with_weekdays(from, to)];
+                if along > 0 {
+                    lines.push(text::moves_along(along));
+                }
+                let label = lines.join("\n");
+                let galley = painter.layout_no_wrap(label, small.clone(), visuals.text_color());
+                let place =
+                    Rect::from_min_size(at + vec2(14.0, 14.0), galley.size() + vec2(12.0, 8.0));
+                painter.rect(
+                    place,
+                    CornerRadius::same(radius::SMALL),
+                    palette.surface,
+                    Stroke::new(1.0, palette.line),
+                    egui::StrokeKind::Inside,
+                );
+                painter.galley(place.min + vec2(6.0, 4.0), galley, visuals.text_color());
+            }
+            let (from, to) = landed.unwrap_or((start, end));
             let when = if from == to {
                 dates::format(to)
             } else {
                 format!("{} – {}", dates::format(from), dates::format(to))
             };
-            let name = format!("{}: {when}", task.title);
+            // Spoken: dates, and what the colours say (never colour alone).
+            let mut name = format!("{}: {when}", task.title);
+            if task.status != TaskStatus::Done && task.progress > 0 {
+                name.push_str(&format!(", {} %", task.progress.min(100)));
+            }
+            if overdue {
+                name.push_str(&format!(", {}", text::t().overdue_short));
+            }
+            if show_critical {
+                name.push_str(&format!(", {}", text::t().critical_short));
+            }
+            if along > 0 {
+                name.push_str(&format!(", {}", text::moves_along(along)));
+            }
             let enabled = ui.is_enabled();
             response.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name)
             });
+            for (grip, handle) in [(text::t().start, &start_edge), (text::t().due, &end_edge)] {
+                if let Some(handle) = handle {
+                    let spoken = format!("{grip} · {}", task.title);
+                    handle.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, &spoken)
+                    });
+                }
+            }
             let float = analysis.float.get(&task.id).copied();
             let response = response.on_hover_text(match float {
                 Some(days) if days <= 0 => format!("{name}\n{}", text::t().critical),
@@ -610,14 +741,13 @@ pub fn show(
             if response.clicked() {
                 out.push(Intent::Select(Some(task.id)));
             }
-            if response.drag_stopped()
-                && shift != 0
-                && let Some(moved) = plan.shifted(task.id, plus(start, shift))
+            if let Some((_, _, true)) = held
+                && let Some((from, to)) = landing
             {
                 out.push(Intent::Reschedule {
                     task: task.id,
-                    start: moved.start,
-                    due: moved.due,
+                    start: from,
+                    due: to,
                     due_time: None,
                 });
             }

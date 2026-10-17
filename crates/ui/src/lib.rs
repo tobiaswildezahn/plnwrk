@@ -155,6 +155,8 @@ pub(crate) enum Intent {
     Schedule(ProjectId, state::ScheduleRequest),
     /// Show or hide a column of the schedule's table.
     ToggleColumn(state::ScheduleColumn),
+    /// Mark the critical path in red, or not.
+    ToggleCritical,
     /// New dates for a task; what waits for it moves along (one step). `due_time`: a new time
     /// of day for the deadline (`Some(None)` clears it), `None` keeps it.
     Reschedule {
@@ -683,6 +685,7 @@ impl PlnwrkApp {
             Intent::Schedule(project, request) => {
                 self.state.schedule_request = Some((project, request));
             }
+            Intent::ToggleCritical => self.state.hide_critical = !self.state.hide_critical,
             Intent::ToggleColumn(column) => {
                 if !self.state.hidden_columns.remove(&column) {
                     self.state.hidden_columns.insert(column);

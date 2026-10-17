@@ -558,6 +558,8 @@ pub struct State {
     pub title_width: Option<f32>,
     /// Tasks whose subtasks the schedule hides.
     pub folded: std::collections::BTreeSet<TaskId>,
+    /// The schedule does not mark the critical path in red.
+    pub hide_critical: bool,
 }
 
 impl State {

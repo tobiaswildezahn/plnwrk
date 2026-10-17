@@ -144,7 +144,10 @@ pub struct Texts {
     pub delete_task_question: &'static str,
     pub close_subtasks_title: &'static str,
     pub whole_project: &'static str,
-    pub columns: &'static str,
+    pub show: &'static str,
+    pub critical_path: &'static str,
+    pub overdue_short: &'static str,
+    pub critical_short: &'static str,
     pub fold_subtasks: &'static str,
     pub unfold_subtasks: &'static str,
     pub title_width: &'static str,
@@ -378,7 +381,10 @@ pub static DE: Texts = Texts {
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
     close_subtasks_title: "Unteraufgaben auch erledigen?",
     whole_project: "Ganzes Projekt",
-    columns: "Spalten",
+    show: "Anzeigen",
+    critical_path: "Kritischer Pfad",
+    overdue_short: "überfällig",
+    critical_short: "auf dem kritischen Pfad",
     fold_subtasks: "Unteraufgaben zuklappen",
     unfold_subtasks: "Unteraufgaben aufklappen",
     title_width: "Breite der Titelspalte",
@@ -611,7 +617,10 @@ pub static EN: Texts = Texts {
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
     close_subtasks_title: "Close the subtasks too?",
     whole_project: "Whole project",
-    columns: "Columns",
+    show: "Show",
+    critical_path: "Critical path",
+    overdue_short: "overdue",
+    critical_short: "on the critical path",
     fold_subtasks: "Fold subtasks",
     unfold_subtasks: "Unfold subtasks",
     title_width: "Width of the title column",
@@ -993,6 +1002,34 @@ pub fn week(number: i8) -> String {
 }
 
 /// "Puffer: 3 Tage".
+/// A span with weekdays, for the preview while dragging: "Fr 16.10. – Di 20.10.".
+pub fn span_with_weekdays(from: jiff::civil::Date, to: jiff::civil::Date) -> String {
+    let day = |d: jiff::civil::Date| {
+        let weekday = t()
+            .weekdays
+            .get(usize::try_from(d.weekday().to_monday_zero_offset()).unwrap_or(0))
+            .copied()
+            .unwrap_or("");
+        format!("{weekday} {}", crate::dates::format_short(d))
+    };
+    if from == to {
+        day(to)
+    } else {
+        format!("{} – {}", day(from), day(to))
+    }
+}
+
+/// How many tasks that wait move along with a change: "+2 Aufgaben verschieben sich".
+pub fn moves_along(count: usize) -> String {
+    match count {
+        1 => pick("+1 Aufgabe verschiebt sich", "+1 task moves along").to_owned(),
+        n => pick(
+            format!("+{n} Aufgaben verschieben sich"),
+            format!("+{n} tasks move along"),
+        ),
+    }
+}
+
 pub fn float(days: i32) -> String {
     match (language(), days) {
         (Language::German, 1) => "Puffer: 1 Tag".to_owned(),

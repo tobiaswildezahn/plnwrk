@@ -110,7 +110,7 @@ pub const DARK: Palette = Palette {
     muted: hex(0xA3AAB5),
     accent: hex(0x8DB3E8),
     accent_fill: hex(0x3F74BF),
-    accent_hover: hex(0x3A6EB8),
+    accent_hover: hex(0x2F5E9F),
     accent_soft: hex(0x243650),
     on_accent: hex(0xFFFFFF),
     danger: hex(0xF28B82),
