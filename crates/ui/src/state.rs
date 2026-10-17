@@ -500,6 +500,9 @@ pub struct State {
     pub ribbon_collapsed: Option<bool>,
     /// Collapsed, but opened for a moment by a click on a tab.
     pub ribbon_peek: bool,
+    /// Whether the ribbon starts collapsed, decided once from the window height (until the
+    /// person chooses).
+    pub ribbon_default: Option<bool>,
     /// A zoom step for the schedule of this project (from the ribbon), taken in the next frame.
     pub zoom_request: Option<(plnwrk_core::ProjectId, i8)>,
 }

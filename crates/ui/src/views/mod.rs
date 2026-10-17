@@ -34,6 +34,9 @@ pub mod keys {
     pub const PALETTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::K);
     /// Collapse or expand the ribbon (as in Office).
     pub const RIBBON: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F1);
+    /// The same as Office for the Mac has it (F1 is a brightness key on Mac keyboards).
+    pub const RIBBON_MAC: KeyboardShortcut =
+        KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::ALT), Key::R);
 }
 
 /// Keyboard shortcuts. Undo/redo only when no text field is being edited (text fields have

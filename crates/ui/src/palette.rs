@@ -70,26 +70,25 @@ impl List {
 /// Everything the palette offers now: the actions of the ribbon that can be used (with their
 /// place, "Start › Neu"), then places to go to.
 pub fn entries(doc: Option<&OpenDoc>, state: &State) -> Vec<Entry> {
-    let t = text::t();
     let mut list = List(Vec::new());
+    let chosen_task = doc
+        .and_then(|d| state.selected.and_then(|id| d.session.workspace().task(id)))
+        .map(|task| task.title.clone());
     for action in crate::actions::all(doc, state) {
         // The palette does not offer itself, nor what is already chosen or not possible.
         if !action.enabled || action.chosen || action.group == Group::Find {
             continue;
         }
-        let prefix = match action.group {
-            Group::Appearance => Some(t.appearance),
-            Group::Language => Some(t.language_menu),
-            Group::TaskStatus => Some(t.status),
-            _ => None,
-        };
-        let label = match prefix {
-            Some(prefix) => format!("{prefix}: {}", action.label),
-            None => action.full_name().to_owned(),
+        // What the actions of the tab Task act on: the chosen task, named.
+        let detail = match (action.group.tab(), &chosen_task) {
+            (crate::actions::RibbonTab::Task, Some(title)) => {
+                format!("{} · {title}", action.group.place())
+            }
+            _ => action.group.place(),
         };
         list.add(
-            label,
-            action.group.place(),
+            action.full_name().to_owned(),
+            detail,
             action.shortcut,
             action.commands,
             action.intents,

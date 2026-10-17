@@ -44,7 +44,8 @@ impl RibbonTab {
             RibbonTab::Start => t.ribbon.start,
             RibbonTab::View => t.view_menu,
             RibbonTab::Task => t.ribbon.task,
-            RibbonTab::Schedule => t.schedule_tab,
+            // Not "Zeitplan": that is the name of the view (tab of the project) already.
+            RibbonTab::Schedule => t.ribbon.schedule_tools,
         }
     }
 
@@ -121,7 +122,7 @@ impl Group {
             Group::Appearance => t.appearance,
             Group::Language => t.language_menu,
             Group::TaskStatus => t.status,
-            Group::TaskEdit => r.task,
+            Group::TaskEdit => r.edit,
             Group::Zoom => r.zoom,
             Group::Share => r.share,
         }
@@ -520,6 +521,7 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
                 name,
                 vec![Intent::Theme(theme)],
             )
+            .long(format!("{}: {name}", t.appearance))
             .chosen(state.theme == theme),
         );
     }
@@ -531,6 +533,7 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
                 language.name(),
                 vec![Intent::Language(language)],
             )
+            .long(format!("{}: {}", t.language_menu, language.name()))
             .chosen(state.language == language),
         );
     }
@@ -549,7 +552,9 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
             } else {
                 Icon::Task
             };
-            let action = act(Group::TaskStatus, icon, text::task_status(status), run)
+            let name = text::task_status(status);
+            let action = act(Group::TaskStatus, icon, name, run)
+                .long(format!("{}: {name}", t.status))
                 .runs(&["task.set_status"])
                 .chosen(task.status == status);
             a.push(if status == TaskStatus::Done {
@@ -574,18 +579,24 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
     if let Some(project) = project
         && state.tab == Tab::Schedule
     {
-        a.push(act(
-            Group::Zoom,
-            Icon::ZoomIn,
-            t.zoom_in,
-            vec![Intent::Zoom(project.id, 1)],
-        ));
-        a.push(act(
-            Group::Zoom,
-            Icon::ZoomOut,
-            t.zoom_out,
-            vec![Intent::Zoom(project.id, -1)],
-        ));
+        a.push(
+            act(
+                Group::Zoom,
+                Icon::ZoomIn,
+                t.zoom_in,
+                vec![Intent::Zoom(project.id, 1)],
+            )
+            .long(format!("{}: {}", r.zoom, t.zoom_in)),
+        );
+        a.push(
+            act(
+                Group::Zoom,
+                Icon::ZoomOut,
+                t.zoom_out,
+                vec![Intent::Zoom(project.id, -1)],
+            )
+            .long(format!("{}: {}", r.zoom, t.zoom_out)),
+        );
         a.push(
             act(
                 Group::Share,

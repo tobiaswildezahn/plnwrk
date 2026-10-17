@@ -1764,7 +1764,14 @@ fn assert_english(harness: &Harness<'_, PlnwrkApp>, place: &str) {
 /// Switches the interface to English through the ribbon, like a person.
 fn to_english(harness: &mut Harness<'_, PlnwrkApp>) {
     click(harness, text::DE.view_menu);
-    click(harness, text::Language::English.name());
+    click(
+        harness,
+        &format!(
+            "{}: {}",
+            text::DE.language_menu,
+            text::Language::English.name()
+        ),
+    );
     assert_eq!(harness.state().state.language, text::Language::English);
     // Back to the tab Home, so names of the tab View are not there twice.
     click(harness, text::EN.ribbon.start);
@@ -1903,7 +1910,7 @@ fn language_and_theme_are_remembered() {
         (text::EN.theme_light, egui::ThemePreference::Light, false),
     ] {
         click(&mut first, text::EN.view_menu);
-        click(&mut first, name);
+        click(&mut first, &format!("{}: {name}", text::EN.appearance));
         assert_eq!(first.ctx.options(|o| o.theme_preference), theme);
         assert_eq!(first.ctx.global_style().visuals.dark_mode, dark, "{name}");
     }
@@ -2877,6 +2884,8 @@ fn discarding_drops_the_copy_but_keeps_a_recovered_one() {
     assert!(stored_copies(&browser).is_empty());
 
     // A recovered copy that is only looked at and dropped stays on offer.
+    // The tab Datei is still open from closing: back to Start, as a person would.
+    click(&mut harness, text::t().ribbon.start);
     click(&mut harness, text::t().open_sample);
     drop(harness);
     let mut harness = reload(&browser);
@@ -4156,18 +4165,6 @@ fn ribbon_open(harness: &Harness<'_, PlnwrkApp>) -> bool {
         .is_some()
 }
 
-/// Clicks the topmost element with this label: the one in the ribbon, where a view carries
-/// the same name (tab "Zeitplan", status "In Arbeit").
-fn click_in_ribbon(harness: &mut Harness<'_, PlnwrkApp>, label: &str) {
-    let at = harness
-        .get_all_by_label(label)
-        .map(|n| n.rect())
-        .min_by(|a, b| a.top().total_cmp(&b.top()))
-        .unwrap()
-        .center();
-    tap(harness, at);
-}
-
 #[test]
 fn the_ribbon_collapses_and_opens_for_a_moment() {
     let mut harness = harness_with_sample();
@@ -4200,27 +4197,10 @@ fn the_ribbon_collapses_and_opens_for_a_moment() {
     harness.run();
     assert!(ribbon_open(&harness));
     assert_eq!(harness.state().state.ribbon_collapsed, Some(false));
-}
-
-#[test]
-fn the_ribbon_starts_collapsed_in_the_browser_and_in_low_windows() {
-    let (browser, _) = in_browser();
-    assert!(!ribbon_open(&browser), "browser");
-    let mut low = Harness::builder()
-        .with_size(egui::vec2(1400.0, 760.0))
-        .with_step_dt(1.0 / 60.0)
-        .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), PlnwrkApp::default());
-    low.run();
-    assert!(!ribbon_open(&low), "low window");
-    // The person's choice wins and is remembered.
-    low.state_mut().state.ribbon_collapsed = Some(false);
-    low.run();
-    assert!(ribbon_open(&low));
-    let mut storage = MemoryStorage::default();
-    eframe::App::save(low.state_mut(), &mut storage);
-    let mut app = PlnwrkApp::default();
-    app.load_settings(&storage);
-    assert_eq!(app.state.ribbon_collapsed, Some(false));
+    // On the Mac also Cmd+Option+R, as in Office.
+    harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::ALT, Key::R);
+    harness.run();
+    assert!(!ribbon_open(&harness));
 }
 
 #[test]
@@ -4242,7 +4222,14 @@ fn contextual_tabs_come_with_their_context() {
     click(&mut harness, task_tab);
     let id = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
     // The tab offers the status; "In Arbeit" sets it.
-    click_in_ribbon(&mut harness, text::task_status(TaskStatus::InProgress));
+    click(
+        &mut harness,
+        &format!(
+            "{}: {}",
+            text::t().status,
+            text::task_status(TaskStatus::InProgress)
+        ),
+    );
     assert_eq!(
         harness
             .state()
@@ -4263,21 +4250,6 @@ fn contextual_tabs_come_with_their_context() {
         harness.state().state.ribbon_tab,
         crate::actions::RibbonTab::Start
     );
-}
-
-#[test]
-fn the_schedule_tab_of_the_ribbon_zooms() {
-    let mut harness = wide_schedule(0);
-    let before = bar(&harness, "Jetzt").width();
-    // The project tab "Zeitplan" and the ribbon tab "Zeitplan" carry the same name.
-    click_in_ribbon(&mut harness, text::t().schedule_tab);
-    assert_eq!(
-        harness.state().state.ribbon_tab,
-        crate::actions::RibbonTab::Schedule
-    );
-    click_in_ribbon(&mut harness, text::t().zoom_in);
-    let after = bar(&harness, "Jetzt").width();
-    assert!(after > before * 1.3, "{before} → {after}");
 }
 
 #[test]
@@ -4363,4 +4335,131 @@ fn the_engine_knows_where_each_command_lives() {
             "{command} has no button in the ribbon"
         );
     }
+}
+
+#[test]
+fn the_ribbon_starts_open_except_in_very_low_windows_and_never_jumps() {
+    let (browser, _) = in_browser();
+    assert!(
+        ribbon_open(&browser),
+        "open in the browser too: newcomers see the commands"
+    );
+    let mut low = Harness::builder()
+        .with_size(egui::vec2(1400.0, 600.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), PlnwrkApp::default());
+    low.run();
+    assert!(!ribbon_open(&low), "very low window");
+    // Decided once: a larger window later does not make it jump open.
+    low.set_size(egui::vec2(1400.0, 1000.0));
+    low.run();
+    assert!(!ribbon_open(&low), "stays as it started");
+    // The person's choice wins and is remembered.
+    low.state_mut().state.ribbon_collapsed = Some(false);
+    low.run();
+    assert!(ribbon_open(&low));
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(low.state_mut(), &mut storage);
+    let mut app = PlnwrkApp::default();
+    app.load_settings(&storage);
+    assert_eq!(app.state.ribbon_collapsed, Some(false));
+}
+
+/// A collapsed ribbon with the sample open.
+fn collapsed_ribbon() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness_with_sample();
+    harness.state_mut().state.ribbon_collapsed = Some(true);
+    harness.run();
+    assert!(!ribbon_open(&harness));
+    harness
+}
+
+#[test]
+fn a_peek_lies_over_the_content_and_closes_with_an_action_or_escape() {
+    let mut harness = collapsed_ribbon();
+    let heading = harness.get_by_label(text::t().overdue).rect();
+    click(&mut harness, text::t().ribbon.start);
+    assert!(ribbon_open(&harness), "peek");
+    assert_eq!(
+        harness.get_by_label(text::t().overdue).rect(),
+        heading,
+        "the content does not move"
+    );
+    // An action runs and closes the peek.
+    click(&mut harness, text::t().ribbon.new_project_long);
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::NewProject(_))
+    ));
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(!ribbon_open(&harness), "closed by the action");
+    // Escape closes it too.
+    click(&mut harness, text::t().ribbon.start);
+    assert!(ribbon_open(&harness));
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(!ribbon_open(&harness), "closed by Escape");
+}
+
+#[test]
+fn the_tools_of_the_schedule_zoom_one_step() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt").width();
+    click(&mut harness, text::t().ribbon.schedule_tools);
+    assert_eq!(
+        harness.state().state.ribbon_tab,
+        crate::actions::RibbonTab::Schedule
+    );
+    // The button of the ribbon (the schedule's own is called only "Vergrößern").
+    click(
+        &mut harness,
+        &format!("{}: {}", text::t().ribbon.zoom, text::t().zoom_in),
+    );
+    let after = bar(&harness, "Jetzt").width();
+    // One level: from 22 to 34 px a day.
+    let ratio = after / before;
+    assert!((ratio - 34.0 / 22.0).abs() < 0.08, "{before} → {after}");
+}
+
+#[test]
+fn the_palette_leaves_out_what_is_already_chosen() {
+    let harness = harness_with_sample();
+    let app = harness.state();
+    let labels: Vec<String> = crate::palette::entries(app.doc(), &app.state)
+        .into_iter()
+        .map(|e| e.label)
+        .collect();
+    let current = format!("{}: {}", text::t().appearance, text::t().theme_system);
+    let other = format!("{}: {}", text::t().appearance, text::t().theme_dark);
+    assert!(!labels.contains(&current), "{labels:?}");
+    assert!(labels.contains(&other));
+}
+
+#[test]
+fn the_keyboard_skips_greyed_ribbon_buttons() {
+    use egui_kittest::kittest::NodeT as _;
+    let mut harness = harness_with_sample();
+    // Without a project open, "Neue Aufgabe" is greyed; "Neues Projekt" is not.
+    let mut visited = Vec::new();
+    for _ in 0..40 {
+        harness.key_press(Key::Tab);
+        harness.run();
+        if let Some(label) = harness
+            .query_by(|n| n.is_focused())
+            .and_then(|n| n.accesskit_node().label())
+        {
+            visited.push(label);
+        }
+    }
+    assert!(
+        visited
+            .iter()
+            .any(|l| l == text::t().ribbon.new_project_long),
+        "{visited:?}"
+    );
+    assert!(
+        !visited.iter().any(|l| l == text::t().new_task),
+        "{visited:?}"
+    );
 }

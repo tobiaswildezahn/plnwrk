@@ -66,19 +66,33 @@ fn background(ui: &Ui, rect: Rect, response: &Response, enabled: bool, chosen: b
         ui.painter()
             .rect_stroke(rect, corner, Stroke::new(1.0, p.accent), StrokeKind::Inside);
     }
-    if response.has_focus() {
-        ui.painter().rect_stroke(
-            rect.expand(1.0),
-            corner + 1,
-            Stroke::new(2.0, p.accent),
-            StrokeKind::Outside,
-        );
-    }
+    focus_ring(ui, response, rect, corner);
     if enabled
         && response.hovered()
         && let Some(cursor) = ui.visuals().interact_cursor
     {
         ui.ctx().set_cursor_icon(cursor);
+    }
+}
+
+/// Clickable and reachable with Tab when enabled; a greyed button is skipped by the keyboard.
+fn sense(enabled: bool) -> Sense {
+    if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    }
+}
+
+/// The ring around what has the keyboard focus (WCAG 2.4.7).
+fn focus_ring(ui: &Ui, response: &Response, rect: Rect, corner: CornerRadius) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect.expand(1.0),
+            corner + 1,
+            Stroke::new(2.0, palette(ui).accent),
+            StrokeKind::Outside,
+        );
     }
 }
 
@@ -119,7 +133,7 @@ pub fn big(
         .map(|l| text_width(ui, l, &style))
         .fold(0.0, f32::max);
     let (rect, response) =
-        ui.allocate_exact_size(vec2((widest + 16.0).max(56.0), CONTENT_H), Sense::click());
+        ui.allocate_exact_size(vec2((widest + 16.0).max(56.0), CONTENT_H), sense(enabled));
     speak(&response, enabled, chosen, name);
     if ui.is_rect_visible(rect) {
         background(ui, rect, &response, enabled, chosen);
@@ -159,7 +173,7 @@ pub fn small(
 ) -> Response {
     let style = TextStyle::Small;
     let width = 28.0 + text_width(ui, label, &style) + 8.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(width, size::TARGET), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, size::TARGET), sense(enabled));
     speak(&response, enabled, chosen, name);
     if ui.is_rect_visible(rect) {
         background(ui, rect, &response, enabled, chosen);
@@ -274,6 +288,7 @@ pub fn tab(ui: &mut Ui, label: &str, active: bool, contextual: bool) -> Response
             p.raised,
         );
     }
+    focus_ring(ui, &response, body, top);
     if contextual {
         ui.painter().rect_filled(
             Rect::from_min_max(
@@ -356,6 +371,7 @@ pub fn scroll_arrows<R>(
             Icon::ChevronRight
         };
         icon.paint(ui.painter(), square(rect.center(), size::ICON), p.muted);
+        focus_ring(ui, &response, rect, corner);
         if response.on_hover_text(name).clicked() {
             state.offset.x = if left {
                 (offset - step).max(0.0)

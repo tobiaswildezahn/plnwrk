@@ -301,6 +301,8 @@ pub struct RibbonTexts {
     pub scroll_left: &'static str,
     pub scroll_right: &'static str,
     pub new_case_long: &'static str,
+    pub schedule_tools: &'static str,
+    pub edit: &'static str,
     pub new_project_long: &'static str,
 }
 
@@ -526,6 +528,8 @@ pub static DE: Texts = Texts {
         scroll_left: "Menüband nach links",
         scroll_right: "Menüband nach rechts",
         new_case_long: "Neuer Vorgang",
+        schedule_tools: "Zeitplan-Werkzeuge",
+        edit: "Bearbeiten",
         new_project_long: "Neues Projekt",
     },
 };
@@ -752,6 +756,8 @@ pub static EN: Texts = Texts {
         scroll_left: "Scroll the ribbon left",
         scroll_right: "Scroll the ribbon right",
         new_case_long: "New case",
+        schedule_tools: "Schedule tools",
+        edit: "Edit",
         new_project_long: "New project",
     },
 };

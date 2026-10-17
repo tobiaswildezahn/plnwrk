@@ -985,8 +985,8 @@ fn search_commands_says_where_a_command_is_in_the_app() {
         .iter()
         .find(|c| c["id"] == "task.delete")
         .unwrap();
-    assert_eq!(delete["in_the_app"]["de"], "Aufgabe › Aufgabe");
-    assert_eq!(delete["in_the_app"]["en"], "Task › Task");
+    assert_eq!(delete["in_the_app"]["de"], "Aufgabe › Bearbeiten");
+    assert_eq!(delete["in_the_app"]["en"], "Task › Edit");
     // Without a button in the ribbon, no place.
     let (found, _) = tool("search_commands", json!({"words": "comment.add"}));
     let comment = found

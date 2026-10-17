@@ -1,7 +1,8 @@
 //! The ribbon (Phase 9b): tabs over groups of buttons, in place of the menu bar. What it offers
 //! comes from [`crate::actions`]; this file only lays it out. It collapses to its tabs (double
-//! click on a tab, the arrow at the right, Ctrl/Cmd+F1) – by default in the browser and in low
-//! windows – and a click on a tab then opens it for a moment ("peek").
+//! click on a tab, the arrow at the right, Ctrl/Cmd+F1, on the Mac also Cmd+Option+R) – by
+//! default only in very low windows, decided once at start – and a click on a tab then opens it
+//! for a moment over the content ("peek"), until a click elsewhere, an action or Escape.
 
 use egui::{Frame, Margin, Panel, vec2};
 
@@ -14,13 +15,26 @@ use crate::views::keys;
 use crate::{Intent, text};
 
 /// Below this window height the ribbon starts collapsed (unless the person chose otherwise).
-const LOW_WINDOW: f32 = 900.0;
+/// Laptops (800 px and more, a browser on them about 700) start with it open: a newcomer must
+/// see the commands.
+const LOW_WINDOW: f32 = 640.0;
 
-/// Whether the ribbon shows only its tabs now.
-pub fn collapsed(ctx: &egui::Context, state: &State) -> bool {
-    state
-        .ribbon_collapsed
-        .unwrap_or_else(|| state.browser || ctx.content_rect().height() < LOW_WINDOW)
+/// Whether the ribbon shows only its tabs now: as the person chose, otherwise as decided at
+/// start (so it never jumps while the window is resized).
+pub fn collapsed(ctx: &egui::Context, state: &mut State) -> bool {
+    if let Some(collapsed) = state.ribbon_collapsed {
+        return collapsed;
+    }
+    *state
+        .ribbon_default
+        .get_or_insert_with(|| ctx.content_rect().height() < LOW_WINDOW)
+}
+
+/// Collapses or expands for good (the person's choice, remembered).
+fn toggle(state: &mut State, collapsed: &mut bool) {
+    *collapsed = !*collapsed;
+    state.ribbon_collapsed = Some(*collapsed);
+    state.ribbon_peek = false;
 }
 
 pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
@@ -29,9 +43,20 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
         state.ribbon_tab = RibbonTab::Start;
     }
     let mut collapsed = collapsed(ui.ctx(), state);
-    if state.dialog.is_none() && ui.input_mut(|i| i.consume_shortcut(&keys::RIBBON)) {
-        collapsed = !collapsed;
-        state.ribbon_collapsed = Some(collapsed);
+    if state.dialog.is_none()
+        && ui.input_mut(|i| {
+            i.consume_shortcut(&keys::RIBBON) || i.consume_shortcut(&keys::RIBBON_MAC)
+        })
+    {
+        toggle(state, &mut collapsed);
+    }
+    if !collapsed {
+        state.ribbon_peek = false;
+    }
+    if state.ribbon_peek
+        && state.dialog.is_none()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
         state.ribbon_peek = false;
     }
     let mut all = actions::all(doc, state);
@@ -55,9 +80,7 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
                         ribbon::tab(ui, tab.name(), *tab == state.ribbon_tab, tab.contextual());
                     // A double click also sends a click first: it is checked first.
                     if response.double_clicked() {
-                        collapsed = !collapsed;
-                        state.ribbon_collapsed = Some(collapsed);
-                        state.ribbon_peek = false;
+                        toggle(state, &mut collapsed);
                         state.ribbon_tab = *tab;
                     } else if response.clicked() {
                         if collapsed {
@@ -75,9 +98,7 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
                     };
                     let name = format!("{name} ({})", ui.ctx().format_shortcut(&keys::RIBBON));
                     if crate::design::widgets::icon_button(ui, icon, &name).clicked() {
-                        collapsed = !collapsed;
-                        state.ribbon_collapsed = Some(collapsed);
-                        state.ribbon_peek = false;
+                        toggle(state, &mut collapsed);
                     }
                     ui.add_space(8.0);
                     // Quick access: undo and redo stay at hand with the ribbon collapsed too.
@@ -117,61 +138,88 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
         take(&mut all, chosen, state, out);
         return;
     }
-    // A ribbon opened for a moment closes on the next click outside it and its tabs; a click
-    // in a menu opened from it does not count.
-    let peek_click = state.ribbon_peek
-        && ui.input(|i| i.pointer.any_click())
-        && !egui::Popup::is_any_open(ui.ctx());
-    let body = Panel::top("ribbon")
-        .exact_size(CONTENT_H + LABEL_H + 10.0)
-        .show_separator_line(false)
-        .frame(Frame::NONE.fill(p.surface).inner_margin(Margin {
-            left: 8,
-            right: 8,
-            top: 4,
-            bottom: 4,
-        }))
-        .show(ui, |ui| {
-            let rect = ui.max_rect();
-            ui.painter().hline(
-                rect.left() - 8.0..=rect.right() + 8.0,
-                rect.bottom() + 4.5,
-                egui::Stroke::new(1.0, p.line),
-            );
-            let scroll = egui::ScrollArea::horizontal()
-                .id_salt("ribbon-body")
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
-                        for group in Group::ALL.iter().filter(|g| g.tab() == state.ribbon_tab) {
-                            let members: Vec<usize> = all
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, a)| a.group == *group)
-                                .map(|(i, _)| i)
-                                .collect();
-                            if members.is_empty() {
-                                continue;
-                            }
-                            ribbon::group(ui, group.name(), |ui| {
-                                lay_out(ui, &all, &members, &mut chosen);
-                            });
-                        }
+    // A ribbon opened for a moment lies over the content (it does not push it down) and closes
+    // on the next click outside it and its tabs.
+    let peek_click = state.ribbon_peek && ui.input(|i| i.pointer.any_click());
+    let tab = state.ribbon_tab;
+    let height = CONTENT_H + LABEL_H + 10.0;
+    let margin = Margin {
+        left: 8,
+        right: 8,
+        top: 4,
+        bottom: 4,
+    };
+    let body = if state.ribbon_peek {
+        let below = strip.response.rect;
+        egui::Area::new(egui::Id::new("ribbon-peek"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(below.left_bottom())
+            .show(ui.ctx(), |ui| {
+                Frame::NONE
+                    .fill(p.surface)
+                    .inner_margin(margin)
+                    .shadow(ui.visuals().popup_shadow)
+                    .show(ui, |ui| {
+                        ui.set_width(below.width() - 16.0);
+                        ui.set_height(height - 8.0);
+                        groups(ui, tab, &all, &mut chosen);
                     });
-                });
-            let r = &text::t().ribbon;
-            ribbon::scroll_arrows(ui, &scroll, [r.scroll_left, r.scroll_right]);
-        });
+            })
+            .response
+            .rect
+    } else {
+        Panel::top("ribbon")
+            .exact_size(height)
+            .show_separator_line(false)
+            .frame(Frame::NONE.fill(p.surface).inner_margin(margin))
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                ui.painter().hline(
+                    rect.left() - 8.0..=rect.right() + 8.0,
+                    rect.bottom() + 4.5,
+                    egui::Stroke::new(1.0, p.line),
+                );
+                groups(ui, tab, &all, &mut chosen);
+            })
+            .response
+            .rect
+    };
     if peek_click {
         let at = ui.input(|i| i.pointer.interact_pos());
-        let inside = at
-            .is_some_and(|at| body.response.rect.contains(at) || strip.response.rect.contains(at));
+        let inside = at.is_some_and(|at| body.contains(at) || strip.response.rect.contains(at));
         if !inside {
             state.ribbon_peek = false;
         }
     }
     take(&mut all, chosen, state, out);
+}
+
+/// The groups of a tab, scrolled sideways with arrows when wider than the window.
+fn groups(ui: &mut egui::Ui, tab: RibbonTab, all: &[Action], chosen: &mut Option<usize>) {
+    let scroll = egui::ScrollArea::horizontal()
+        .id_salt("ribbon-body")
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
+                for group in Group::ALL.iter().filter(|g| g.tab() == tab) {
+                    let members: Vec<usize> = all
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, a)| a.group == *group)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if members.is_empty() {
+                        continue;
+                    }
+                    ribbon::group(ui, group.name(), |ui| {
+                        lay_out(ui, all, &members, chosen);
+                    });
+                }
+            });
+        });
+    let r = &text::t().ribbon;
+    ribbon::scroll_arrows(ui, &scroll, [r.scroll_left, r.scroll_right]);
 }
 
 /// Large buttons one by one, small ones in columns of three.
