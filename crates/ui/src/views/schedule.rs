@@ -198,6 +198,7 @@ pub fn show(
     let worked = worked(ui, doc, project);
     let (plan, analysis) = (&worked.plan, &worked.analysis);
     let today = doc.session.clock().today();
+    let now = doc.session.clock().now_local();
     let index = TaskIndex::new(ws);
     // A task chosen elsewhere is shown: its folded parents unfold.
     let unfold_id = egui::Id::new(("schedule-unfold", project.id));
@@ -399,7 +400,7 @@ pub fn show(
     let drawn = ui.data(|d| d.get_temp::<usize>(drawn_id));
     ui.data_mut(|d| d.insert_temp(drawn_id, level));
     // Where the zoom was asked for, from the left edge of the visible chart: the day there
-    // stays in place. The buttons keep the first day shown (the title column's edge).
+    // stays in place. The buttons keep the middle of the visible chart.
     let anchor = ui
         .data_mut(|d| d.remove_temp::<f32>(anchor_id))
         .unwrap_or(table + visible / 2.0);
@@ -575,11 +576,12 @@ pub fn show(
             // Centred in the chart, right of the table that covers the left part of the view:
             // the table's width is added before the bar, so the middle of both is the middle of
             // the view and the bar lands right of the table.
-            // Only when it is not in view already: a click on a bar must not move the chart.
-            if newly_chosen
-                && state.selected == Some(task.id)
-                && !chart.intersect(ui.clip_rect()).contains_rect(bar)
-            {
+            // Only when hardly anything of it is in view: a click on a bar (also one longer
+            // than the view) must not move the chart.
+            let seen = chart.intersect(ui.clip_rect()).intersect(bar);
+            let hardly =
+                seen.width() <= 0.0 || seen.height() <= 0.0 || seen.width() < bar.width().min(24.0);
+            if newly_chosen && state.selected == Some(task.id) && hardly {
                 let with_table = Rect::from_min_max(pos2(bar.left() - table, bar.top()), bar.max);
                 ui.scroll_to_rect(with_table, Some(egui::Align::Center));
             }
@@ -648,15 +650,21 @@ pub fn show(
                 Some((Grip::Move, ..)) => plan
                     .shifted(task.id, plus(start, shift))
                     .map(|m| (m.start, m.due)),
-                // An end changes only its own date, and never crosses the other one; a date the
-                // task does not have is never made up.
+                // An end changes only its own date and never crosses the other one. Pulled
+                // right onto the other date, the end of a missing date stays missing: nothing
+                // is made up. (Dragging the deadline end of a task without a deadline further
+                // right gives it one: that is what the person did.)
                 Some((Grip::Start, ..)) => {
                     let new = plus(start, shift);
-                    Some((Some(task.due.map_or(new, |due| new.min(due))), task.due))
+                    let clamped = task.due.map_or(new, |due| new.min(due));
+                    (task.start.is_some() || Some(clamped) != task.due)
+                        .then_some((Some(clamped), task.due))
                 }
                 Some((Grip::End, ..)) => {
                     let new = plus(end, shift);
-                    Some((task.start, Some(task.start.map_or(new, |s| new.max(s)))))
+                    let clamped = task.start.map_or(new, |start| new.max(start));
+                    (task.due.is_some() || Some(clamped) != task.start)
+                        .then_some((task.start, Some(clamped)))
                 }
                 None => None,
             };
@@ -676,9 +684,9 @@ pub fn show(
                 })
                 .map_or(0, |r| r.along());
             let shown = landed.map_or(bar, |span| bar_of(task.milestone, span, y));
-            // Overdue only with a deadline: a task that has only a start is never late.
-            let overdue =
-                task.status != TaskStatus::Done && task.due.is_some_and(|due| due < today);
+            // The one rule of the app (list, details, overview): with a deadline and its time,
+            // not in finished, archived projects or templates.
+            let overdue = plnwrk_engine::query::task_overdue(Some(project), task, now);
             let show_critical = critical && !state.hide_critical;
             let (fill, darker) = if task.status == TaskStatus::Done {
                 (palette.control, palette.control)
@@ -1090,9 +1098,9 @@ pub fn show(
     if !state.hide_critical && !analysis.critical.is_empty() {
         legend.push(text::t().critical_hint);
     }
-    let any_overdue = rows.iter().any(|(task, _)| {
-        task.status != TaskStatus::Done && task.due.is_some_and(|due| due < today)
-    });
+    let any_overdue = rows
+        .iter()
+        .any(|(task, _)| plnwrk_engine::query::task_overdue(Some(project), task, now));
     if any_overdue {
         legend.push(text::t().overdue_hint);
     }

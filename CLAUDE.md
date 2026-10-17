@@ -58,7 +58,9 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   Stelle scheitern und die anderen nie prüfen). Wächtertests bekommen eingeschleuste
   Gegenbeispiele. **Auch was nicht passieren darf**, bekommt eine Prüfung (keine erfundene
   Frist, kein „überfällig“ ohne Frist, kein Sprung beim Klick): Grenzen und Ausnahmen sind die
-  häufigste Lücke. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
+  häufigste Lücke – immer auch den **nächsten Fall hinter der Grenze** prüfen (die andere Seite
+  einer Klemme, der Balken länger als die Ansicht). Regeln, die die App schon hat (z. B.
+  `query::task_overdue`), nie in einer Ansicht nachbauen. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
   Ein grüner Test ohne Gegenprobe gilt nicht als Beleg. Prüf-Agenten arbeiten in eigener
   Arbeitskopie (`isolation: worktree`) und mit eigenen Dateinamen im Scratchpad.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).

@@ -5214,3 +5214,89 @@ fn the_circle_rule_holds_both_ways() {
     );
     assert!(!may_wait_for_a(b), "not twice");
 }
+
+#[test]
+fn an_edge_held_against_the_other_date_makes_up_nothing() {
+    let today = |h: &Harness<'_, PlnwrkApp>| h.state().doc().unwrap().session.clock().today();
+    let day = |h: &Harness<'_, PlnwrkApp>, n: i64| today(h) + jiff::Span::new().days(n);
+    // Only a start: the deadline end pulled left onto the start stays without a deadline.
+    let (mut harness, id) = one_task_schedule(Some(-3), None);
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().due))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(-96.0, 0.0));
+    assert_eq!(task_dates(&harness, id), (Some(day(&harness, -3)), None));
+    // Only a deadline: the start end pushed right onto it stays without a start.
+    let (mut harness, id) = one_task_schedule(None, Some(3));
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().start))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(96.0, 0.0));
+    assert_eq!(task_dates(&harness, id), (None, Some(day(&harness, 3))));
+}
+
+#[test]
+fn clicking_a_long_bar_does_not_move_the_chart() {
+    let (mut harness, id) = one_task_schedule(Some(-40), Some(80));
+    let at = egui::pos2(1000.0, bar(&harness, "Eins").center().y);
+    // Measured from the chart's left edge (the table can narrow when the details open), at the
+    // bar's right end: its left end is cut at the table and would stay put anyway.
+    let from_chart =
+        |h: &Harness<'_, PlnwrkApp>| bar(h, "Eins").right() - table_row(h, "Eins").right();
+    let before = from_chart(&harness);
+    tap(&mut harness, at);
+    harness.run_steps(30);
+    assert_eq!(harness.state().state.selected, Some(id));
+    let after = from_chart(&harness);
+    assert!((after - before).abs() < 1.0, "{before} → {after}");
+}
+
+#[test]
+fn the_schedule_calls_overdue_what_the_list_calls_overdue() {
+    use egui_kittest::kittest::NodeT as _;
+    // Due today at midnight: past already, as the list and the overview say.
+    let mut harness = with_project("Heute fällig");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Mitternacht", "start": today.to_string(),
+            "due": format!("{today}T00:00")}),
+    ));
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    let name = harness
+        .query_by(|n| n.label().is_some_and(|l| l.starts_with("Mitternacht: ")))
+        .and_then(|n| n.accesskit_node().label())
+        .expect("the bar is there");
+    assert!(name.contains(text::t().overdue_short), "{name}");
+}
+
+/// "Overdue" is decided in one place (`plnwrk_engine::query::task_overdue`): no view compares
+/// dates with today on its own (the schedule did, and disagreed with the list).
+#[test]
+fn views_ask_the_engine_what_is_overdue() {
+    let own_rule = |line: &str| {
+        let line = line.replace(' ', "");
+        ["<today", "<=today", "today>", "today>="]
+            .iter()
+            .any(|p| line.contains(p))
+    };
+    assert!(
+        own_rule("due < today") && own_rule("today >= due") && !own_rule("days_from(first, today)")
+    );
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/views");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            if own_rule(line) {
+                found.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+            }
+        }
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
