@@ -685,9 +685,6 @@ impl PlnwrkApp {
                 // What was typed for it is dropped: the fields show the stored values again.
                 self.state.forms.task = None;
                 self.state.forms.inline = None;
-                self.state.forms.milestone_title.clear();
-                self.state.forms.milestone_date.clear();
-                self.state.forms.milestone_time.clear();
             }
             Intent::Go(view) => {
                 self.flush_draft();

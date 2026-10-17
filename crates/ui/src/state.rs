@@ -510,6 +510,8 @@ pub struct Forms {
     pub milestone_title: String,
     pub milestone_date: String,
     pub milestone_time: String,
+    /// A milestone's date being changed on its card: the milestone, day and time as typed.
+    pub milestone_edit: Option<(TaskId, String, String)>,
     pub comment: String,
     pub person: PersonForm,
     pub task: Option<TaskDraft>,

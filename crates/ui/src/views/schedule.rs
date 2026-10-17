@@ -59,12 +59,12 @@ fn day_width_of(level: usize) -> f32 {
 }
 
 /// Days from `first` to `date` (negative before).
-fn days_from(first: Date, date: Date) -> i32 {
+pub(crate) fn days_from(first: Date, date: Date) -> i32 {
     first.until(date).map_or(0, |span| span.get_days())
 }
 
 /// The day `days` days after `date` (the calendar's first or last day beyond its ends).
-fn plus(date: Date, days: i32) -> Date {
+pub(crate) fn plus(date: Date, days: i32) -> Date {
     jiff::Span::new()
         .try_days(days)
         .ok()
@@ -73,16 +73,16 @@ fn plus(date: Date, days: i32) -> Date {
 }
 
 /// The plan of a project and what follows from it, worked out once per change of the data.
-struct Worked {
+pub(crate) struct Worked {
     /// The open file and the length of its history when it was worked out.
     key: (String, usize),
-    plan: Plan,
-    analysis: Analysis,
+    pub(crate) plan: Plan,
+    pub(crate) analysis: Analysis,
 }
 
 /// The plan and its analysis for `project`, worked out again only when the data has changed
 /// (every change, undo included, adds to the history).
-fn worked(ui: &egui::Ui, doc: &OpenDoc, project: &Project) -> Arc<Worked> {
+pub(crate) fn worked(ui: &egui::Ui, doc: &OpenDoc, project: &Project) -> Arc<Worked> {
     let id = egui::Id::new(("schedule-plan", project.id));
     let key = (doc.recovery_key().to_owned(), doc.session.log().len());
     if let Some(kept) = ui.data(|d| d.get_temp::<Arc<Worked>>(id))

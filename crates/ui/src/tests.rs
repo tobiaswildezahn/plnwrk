@@ -5412,6 +5412,8 @@ fn the_question_names_old_new_and_what_follows() {
 #[test]
 fn cancelling_puts_the_typed_value_back_and_loses_nothing_else() {
     let mut harness = milestone_chosen();
+    // Half typed elsewhere: a new milestone.
+    harness.state_mut().state.forms.milestone_title = "Halb getippt".to_owned();
     type_into(&mut harness, text::t().due, "20.12.2026", true);
     assert!(asking(&harness));
     click(&mut harness, text::t().cancel);
@@ -5422,6 +5424,7 @@ fn cancelling_puts_the_typed_value_back_and_loses_nothing_else() {
         .unwrap_or_default();
     assert_eq!(shown, "15.12.2026");
     assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-15");
+    assert_eq!(harness.state().state.forms.milestone_title, "Halb getippt");
 }
 
 #[test]
@@ -5447,4 +5450,203 @@ fn undo_redo_and_new_milestones_ask_nothing() {
     click(&mut harness, text::t().new_milestone);
     assert!(!asking(&harness), "creating");
     assert!(task_named(harness.state(), "Abnahme").is_some_and(|t| t.milestone));
+}
+
+/// The day `days` from the clock's today, as a command reads it.
+fn day_from_today(harness: &Harness<'_, PlnwrkApp>, days: i64) -> String {
+    let today = harness.state().doc().unwrap().session.clock().today();
+    (today + jiff::Span::new().days(days)).to_string()
+}
+
+/// A project due in 30 days with a milestone in every light (Phase 9d), shown in the tab
+/// Meilensteine:
+/// - "A" (in 10 days) waits for "Vorarbeit", 2 days overdue: at risk;
+/// - "B" (in 20 days) waits for "Bau", which ends the day before: 1 day of slack, at risk;
+/// - "C" (in 24 days) waits for "Bau 2", ending 3 days before: on plan (just past the line);
+/// - "D" 3 days ago, not reached: overdue;
+/// - "E" reached.
+fn milestones_in_every_light() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Lichter");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let due = day_from_today(&harness, 30);
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": project, "due": due}),
+    ));
+    let tasks = [
+        ("Vorarbeit", -2, false, "todo"),
+        ("Bau", 19, false, "todo"),
+        ("Bau 2", 21, false, "todo"),
+        ("A", 10, true, "todo"),
+        ("B", 20, true, "todo"),
+        ("C", 24, true, "todo"),
+        ("D", -3, true, "todo"),
+        ("E", 5, true, "done"),
+    ];
+    for (title, days, milestone, status) in tasks {
+        let due = day_from_today(&harness, days);
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "due": due,
+                               "milestone": milestone, "status": status}),
+        ));
+    }
+    for (from, to) in [("Vorarbeit", "A"), ("Bau", "B"), ("Bau 2", "C")] {
+        let from = task_named(harness.state(), from).unwrap().id.to_string();
+        let to = task_named(harness.state(), to).unwrap().id.to_string();
+        harness.state_mut().apply(crate::Intent::run(
+            "dependency.add",
+            serde_json::json!({"from": from, "to": to}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().milestones);
+    harness
+}
+
+/// The diamond of a milestone on the timeline (its spoken name: "♦ title: date, light").
+fn diamond<'a>(harness: &'a Harness<'_, PlnwrkApp>, title: &str) -> egui_kittest::Node<'a> {
+    let start = format!("♦ {title}: ");
+    harness.get_by(move |n| n.label().is_some_and(|l| l.starts_with(&start)))
+}
+
+#[test]
+fn every_milestone_shows_its_light_derived_from_the_plan() {
+    let harness = milestones_in_every_light();
+    let t = text::t();
+    for (title, light) in [
+        ("A", t.light_at_risk),
+        ("B", t.light_at_risk),
+        ("C", t.light_on_plan),
+        ("D", t.light_overdue),
+        ("E", t.light_reached),
+    ] {
+        let node = diamond(&harness, title);
+        let spoken = egui_kittest::kittest::NodeT::accesskit_node(&node)
+            .label()
+            .unwrap_or_default();
+        assert!(spoken.ends_with(&format!(", {light}")), "{title}: {spoken}");
+    }
+    // Why: said in words on the card, never by colour alone.
+    assert!(harness.query_by_label(t.predecessor_late).is_some());
+    assert!(harness.query_by_label(&text::little_slack(1)).is_some());
+    assert!(harness.query_by_label(&text::little_slack(3)).is_none());
+}
+
+#[test]
+fn every_milestone_card_says_what_is_left_and_what_it_waits_for() {
+    let harness = milestones_in_every_light();
+    for left in ["in 10 Tagen", "seit 3 Tagen überfällig"] {
+        assert!(harness.query_by_label(left).is_some(), "{left}");
+    }
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let reached = text::reached_on(Some(&crate::dates::format(today)));
+    assert!(harness.query_by_label(&reached).is_some(), "{reached}");
+    // A, B and C wait for one open task each; D and E for nothing, and say nothing about it.
+    assert_eq!(
+        harness
+            .query_all_by_label(&text::open_predecessors(1))
+            .count(),
+        3
+    );
+    assert!(
+        harness
+            .query_by_label(&text::open_predecessors(0))
+            .is_none()
+    );
+    // Nobody in charge is said too.
+    let nobody = format!("{}: {}", text::t().assignee, text::t().no_assignee);
+    assert_eq!(harness.query_all_by_label(&nobody).count(), 5);
+}
+
+/// One milestone "Abnahme" in 10 days, in the tab Meilensteine.
+fn one_milestone() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Feier");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let due = day_from_today(&harness, 10);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Abnahme", "due": due,
+                           "milestone": true}),
+    ));
+    harness.run();
+    click(&mut harness, text::t().milestones);
+    harness
+}
+
+#[test]
+fn every_action_on_a_milestone_card_asks_first() {
+    let mut harness = one_milestone();
+    let abnahme = |h: &Harness<'_, PlnwrkApp>| task_named(h.state(), "Abnahme").unwrap();
+    let before = abnahme(&harness);
+    let t = text::t();
+
+    // "Erreicht": asked; "Abbrechen" leaves it open.
+    click(&mut harness, t.reach_button);
+    assert!(asking(&harness), "reached");
+    click(&mut harness, t.cancel);
+    assert_eq!(abnahme(&harness), before);
+    // Asked again and confirmed: reached today; the card says so, and offers to reopen it.
+    click(&mut harness, t.reach_button);
+    click(&mut harness, t.change_button);
+    assert_eq!(abnahme(&harness).status, TaskStatus::Done);
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let reached = text::reached_on(Some(&crate::dates::format(today)));
+    assert!(harness.query_by_label(&reached).is_some());
+    click(&mut harness, t.reopen_button);
+    assert!(asking(&harness), "reopened");
+    click(&mut harness, t.change_button);
+    assert_eq!(abnahme(&harness).status, TaskStatus::Todo);
+
+    // "Termin ändern": the typed date is asked about; "Abbrechen" closes the form and keeps
+    // the stored date.
+    let before = abnahme(&harness);
+    click(&mut harness, t.change_date);
+    let later = day_from_today(&harness, 14)
+        .parse::<jiff::civil::Date>()
+        .unwrap();
+    if let Some((_, day, _)) = harness.state_mut().state.forms.milestone_edit.as_mut() {
+        *day = crate::dates::format(later);
+    }
+    click(&mut harness, t.apply);
+    assert!(asking(&harness), "date");
+    click(&mut harness, t.cancel);
+    assert_eq!(abnahme(&harness), before);
+    assert!(harness.state().state.forms.milestone_edit.is_none());
+    click(&mut harness, t.change_date);
+    if let Some((_, day, _)) = harness.state_mut().state.forms.milestone_edit.as_mut() {
+        *day = crate::dates::format(later);
+    }
+    click(&mut harness, t.apply);
+    click(&mut harness, t.change_button);
+    assert_eq!(abnahme(&harness).due, Some(later));
+
+    // Dragged on the timeline: asked, nothing changed before.
+    let before = abnahme(&harness);
+    let at = diamond(&harness, "Abnahme").rect().center();
+    drag(&mut harness, at, egui::vec2(-80.0, 0.0));
+    assert!(asking(&harness), "timeline");
+    assert_eq!(abnahme(&harness), before);
+    click(&mut harness, t.change_button);
+    assert!(abnahme(&harness).due < before.due, "moved earlier");
+
+    // "Löschen": the question about deleting is the confirmation – one question.
+    click(&mut harness, t.delete);
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::DeleteTask(_))
+    ));
+    harness.get_all_by_label(t.delete).last().unwrap().click();
+    harness.run();
+    assert!(!asking(&harness));
+    assert!(task_named(harness.state(), "Abnahme").is_none());
+}
+
+#[test]
+fn a_click_on_a_diamond_chooses_the_milestone() {
+    let mut harness = one_milestone();
+    let id = task_named(harness.state(), "Abnahme").unwrap().id;
+    diamond(&harness, "Abnahme").click();
+    harness.run();
+    assert_eq!(harness.state().state.selected, Some(id));
 }

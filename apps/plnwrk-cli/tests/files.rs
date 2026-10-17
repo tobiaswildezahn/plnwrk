@@ -548,7 +548,11 @@ mod files {
         let refused = fails(&["run", s(&file), "task.update", &change], None);
         assert_eq!(refused["error"], "milestone_not_confirmed");
         assert_eq!(refused["milestones"][0]["title"], "Abnahme");
-        assert_eq!(std::fs::read(&file).unwrap(), before, "nothing may be saved");
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            before,
+            "nothing may be saved"
+        );
         let done = ok(
             &["run", s(&file), "task.update", &change, "--confirmed"],
             None,

@@ -1028,9 +1028,19 @@ fn a_milestone_changes_only_after_the_person_said_yes() {
         let (answer, error) = tool(name, arguments);
         assert!(error, "{name}: {answer}");
         let text = answer.to_string();
-        assert!(text.contains("confirmed") && text.contains("Ask the person"), "{text}");
-        assert!(text.contains(&milestone.title), "names the milestone: {text}");
-        assert_eq!(std::fs::read(&path).unwrap(), before, "{name}: nothing saved");
+        assert!(
+            text.contains("confirmed") && text.contains("Ask the person"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&milestone.title),
+            "names the milestone: {text}"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "{name}: nothing saved"
+        );
     }
     // After the yes: done, and the answer names what changed.
     let (answer, error) = tool(
@@ -1049,7 +1059,10 @@ fn a_milestone_changes_only_after_the_person_said_yes() {
         "move_task",
         json!({"file": s(&path), "task": milestone.id.to_string(), "days": 1, "confirmed": "ja"}),
     );
-    assert!(error && answer.to_string().contains("confirmed must be"), "{answer}");
+    assert!(
+        error && answer.to_string().contains("confirmed must be"),
+        "{answer}"
+    );
 }
 
 #[test]

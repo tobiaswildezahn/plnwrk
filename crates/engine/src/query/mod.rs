@@ -11,7 +11,7 @@ use plnwrk_core::{
 use serde::Serialize;
 use serde_json::Value;
 
-pub use history::{Action, FieldChange, HistoryEntry, history};
+pub use history::{Action, FieldChange, HistoryEntry, done_at, history};
 pub use overview::{
     MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, deadline_order,
     deadlines_count, effective_progress, is_past, milestone_ref, milestone_state,
