@@ -3271,7 +3271,7 @@ fn a_deadline_typed_and_left_by_saving_moves_what_waits_too() {
 }
 
 #[test]
-fn waits_for_does_not_offer_what_would_make_a_circle() {
+fn waits_for_greys_what_would_make_a_circle_and_says_why() {
     let (mut harness, first, second) = two_dated_tasks();
     let project = projects(harness.state()).first().unwrap().id.to_string();
     harness.state_mut().apply(crate::Intent::run(
@@ -3285,20 +3285,47 @@ fn waits_for_does_not_offer_what_would_make_a_circle() {
             .state_mut()
             .apply(crate::Intent::run("dependency.add", link));
     }
-    // Both others wait for the first (one through the other): nothing left to offer.
+    let greyed = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_all_by_label(title)
+            .any(|n| egui_kittest::kittest::NodeT::accesskit_node(&n).is_disabled())
+    };
+    let open_choice = |h: &mut Harness<'_, PlnwrkApp>| {
+        h.get_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
+            .click();
+        h.run();
+    };
+    // Both others wait for the first (one through the other): offered, but greyed (Phase 9f:
+    // not missing without a word).
     click(&mut harness, "Ausschreibung");
-    assert!(
-        harness
-            .query_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
-            .is_none()
-    );
-    // The last may still wait for the first directly.
+    open_choice(&mut harness);
+    assert!(greyed(&harness, "Vergabe") && greyed(&harness, "Abnahme"));
+    harness.key_press(Key::Escape);
+    harness.run();
+    // The last may still wait for the first directly; what it waits for already is greyed.
     click(&mut harness, "Abnahme");
-    assert!(
-        harness
-            .query_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
-            .is_some()
-    );
+    open_choice(&mut harness);
+    assert!(!greyed(&harness, "Ausschreibung"));
+    assert!(greyed(&harness, "Vergabe"));
+}
+
+/// The reasons of the circle rule (one rule for the details and the schedule).
+#[test]
+fn the_circle_rule_says_why() {
+    let (harness, first, second) = two_dated_tasks();
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let mut ws = ws;
+    ws.put(plnwrk_core::Entity::Dependency(plnwrk_core::Dependency {
+        id: plnwrk_core::DependencyId::from_ulid(ulid::Ulid(99)),
+        from: first,
+        to: second,
+        kind: plnwrk_core::DependencyKind::FinishToStart,
+        lag_days: 0,
+    }));
+    let of_second = crate::views::detail::precede_refusal(&ws, second);
+    assert_eq!(of_second(second), Some(text::t().not_itself));
+    assert_eq!(of_second(first), Some(text::t().waits_already));
+    let of_first = crate::views::detail::precede_refusal(&ws, first);
+    assert_eq!(of_first(second), Some(text::t().would_circle));
 }
 
 #[test]
@@ -7728,4 +7755,75 @@ fn a_new_task_is_lit_up_for_a_moment() {
     harness.run_steps(120);
     assert!(!lit(&harness, "Fahren"));
     assert_eq!(harness.state().state.fresh, None);
+}
+
+/// Phase 9f: the details in groups that fold away; a date typed and then folded away is not
+/// lost – it counts as unsaved and is taken like any typed text.
+#[test]
+fn the_details_fold_in_groups_and_keep_what_was_typed() {
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, "Vergabe");
+    let t = text::t();
+    for heading in [
+        t.group_assignment,
+        t.group_dates,
+        t.subtasks,
+        t.waits_for,
+        t.group_notes,
+    ] {
+        assert!(harness.query_by_label(heading).is_some(), "{heading}");
+    }
+    type_into(&mut harness, t.due, "20.10.2026", false);
+    click(&mut harness, t.group_dates);
+    assert!(harness.query_by_label(t.due).is_none(), "folded away");
+    assert!(harness.state().has_unsaved_changes());
+    assert!(harness.state_mut().flush_draft().is_none());
+    assert_eq!(
+        task_named(harness.state(), "Vergabe")
+            .unwrap()
+            .due
+            .map(|d| d.to_string()),
+        Some("2026-10-20".to_owned())
+    );
+}
+
+/// Phase 9f: "Aufgabe löschen" stands apart at the bottom, below everything else.
+#[test]
+fn delete_stands_apart_at_the_bottom_of_the_details() {
+    let (mut harness, _, _) = two_dated_tasks();
+    harness.set_size(egui::vec2(1400.0, 2400.0));
+    click(&mut harness, "Vergabe");
+    let delete = harness.get_by_label(text::t().delete_task).rect();
+    let notes = harness.get_by_label(text::t().group_notes).rect();
+    let history = harness.get_by_label(text::t().history).rect();
+    assert!(delete.top() > notes.bottom() && delete.top() > history.bottom() + 16.0);
+}
+
+/// Phase 9f: a date that does not fit what a task waits for is marked at both tasks – in the
+/// schedule's words – and not at a task that has nothing to do with it.
+#[test]
+fn a_date_conflict_is_marked_in_the_details() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Abseits", "due": "2026-10-20"}),
+    ));
+    // "Vergabe" (from 15.10.) waits for "Ausschreibung" moved to end on 18.10.: a conflict.
+    harness.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": first.to_string(), "due": "2026-10-18"}),
+    ));
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": first.to_string(), "to": second.to_string()}),
+    ));
+    harness.run();
+    let said = text::waits_too_short("Ausschreibung", "Vergabe");
+    let abseits = task_named(harness.state(), "Abseits").unwrap().id;
+    for (task, marked) in [(second, true), (first, true), (abseits, false)] {
+        harness.state_mut().apply(crate::Intent::Select(Some(task)));
+        harness.run();
+        assert_eq!(harness.query_by_label(&said).is_some(), marked, "{task}");
+    }
 }

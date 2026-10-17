@@ -82,6 +82,11 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   Fenstern fallen sie von rechts weg). Doppelklick auf einen Titel benennt um. **+** für eine
   Unteraufgabe erscheint an der Zeile unter dem Zeiger und an der gewählten Aufgabe. Eine neue
   Aufgabe leuchtet kurz auf, damit man sie findet.
+- **Detailbereich** (rechts, wenn eine Aufgabe gewählt ist): in Gruppen **Zuordnung**,
+  **Termine**, **Unteraufgaben**, **Wartet auf**, **Notizen & Verlauf**; jede lässt sich
+  einklappen. Passt ein Termin nicht zu dem, worauf die Aufgabe wartet, steht das bei den
+  Terminen. Unter „Wartet auf“ sind Aufgaben, die einen Kreis ergäben, ausgegraut – mit dem
+  Grund beim Darüberfahren. **Aufgabe löschen** steht rot und abgesetzt ganz unten.
 - **Board:** Spalten Offen / In Arbeit / Blockiert / Prüfung / Erledigt über die ganze Breite
   (in schmalen Fenstern seitlich scrollen). Karten ziehen ändert den Status; eine Linie zeigt,
   wo die Karte landet. **+** an einer Spalte legt dort eine neue Aufgabe an (Enter).

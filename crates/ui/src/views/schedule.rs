@@ -249,7 +249,6 @@ pub fn show(
         .items()
         .filter_map(|item| item.span().map(|span| (item.id, span)))
         .collect();
-    let title = |id: TaskId| ws.task(id).map_or("", |t| t.title.as_str());
     let unscheduled: Vec<&Task> = rows
         .iter()
         .map(|(t, _)| *t)
@@ -1301,14 +1300,7 @@ pub fn show(
 
     // What cannot hold.
     for warning in &analysis.warnings {
-        let (task, line) = match *warning {
-            Warning::Violated { from, to } => (to, text::waits_too_short(title(from), title(to))),
-            Warning::Milestone { task, earliest } => (
-                task,
-                text::milestone_unreachable(title(task), &dates::format(earliest)),
-            ),
-            Warning::AfterProjectDue { task } => (task, text::after_project_due(title(task))),
-        };
+        let (task, line) = warning_said(ws, warning);
         if ui
             .link(RichText::new(format!("⚠ {line}")).color(ui.visuals().warn_fg_color))
             .clicked()
@@ -1418,5 +1410,27 @@ mod tests {
     #[test]
     fn nothing_scheduled_no_window() {
         assert_eq!(window(&[], &[], d("2026-10-14"), None), None);
+    }
+}
+
+/// A warning of the plan as said in the app, and the task it is shown at (the schedule's list
+/// and the detail panel use this one wording).
+pub(crate) fn warning_said(ws: &plnwrk_core::Workspace, warning: &Warning) -> (TaskId, String) {
+    let title = |id: TaskId| ws.task(id).map_or("", |t| t.title.as_str());
+    match *warning {
+        Warning::Violated { from, to } => (to, text::waits_too_short(title(from), title(to))),
+        Warning::Milestone { task, earliest } => (
+            task,
+            text::milestone_unreachable(title(task), &dates::format(earliest)),
+        ),
+        Warning::AfterProjectDue { task } => (task, text::after_project_due(title(task))),
+    }
+}
+
+/// Whether a warning concerns `task` (either end of a dependency that does not hold).
+pub(crate) fn warning_concerns(warning: &Warning, task: TaskId) -> bool {
+    match *warning {
+        Warning::Violated { from, to } => from == task || to == task,
+        Warning::Milestone { task: at, .. } | Warning::AfterProjectDue { task: at } => at == task,
     }
 }

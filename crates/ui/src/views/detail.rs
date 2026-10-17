@@ -14,6 +14,20 @@ use crate::views::project::person_choice;
 use crate::views::{commit_field, date, due_label, enter_field};
 use crate::{Clear, Intent, Then, dates, text};
 
+/// A group of the panel: a heading that folds it away, open at first.
+fn group(
+    ui: &mut egui::Ui,
+    salt: impl std::hash::Hash + std::fmt::Debug,
+    title: &str,
+    add: impl FnOnce(&mut egui::Ui),
+) {
+    ui.add_space(4.0);
+    egui::CollapsingHeader::new(RichText::new(title).strong())
+        .id_salt(salt)
+        .default_open(true)
+        .show(ui, add);
+}
+
 /// A `task.update` with one field.
 fn update(task: TaskId, field: &str, value: Value) -> Intent {
     let mut params = serde_json::Map::new();
@@ -73,172 +87,203 @@ pub fn panel(
                 ui.add_space(4.0);
                 let people: Vec<(PersonId, String)> =
                     ws.people().map(|p| (p.id, p.name.clone())).collect();
-                egui::Grid::new("task-fields")
-                    .num_columns(2)
-                    .show(ui, |ui| {
-                        ui.label(text::t().status);
-                        let mut status = task.status;
-                        egui::ComboBox::from_id_salt("task-status")
-                            .selected_text(text::task_status(status))
-                            .show_ui(ui, |ui| {
-                                for s in TaskStatus::ALL {
-                                    ui.selectable_value(&mut status, s, text::task_status(s));
-                                }
-                            });
-                        if status != task.status {
-                            out.push(Intent::run(
-                                "task.set_status",
-                                json!({"task": id.to_string(), "status": status.name()}),
-                            ));
-                        }
-                        ui.end_row();
-
-                        ui.label(text::t().priority);
-                        let mut priority = task.priority;
-                        egui::ComboBox::from_id_salt("task-priority")
-                            .selected_text(text::priority(priority))
-                            .show_ui(ui, |ui| {
-                                for p in Priority::ALL {
-                                    ui.selectable_value(&mut priority, p, text::priority(p));
-                                }
-                            });
-                        if priority != task.priority {
-                            out.push(update(id, "priority", json!(priority.name())));
-                        }
-                        ui.end_row();
-
-                        ui.label(text::t().assignee);
-                        let mut assignee = task.assignee;
-                        if person_choice(ui, "task-assignee", &mut assignee, &people) {
-                            let mut params = json!({"task": id.to_string()});
-                            if let (Some(person), Some(map)) = (assignee, params.as_object_mut()) {
-                                map.insert("assignee".to_owned(), json!(person.to_string()));
+                // In groups (Phase 9f), each folds away; what is typed stays in the draft
+                // while folded and is taken on saving or closing like any typed text.
+                let t = text::t();
+                group(ui, ("assignment", id), t.group_assignment, |ui| {
+                    egui::Grid::new(("task-assignment", id))
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            ui.label(text::t().status);
+                            let mut status = task.status;
+                            egui::ComboBox::from_id_salt("task-status")
+                                .selected_text(text::task_status(status))
+                                .show_ui(ui, |ui| {
+                                    for s in TaskStatus::ALL {
+                                        ui.selectable_value(&mut status, s, text::task_status(s));
+                                    }
+                                });
+                            if status != task.status {
+                                out.push(Intent::run(
+                                    "task.set_status",
+                                    json!({"task": id.to_string(), "status": status.name()}),
+                                ));
                             }
-                            out.push(Intent::run("task.assign", params));
-                        }
-                        ui.end_row();
-
-                        let caption = ui.label(text::t().start);
-                        let start = date::date_input(
-                            ui,
-                            ("task-start", id),
-                            &mut draft.start,
-                            today,
-                            Some(caption.id),
+                            ui.end_row();
+                            ui.label(text::t().priority);
+                            let mut priority = task.priority;
+                            egui::ComboBox::from_id_salt("task-priority")
+                                .selected_text(text::priority(priority))
+                                .show_ui(ui, |ui| {
+                                    for p in Priority::ALL {
+                                        ui.selectable_value(&mut priority, p, text::priority(p));
+                                    }
+                                });
+                            if priority != task.priority {
+                                out.push(update(id, "priority", json!(priority.name())));
+                            }
+                            ui.end_row();
+                            ui.label(text::t().assignee);
+                            let mut assignee = task.assignee;
+                            if person_choice(ui, "task-assignee", &mut assignee, &people) {
+                                let mut params = json!({"task": id.to_string()});
+                                if let (Some(person), Some(map)) =
+                                    (assignee, params.as_object_mut())
+                                {
+                                    map.insert("assignee".to_owned(), json!(person.to_string()));
+                                }
+                                out.push(Intent::run("task.assign", params));
+                            }
+                            ui.end_row();
+                            let caption = ui.label(text::t().tags);
+                            let response = ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut draft.tags)
+                                        .id_salt(("task-tags", id))
+                                        .hint_text("a, b, c"),
+                                )
+                                .labelled_by(caption.id);
+                            if commit_field(&response) && tags(&draft.tags) != task.tags {
+                                out.push(update(id, "tags", json!(tags(&draft.tags))));
+                            }
+                            ui.end_row();
+                        });
+                });
+                group(ui, ("dates", id), t.group_dates, |ui| {
+                    egui::Grid::new(("task-dates", id))
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            let caption = ui.label(text::t().start);
+                            let start = date::date_input(
+                                ui,
+                                ("task-start", id),
+                                &mut draft.start,
+                                today,
+                                Some(caption.id),
+                            );
+                            if start.commit() {
+                                match dates::parse(&draft.start) {
+                                    Ok(date) if date != task.start => {
+                                        out.push(Intent::Reschedule {
+                                            task: id,
+                                            start: date,
+                                            due: task.due,
+                                            due_time: None,
+                                        });
+                                    }
+                                    Ok(_) => {}
+                                    Err(message) => state.message = Some(Message::error(message)),
+                                }
+                            }
+                            ui.end_row();
+                            let caption = ui.label(text::t().due);
+                            let case = project.is_some_and(plnwrk_core::Project::is_case);
+                            let due = date::deadline_input(
+                                ui,
+                                ("task-due", id),
+                                &mut draft.due,
+                                &mut draft.due_time,
+                                today,
+                                case,
+                                Some(caption.id),
+                            );
+                            if due.commit() {
+                                match dates::parse_deadline(&draft.due, &draft.due_time) {
+                                    Ok(due) if due != task.due.map(|day| (day, task.due_time)) => {
+                                        out.push(Intent::Reschedule {
+                                            task: id,
+                                            start: task.start,
+                                            due: due.map(|(day, _)| day),
+                                            due_time: Some(due.and_then(|(_, time)| time)),
+                                        });
+                                    }
+                                    Ok(_) => {}
+                                    Err(message) => state.message = Some(Message::error(message)),
+                                }
+                            }
+                            ui.end_row();
+                            // Only top-level tasks without subtasks can be milestones.
+                            ui.label("♦");
+                            let has_children =
+                                ws.tasks_of(task.project).any(|t| t.parent == Some(id));
+                            let allowed = task.parent.is_none() && !has_children;
+                            let mut milestone = task.milestone;
+                            let checkbox = ui
+                                .add_enabled(
+                                    allowed || milestone,
+                                    egui::Checkbox::new(&mut milestone, text::t().milestone),
+                                )
+                                .on_hover_text(text::t().milestone_hint)
+                                .on_disabled_hover_text(text::t().milestone_hint);
+                            if checkbox.changed() && milestone != task.milestone {
+                                out.push(update(id, "milestone", json!(milestone)));
+                            }
+                            ui.end_row();
+                            let caption = ui.label(text::t().progress);
+                            let slider = ui
+                                .add(egui::Slider::new(&mut draft.progress, 0..=100).suffix(" %"))
+                                .labelled_by(caption.id);
+                            if (slider.drag_stopped() || (slider.changed() && !slider.dragged()))
+                                && draft.progress != task.progress
+                            {
+                                out.push(Intent::run(
+                                    "task.set_progress",
+                                    json!({"task": id.to_string(), "progress": draft.progress}),
+                                ));
+                            }
+                            ui.end_row();
+                        });
+                    if let Some(project) = project
+                        && query::task_overdue(Some(project), task, now)
+                    {
+                        ui.label(
+                            RichText::new(text::t().overdue).color(ui.visuals().error_fg_color),
                         );
-                        if start.commit() {
-                            match dates::parse(&draft.start) {
-                                Ok(date) if date != task.start => {
-                                    out.push(Intent::Reschedule {
-                                        task: id,
-                                        start: date,
-                                        due: task.due,
-                                        due_time: None,
-                                    });
-                                }
-                                Ok(_) => {}
-                                Err(message) => state.message = Some(Message::error(message)),
-                            }
-                        }
-                        ui.end_row();
+                    }
 
-                        let caption = ui.label(text::t().due);
-                        let case = project.is_some_and(plnwrk_core::Project::is_case);
-                        let due = date::deadline_input(
-                            ui,
-                            ("task-due", id),
-                            &mut draft.due,
-                            &mut draft.due_time,
-                            today,
-                            case,
-                            Some(caption.id),
-                        );
-                        if due.commit() {
-                            match dates::parse_deadline(&draft.due, &draft.due_time) {
-                                Ok(due) if due != task.due.map(|day| (day, task.due_time)) => {
-                                    out.push(Intent::Reschedule {
-                                        task: id,
-                                        start: task.start,
-                                        due: due.map(|(day, _)| day),
-                                        due_time: Some(due.and_then(|(_, time)| time)),
-                                    });
-                                }
-                                Ok(_) => {}
-                                Err(message) => state.message = Some(Message::error(message)),
-                            }
-                        }
-                        ui.end_row();
-
-                        // Only top-level tasks without subtasks can be milestones.
-                        ui.label("♦");
-                        let has_children = ws.tasks_of(task.project).any(|t| t.parent == Some(id));
-                        let allowed = task.parent.is_none() && !has_children;
-                        let mut milestone = task.milestone;
-                        let checkbox = ui
-                            .add_enabled(
-                                allowed || milestone,
-                                egui::Checkbox::new(&mut milestone, text::t().milestone),
-                            )
-                            .on_hover_text(text::t().milestone_hint)
-                            .on_disabled_hover_text(text::t().milestone_hint);
-                        if checkbox.changed() && milestone != task.milestone {
-                            out.push(update(id, "milestone", json!(milestone)));
-                        }
-                        ui.end_row();
-
-                        let caption = ui.label(text::t().progress);
-                        let slider = ui
-                            .add(egui::Slider::new(&mut draft.progress, 0..=100).suffix(" %"))
-                            .labelled_by(caption.id);
-                        if (slider.drag_stopped() || (slider.changed() && !slider.dragged()))
-                            && draft.progress != task.progress
+                    // A date that does not fit what it waits for (or what waits for it):
+                    // said here, in the schedule's words.
+                    if let Some(project) = project {
+                        let worked = super::schedule::worked(ui, doc, project);
+                        for warning in worked
+                            .analysis
+                            .warnings
+                            .iter()
+                            .filter(|w| super::schedule::warning_concerns(w, id))
                         {
-                            out.push(Intent::run(
-                                "task.set_progress",
-                                json!({"task": id.to_string(), "progress": draft.progress}),
-                            ));
+                            let (_, said) = super::schedule::warning_said(ws, warning);
+                            crate::design::widgets::field_error(ui, &said);
                         }
-                        ui.end_row();
+                    }
+                });
+                group(ui, ("subtasks", id), t.subtasks, |ui| {
+                    subtasks(ui, doc, id, state, out);
+                });
+                group(ui, ("dependencies", id), t.waits_for, |ui| {
+                    dependencies(ui, doc, id, out);
+                });
+                group(ui, ("notes", id), t.group_notes, |ui| {
+                    let caption = ui.strong(text::t().description);
+                    let response = ui
+                        .add(
+                            egui::TextEdit::multiline(&mut draft.description)
+                                .id_salt(("task-description", id))
+                                .desired_rows(4)
+                                .desired_width(f32::INFINITY),
+                        )
+                        .labelled_by(caption.id);
+                    if commit_field(&response) && draft.description != task.description {
+                        out.push(update(id, "description", json!(draft.description)));
+                    }
 
-                        let caption = ui.label(text::t().tags);
-                        let response = ui
-                            .add(
-                                egui::TextEdit::singleline(&mut draft.tags)
-                                    .id_salt(("task-tags", id))
-                                    .hint_text("a, b, c"),
-                            )
-                            .labelled_by(caption.id);
-                        if commit_field(&response) && tags(&draft.tags) != task.tags {
-                            out.push(update(id, "tags", json!(tags(&draft.tags))));
-                        }
-                        ui.end_row();
-                    });
-                if let Some(project) = project
-                    && query::task_overdue(Some(project), task, now)
-                {
-                    ui.label(RichText::new(text::t().overdue).color(ui.visuals().error_fg_color));
-                }
+                    comments(ui, doc, id, state, out);
+                    history(ui, doc, id);
+                });
 
-                ui.add_space(6.0);
-                let caption = ui.strong(text::t().description);
-                let response = ui
-                    .add(
-                        egui::TextEdit::multiline(&mut draft.description)
-                            .id_salt(("task-description", id))
-                            .desired_rows(4)
-                            .desired_width(f32::INFINITY),
-                    )
-                    .labelled_by(caption.id);
-                if commit_field(&response) && draft.description != task.description {
-                    out.push(update(id, "description", json!(draft.description)));
-                }
-
-                subtasks(ui, doc, id, state, out);
-                dependencies(ui, doc, id, out);
-                comments(ui, doc, id, state, out);
-                history(ui, doc, id);
-
-                ui.add_space(12.0);
+                // Deleting: red, apart at the bottom.
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
                 if crate::design::widgets::button(
                     ui,
                     crate::design::widgets::Kind::Destructive,
@@ -266,8 +311,6 @@ fn subtasks(
     let index = TaskIndex::new(ws);
     let mut children = index.children(id).to_vec();
     children.sort_by(|a, b| a.rank.cmp(&b.rank));
-    ui.add_space(6.0);
-    ui.strong(text::t().subtasks);
     for child in children {
         ui.horizontal(|ui| {
             let mut done = child.status == TaskStatus::Done;
@@ -312,8 +355,6 @@ fn subtasks(
 fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
     let Some(task) = ws.task(id) else { return };
-    ui.add_space(6.0);
-    ui.strong(text::t().waits_for);
     let incoming: Vec<_> = ws.dependencies().filter(|d| d.to == id).collect();
     for dependency in &incoming {
         let Some(from) = ws.task(dependency.from) else {
@@ -331,20 +372,25 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
             }
         });
     }
-    // Not offered: what it already waits for, and what waits for it (directly or not) – that
-    // would make a circle.
-    let allowed = may_precede(ws, id);
-    let mut candidates: Vec<_> = ws
-        .tasks_of(task.project)
-        .filter(|t| allowed(t.id))
-        .collect();
+    // Every other task is offered; what it already waits for, and what would make a circle
+    // (it waits for this one, directly or not), greyed with the reason (Phase 9f) – not
+    // missing without a word.
+    let why_not = precede_refusal(ws, id);
+    let mut candidates: Vec<_> = ws.tasks_of(task.project).filter(|t| t.id != id).collect();
     candidates.sort_by(|a, b| a.title.cmp(&b.title));
     if !candidates.is_empty() {
         egui::ComboBox::from_id_salt(("predecessor", id))
             .selected_text(text::t().add_predecessor)
             .show_ui(ui, |ui| {
                 for candidate in candidates {
-                    if ui.selectable_label(false, &candidate.title).clicked() {
+                    let refusal = why_not(candidate.id);
+                    let choice = ui
+                        .add_enabled(
+                            refusal.is_none(),
+                            egui::Button::selectable(false, &candidate.title),
+                        )
+                        .on_disabled_hover_text(refusal.unwrap_or_default());
+                    if choice.clicked() {
                         out.push(Intent::run(
                             "dependency.add",
                             json!({"from": candidate.id.to_string(), "to": id.to_string()}),
@@ -374,6 +420,16 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
 /// for it (directly or not) – that would make a circle. Worked out once per task, then asked
 /// for each candidate. Shared by the detail panel and the schedule.
 pub(crate) fn may_precede(ws: &Workspace, task: TaskId) -> impl Fn(TaskId) -> bool {
+    let refusal = precede_refusal(ws, task);
+    move |candidate| refusal(candidate).is_none()
+}
+
+/// Why `task` may not wait for a candidate (the rule of [`may_precede`], with its reason):
+/// itself, already waited for, or a circle.
+pub(crate) fn precede_refusal(
+    ws: &Workspace,
+    task: TaskId,
+) -> impl Fn(TaskId) -> Option<&'static str> {
     let after = reach(ws, task, |d| (d.from, d.to));
     let direct: BTreeSet<TaskId> = ws
         .dependencies()
@@ -381,7 +437,15 @@ pub(crate) fn may_precede(ws: &Workspace, task: TaskId) -> impl Fn(TaskId) -> bo
         .map(|d| d.from)
         .collect();
     move |candidate| {
-        candidate != task && !direct.contains(&candidate) && !after.contains(&candidate)
+        if candidate == task {
+            Some(text::t().not_itself)
+        } else if direct.contains(&candidate) {
+            Some(text::t().waits_already)
+        } else if after.contains(&candidate) {
+            Some(text::t().would_circle)
+        } else {
+            None
+        }
     }
 }
 
