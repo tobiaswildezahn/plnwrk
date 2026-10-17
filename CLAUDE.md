@@ -50,7 +50,14 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   (`workspace.upgrade`), nie durch Umschreiben der Geschichte; stillgelegte Befehle bleiben in
   `LEGACY` (`crates/engine/src/command.rs`), damit alte Protokolle prüfbar bleiben.
 - Skript-Ersetzungen in Quelltexten immer mit `assert old in s` absichern (nach `cargo fmt`
-  passen Muster oft nicht mehr) und Testbehauptungen per Mutationsprobe belegen.
+  passen Muster oft nicht mehr).
+- **Gegenprobe ist Pflicht** (Entscheidung Tobi, 2026-10-17): Jeder Test, der einen Fehler oder
+  eine Regel festhalten soll, wird einmal gegen den Fehler laufen gelassen – Korrektur bzw.
+  Regel probeweise ausbauen, Test muss **rot** werden, dann exakt zurückbauen (`git diff`
+  leer). Bei mehreren Fällen in einem Test **jeden Fall einzeln** (ein Test kann an einer
+  Stelle scheitern und die anderen nie prüfen). Wächtertests bekommen eingeschleuste
+  Gegenbeispiele. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
+  Ein grüner Test ohne Gegenprobe gilt nicht als Beleg.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar: `crates/ui/src/tests.rs`
