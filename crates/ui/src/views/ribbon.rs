@@ -43,19 +43,37 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
         state.ribbon_tab = RibbonTab::Start;
     }
     let mut collapsed = collapsed(ui.ctx(), state);
+    // Cmd+Option+R only in the Mac app: Safari reloads the page with it, and elsewhere
+    // Ctrl+Alt is AltGr (AltGr+R types a character).
+    let mac = cfg!(target_os = "macos") && !state.browser;
     if state.dialog.is_none()
         && ui.input_mut(|i| {
-            i.consume_shortcut(&keys::RIBBON) || i.consume_shortcut(&keys::RIBBON_MAC)
+            i.consume_shortcut(&keys::RIBBON) || (mac && i.consume_shortcut(&keys::RIBBON_MAC))
         })
     {
         toggle(state, &mut collapsed);
     }
-    if !collapsed {
+    // An expanded ribbon or a dialog ends a peek.
+    if !collapsed || state.dialog.is_some() {
         state.ribbon_peek = false;
     }
+    // Escape ends a peek, and the focus goes back to the tab it was opened from. (A field
+    // outside the peek cannot have the focus meanwhile: that ends the peek, see below.)
+    let mut focus_tab = false;
     if state.ribbon_peek
-        && state.dialog.is_none()
         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
+        state.ribbon_peek = false;
+        focus_tab = true;
+    }
+    // The keyboard focus went elsewhere (Tab out of the peek): the peek must not hide it
+    // (WCAG 2.4.11). Checked against where the ribbon was last frame.
+    let last = egui::Id::new("ribbon-peek-rect");
+    if state.ribbon_peek
+        && let Some(shown) = ui.data(|d| d.get_temp::<egui::Rect>(last))
+        && let Some(focused) = ui.memory(|m| m.focused())
+        && let Some(widget) = ui.ctx().read_response(focused)
+        && !shown.contains_rect(widget.rect)
     {
         state.ribbon_peek = false;
     }
@@ -78,6 +96,9 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
                 for tab in &tabs {
                     let response =
                         ribbon::tab(ui, tab.name(), *tab == state.ribbon_tab, tab.contextual());
+                    if focus_tab && *tab == state.ribbon_tab {
+                        response.request_focus();
+                    }
                     // A double click also sends a click first: it is checked first.
                     if response.double_clicked() {
                         toggle(state, &mut collapsed);
@@ -184,6 +205,9 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
             .response
             .rect
     };
+    // Tabs and peek together, for the focus check of the next frame.
+    let shown = body.union(strip.response.rect);
+    ui.data_mut(|d| d.insert_temp(last, shown));
     if peek_click {
         let at = ui.input(|i| i.pointer.interact_pos());
         let inside = at.is_some_and(|at| body.contains(at) || strip.response.rect.contains(at));

@@ -4197,10 +4197,10 @@ fn the_ribbon_collapses_and_opens_for_a_moment() {
     harness.run();
     assert!(ribbon_open(&harness));
     assert_eq!(harness.state().state.ribbon_collapsed, Some(false));
-    // On the Mac also Cmd+Option+R, as in Office.
+    // In the Mac app also Cmd+Option+R, as in Office (elsewhere it would be AltGr+R).
     harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::ALT, Key::R);
     harness.run();
-    assert!(!ribbon_open(&harness));
+    assert_eq!(!ribbon_open(&harness), cfg!(target_os = "macos"));
 }
 
 #[test]
@@ -4400,6 +4400,12 @@ fn a_peek_lies_over_the_content_and_closes_with_an_action_or_escape() {
     harness.key_press(Key::Escape);
     harness.run();
     assert!(!ribbon_open(&harness), "closed by Escape");
+    // The focus goes back to the tab, not nowhere.
+    let focused = harness.query_by(|n| n.is_focused()).map(|n| n.rect());
+    assert_eq!(
+        focused,
+        Some(harness.get_by_label(text::t().ribbon.start).rect())
+    );
 }
 
 #[test]
@@ -4462,4 +4468,59 @@ fn the_keyboard_skips_greyed_ribbon_buttons() {
         !visited.iter().any(|l| l == text::t().new_task),
         "{visited:?}"
     );
+}
+
+#[test]
+fn the_palette_names_the_task_an_action_acts_on() {
+    let mut harness = harness_with_sample();
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, "Einbau Wache 11");
+    let app = harness.state();
+    let entries = crate::palette::entries(app.doc(), &app.state);
+    let delete = entries
+        .iter()
+        .find(|e| e.label == text::t().delete_task)
+        .unwrap();
+    assert!(
+        delete.detail.ends_with("Einbau Wache 11"),
+        "{}",
+        delete.detail
+    );
+}
+
+#[test]
+fn a_dialog_or_the_keyboard_leaving_ends_a_peek() {
+    // A dialog opened by its shortcut, without a field to take the focus (Cmd+Q with unsaved
+    // work asks first).
+    let mut harness = collapsed_ribbon();
+    click(&mut harness, text::t().ribbon.start);
+    assert!(ribbon_open(&harness));
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
+    harness.run();
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::Unsaved(_))
+    ));
+    assert!(
+        !harness.state().state.ribbon_peek,
+        "the dialog ended the peek"
+    );
+    click(&mut harness, text::t().cancel);
+    assert!(!ribbon_open(&harness));
+    // Tab out of the peek: it closes rather than hide the focus.
+    click(&mut harness, text::t().ribbon.start);
+    assert!(ribbon_open(&harness));
+    for _ in 0..30 {
+        harness.key_press(Key::Tab);
+        harness.run();
+        if !ribbon_open(&harness) {
+            break;
+        }
+    }
+    assert!(!ribbon_open(&harness), "focus left the peek");
 }

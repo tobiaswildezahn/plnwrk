@@ -31,8 +31,8 @@ const STATUS: Place = Place {
     en: "Task › Status",
 };
 const TASK: Place = Place {
-    de: "Aufgabe › Bearbeiten",
-    en: "Task › Edit",
+    de: "Aufgabe › Ändern",
+    en: "Task › Change",
 };
 
 /// Command id and its place.

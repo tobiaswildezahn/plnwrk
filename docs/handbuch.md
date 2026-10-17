@@ -98,7 +98,7 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 - **Menüband (Ribbon):** Oben stehen die Reiter **Datei**, **Start** und **Ansicht**, darunter die
   Befehle in Gruppen. Ist eine Aufgabe gewählt, kommt der Reiter **Aufgabe** dazu (Status,
   Löschen); im Zeitplan der Reiter **Zeitplan-Werkzeuge** (Zoom, Export). Doppelklick auf
-  einen Reiter, der Pfeil oben rechts oder ⌘F1 / Strg+F1 (am Mac auch ⌘⌥R) klappt das Menüband
+  einen Reiter, der Pfeil oben rechts oder ⌘F1 / Strg+F1 (in der Mac-App auch ⌘⌥R) klappt das Menüband
   ein und aus. Eingeklappt öffnet ein Klick auf einen Reiter es kurz über dem Inhalt; ein
   Klick daneben oder Esc schließt es wieder. Nur in sehr niedrigen Fenstern startet es
   eingeklappt. Rückgängig und Wiederholen stehen immer oben rechts.

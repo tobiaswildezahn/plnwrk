@@ -529,7 +529,7 @@ pub static DE: Texts = Texts {
         scroll_right: "Menüband nach rechts",
         new_case_long: "Neuer Vorgang",
         schedule_tools: "Zeitplan-Werkzeuge",
-        edit: "Bearbeiten",
+        edit: "Ändern",
         new_project_long: "Neues Projekt",
     },
 };
@@ -757,7 +757,7 @@ pub static EN: Texts = Texts {
         scroll_right: "Scroll the ribbon right",
         new_case_long: "New case",
         schedule_tools: "Schedule tools",
-        edit: "Edit",
+        edit: "Change",
         new_project_long: "New project",
     },
 };
