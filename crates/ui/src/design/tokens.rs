@@ -57,6 +57,8 @@ pub struct Palette {
     pub success_soft: Color32,
     /// Information, behind accent text.
     pub info_soft: Color32,
+    /// Contextual ribbon tabs (a chosen task, the schedule): as text and mark.
+    pub context: Color32,
 }
 
 const fn hex(rgb: u32) -> Color32 {
@@ -93,6 +95,7 @@ pub const LIGHT: Palette = Palette {
     success: hex(0x1C6E46),
     success_soft: hex(0xE3F2EA),
     info_soft: hex(0xE6EEF8),
+    context: hex(0x0F766E),
 };
 
 /// Dark mode: near black blue-grey, the accent lighter so it reads on dark.
@@ -120,6 +123,7 @@ pub const DARK: Palette = Palette {
     success: hex(0x7ACFA3),
     success_soft: hex(0x1F3529),
     info_soft: hex(0x22324A),
+    context: hex(0x5CC8B2),
 };
 
 /// The palette of the mode this ui is drawn in.

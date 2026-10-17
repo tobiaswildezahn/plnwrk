@@ -186,6 +186,16 @@ pub fn show(
         .data(|d| d.get_temp::<usize>(zoom_id))
         .unwrap_or(ZOOM_START)
         .min(ZOOM.len() - 1);
+    // A step asked for in the ribbon.
+    if let Some((asked, step)) = state.zoom_request
+        && asked == project.id
+    {
+        level = if step > 0 {
+            (level + 1).min(ZOOM.len() - 1)
+        } else {
+            level.saturating_sub(1)
+        };
+    }
     ui.horizontal(|ui| {
         if super::icon_button(ui, Icon::ZoomOut, text::t().zoom_out).clicked() {
             level = level.saturating_sub(1);

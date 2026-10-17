@@ -5,3 +5,6 @@ dist/
 
 # Real files of older format versions are test material and must be kept.
 !crates/store/tests/fixtures/*.plnwrk
+
+# Working copies of review agents (Claude Code).
+.claude/worktrees/

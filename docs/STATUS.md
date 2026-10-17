@@ -71,9 +71,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   **9a gebaut** auf Branch `phase-9a` (Bedienfehler Klick und Mausrad behoben, Gestaltungssystem
-   in `crates/ui/src/design/`, Vorher/Nachher in `docs/ux/2026-10-17-9a/`) – Review und
-   Nachreview, dann Tobis Merge. Danach **9b** (Ribbon). Bekannt für 9f: Mit offenem
+   **9a fertig** (PR #16: Bedienfehler Klick und Mausrad, Pinch überall, Gestaltungssystem in
+   `crates/ui/src/design/`, Vorher/Nachher in `docs/ux/2026-10-17-9a/`; Review + Nachreview
+   eingearbeitet) – wartet auf Tobis „ja, merge“. **9b gebaut** (Branch `phase-9b`, Ribbon,
+   gemeinsame Aktionsliste mit der Palette, Ort im MCP) – Review steht aus. Danach **9c**
+   (Zeitplan neu). Bekannt für 9f: Mit offenem
    Detailbereich rutschen „Bearbeiten/Archivieren“ über den Projekttitel; Eingabefelder noch
    flach (egui-Rand). Erster Start von 0.1.0 am Mac und Realitätstest 4.10 sind erledigt
    (2026-10-17). Aufräumen

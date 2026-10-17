@@ -142,7 +142,19 @@ pub fn call(name: &str, arguments: &Map<String, Value>, kept: &mut Kept) -> Answ
             Ok(Value::from(
                 specs
                     .into_iter()
-                    .map(|s| json!({"id": s.id, "summary": s.summary, "input_schema": s.input_schema()}))
+                    .map(|s| {
+                        let mut entry = json!({"id": s.id, "summary": s.summary, "input_schema": s.input_schema()});
+                        // Where a person finds it in the app, so the answer can say where to click.
+                        if let Some(place) = plnwrk_engine::places::place(s.id)
+                            && let Some(fields) = entry.as_object_mut()
+                        {
+                            fields.insert(
+                                "in_the_app".to_owned(),
+                                json!({"de": place.de, "en": place.en}),
+                            );
+                        }
+                        entry
+                    })
                     .collect::<Vec<_>>(),
             ))
         }

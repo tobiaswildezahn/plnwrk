@@ -93,8 +93,10 @@ steht „durch KI“.
 - **Protokoll:** MCP über stdio, zeilenweises JSON-RPC 2.0 (`crates/mcp`), ohne `rmcp`.
   Unterstützte Protokollversionen: `2025-06-18`, `2025-03-26`, `2024-11-05`.
 - **Werkzeuge:** `overview`, `query` (alle Abfragen der Engine), `search_commands` (sucht auch
-  in den Feldbeschreibungen), `run_command` (alle Befehle) und `move_task` (um N Tage). Jedes
-  Werkzeug außer `search_commands` nennt seine Datei.
+  in den Feldbeschreibungen; nennt unter `in_the_app` den Platz im Menüband, z. B.
+  „Start › Neu“, damit Claude sagen kann, wo man klickt – Tabelle `plnwrk_engine::places`,
+  ein Test hält sie gleich mit dem Menüband), `run_command` (alle Befehle) und `move_task`
+  (um N Tage). Jedes Werkzeug außer `search_commands` nennt seine Datei.
 - **Sitzungen:** Der Server hält je Datei die Sitzung, solange die Datei auf der Platte
   unverändert ist, für höchstens 16 Dateien. Darum reichen `undo`/`redo` über mehrere Aufrufe.
 - **Eingaben:** Nachrichten bis 4 MiB je Zeile. Gelesen werden nur gewöhnliche Dateien, keine

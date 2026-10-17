@@ -89,7 +89,6 @@ pub struct Texts {
     pub recent: &'static str,
     pub recovered: &'static str,
     pub file_menu: &'static str,
-    pub edit_menu: &'static str,
     pub undo: &'static str,
     pub redo: &'static str,
     pub overview: &'static str,
@@ -273,6 +272,38 @@ pub struct Texts {
     pub months: [&'static str; 12],
     /// Short names of the weekdays, Monday first.
     pub weekdays: [&'static str; 7],
+    /// Tabs, groups and buttons of the ribbon.
+    pub ribbon: RibbonTexts,
+}
+
+/// The texts of the ribbon (Phase 9b).
+#[derive(Debug)]
+pub struct RibbonTexts {
+    pub start: &'static str,
+    pub task: &'static str,
+    pub new: &'static str,
+    pub protection: &'static str,
+    pub close: &'static str,
+    pub undo: &'static str,
+    pub find: &'static str,
+    pub views: &'static str,
+    pub areas: &'static str,
+    pub zoom: &'static str,
+    pub share: &'static str,
+    pub new_case: &'static str,
+    /// The kind a new case gets (the form shows it and it can be changed).
+    pub case_kind: &'static str,
+    pub new_project: &'static str,
+    pub from_template: &'static str,
+    pub find_action: &'static str,
+    pub collapse: &'static str,
+    pub expand: &'static str,
+    pub scroll_left: &'static str,
+    pub scroll_right: &'static str,
+    pub new_case_long: &'static str,
+    pub schedule_tools: &'static str,
+    pub edit: &'static str,
+    pub new_project_long: &'static str,
 }
 
 /// German.
@@ -288,7 +319,6 @@ pub static DE: Texts = Texts {
     recent: "Zuletzt geöffnet",
     recovered: "Wiederherstellen (automatisch gesichert, nicht gespeichert)",
     file_menu: "Datei",
-    edit_menu: "Bearbeiten",
     undo: "Rückgängig",
     redo: "Wiederholen",
     overview: "Übersicht",
@@ -476,6 +506,32 @@ pub static DE: Texts = Texts {
         "Dezember",
     ],
     weekdays: ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
+    ribbon: RibbonTexts {
+        start: "Start",
+        task: "Aufgabe",
+        new: "Neu",
+        protection: "Schutz",
+        close: "Schließen",
+        undo: "Rückgängig",
+        find: "Suchen",
+        views: "Ansichten",
+        areas: "Bereiche",
+        zoom: "Zoom",
+        share: "Weitergeben",
+        new_case: "Vorgang",
+        case_kind: "Vorgang",
+        new_project: "Projekt",
+        from_template: "Aus Vorlage",
+        find_action: "Befehl suchen",
+        collapse: "Menüband einklappen",
+        expand: "Menüband ausklappen",
+        scroll_left: "Menüband nach links",
+        scroll_right: "Menüband nach rechts",
+        new_case_long: "Neuer Vorgang",
+        schedule_tools: "Zeitplan-Werkzeuge",
+        edit: "Ändern",
+        new_project_long: "Neues Projekt",
+    },
 };
 
 /// English.
@@ -491,7 +547,6 @@ pub static EN: Texts = Texts {
     recent: "Recently opened",
     recovered: "Recover (saved automatically, not saved by you)",
     file_menu: "File",
-    edit_menu: "Edit",
     undo: "Undo",
     redo: "Redo",
     overview: "Overview",
@@ -679,6 +734,32 @@ pub static EN: Texts = Texts {
         "December",
     ],
     weekdays: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+    ribbon: RibbonTexts {
+        start: "Home",
+        task: "Task",
+        new: "New",
+        protection: "Protection",
+        close: "Close",
+        undo: "Undo",
+        find: "Find",
+        views: "Views",
+        areas: "Areas",
+        zoom: "Zoom",
+        share: "Share",
+        new_case: "Case",
+        case_kind: "Case",
+        new_project: "Project",
+        from_template: "From template",
+        find_action: "Find a command",
+        collapse: "Collapse the ribbon",
+        expand: "Expand the ribbon",
+        scroll_left: "Scroll the ribbon left",
+        scroll_right: "Scroll the ribbon right",
+        new_case_long: "New case",
+        schedule_tools: "Schedule tools",
+        edit: "Change",
+        new_project_long: "New project",
+    },
 };
 
 /// Name of a task status (board column).
@@ -1322,6 +1403,7 @@ mod tests {
         // A text left untranslated in EN shows German in the English interface.
         let same = [
             "nobody",
+            "zoom",
             "time_hint",
             "vs_nfd",
             "version",

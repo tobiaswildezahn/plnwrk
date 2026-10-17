@@ -7,6 +7,7 @@ mod dialogs;
 mod overview;
 mod people;
 mod project;
+mod ribbon;
 pub(crate) mod schedule;
 
 use egui::{Key, RichText};
@@ -31,6 +32,11 @@ pub mod keys {
     pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
     pub const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
     pub const PALETTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::K);
+    /// Collapse or expand the ribbon (as in Office).
+    pub const RIBBON: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F1);
+    /// The same as Office for the Mac has it (F1 is a brightness key on Mac keyboards).
+    pub const RIBBON_MAC: KeyboardShortcut =
+        KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::ALT), Key::R);
 }
 
 /// Keyboard shortcuts. Undo/redo only when no text field is being edited (text fields have
@@ -75,7 +81,7 @@ pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
 
 /// The whole window.
 pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
-    menu_bar(ui, doc, state, out);
+    ribbon::show(ui, doc, state, out);
     status_bar(ui, doc, state);
     match doc {
         None => {
@@ -99,90 +105,6 @@ pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &m
     dialogs::show(ui.ctx(), doc, state, out);
 }
 
-fn menu_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State, out: &mut Vec<Intent>) {
-    egui::Panel::top("menu").show(ui, |ui| {
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button(text::t().file_menu, |ui| {
-                if ui.button(text::t().new_file).clicked() {
-                    out.push(Intent::File(FileAction::New));
-                }
-                if ui.button(text::t().open_file).clicked() {
-                    out.push(Intent::File(FileAction::Open));
-                }
-                if ui.button(text::t().open_sample).clicked() {
-                    out.push(Intent::File(FileAction::Sample));
-                }
-                ui.separator();
-                ui.add_enabled_ui(doc.is_some(), |ui| {
-                    if ui.button(text::t().save).clicked() {
-                        out.push(Intent::File(FileAction::Save));
-                    }
-                    if ui.button(text::t().save_as).clicked() {
-                        out.push(Intent::File(FileAction::SaveAs));
-                    }
-                    ui.separator();
-                    let encrypted = doc.is_some_and(OpenDoc::encrypted);
-                    if !encrypted && ui.button(text::t().protect).clicked() {
-                        out.push(Intent::Open(Dialog::Protect {
-                            first: String::new(),
-                            second: String::new(),
-                        }));
-                    }
-                    if encrypted && ui.button(text::t().unprotect).clicked() {
-                        out.push(Intent::Open(Dialog::Unprotect));
-                    }
-                    ui.separator();
-                    if ui.button(text::t().close_file).clicked() {
-                        out.push(Intent::File(FileAction::Close));
-                    }
-                });
-            });
-            ui.add_enabled_ui(doc.is_some(), |ui| {
-                ui.menu_button(text::t().edit_menu, |ui| {
-                    undo_redo(ui, doc, out);
-                });
-            });
-            ui.menu_button(text::t().view_menu, |ui| view_menu(ui, state, out));
-            if doc.is_some() {
-                ui.separator();
-                undo_redo(ui, doc, out);
-            }
-        });
-    });
-}
-
-/// Command palette, language and theme.
-fn view_menu(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
-    let palette = egui::Button::new(text::t().palette)
-        .shortcut_text(ui.ctx().format_shortcut(&keys::PALETTE));
-    if ui.add(palette).clicked() {
-        out.push(Intent::Open(Dialog::Palette {
-            query: String::new(),
-            selected: 0,
-        }));
-    }
-    ui.separator();
-    ui.menu_button(text::t().language_menu, |ui| {
-        for language in text::Language::ALL {
-            if ui
-                .radio(state.language == language, language.name())
-                .clicked()
-            {
-                out.push(Intent::Language(language));
-                ui.close();
-            }
-        }
-    });
-    ui.menu_button(text::t().appearance, |ui| {
-        for (theme, name) in themes() {
-            if ui.radio(state.theme == theme, name).clicked() {
-                out.push(Intent::Theme(theme));
-                ui.close();
-            }
-        }
-    });
-}
-
 /// The themes with their names.
 pub fn themes() -> [(egui::ThemePreference, &'static str); 3] {
     let t = text::t();
@@ -191,24 +113,6 @@ pub fn themes() -> [(egui::ThemePreference, &'static str); 3] {
         (egui::ThemePreference::Light, t.theme_light),
         (egui::ThemePreference::Dark, t.theme_dark),
     ]
-}
-
-fn undo_redo(ui: &mut egui::Ui, doc: Option<&OpenDoc>, out: &mut Vec<Intent>) {
-    let session = doc.map(|d| &d.session);
-    let can_undo = session.is_some_and(plnwrk_engine::Session::can_undo);
-    let can_redo = session.is_some_and(plnwrk_engine::Session::can_redo);
-    if ui
-        .add_enabled(can_undo, egui::Button::new(format!("⟲ {}", text::t().undo)))
-        .clicked()
-    {
-        out.push(Intent::run("undo", serde_json::json!({})));
-    }
-    if ui
-        .add_enabled(can_redo, egui::Button::new(format!("⟳ {}", text::t().redo)))
-        .clicked()
-    {
-        out.push(Intent::run("redo", serde_json::json!({})));
-    }
 }
 
 fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {

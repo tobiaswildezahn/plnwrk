@@ -101,8 +101,9 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   Neue Befehle sind über `run_command` automatisch erreichbar.
 - Neuer Befehl im Register → Eintrag in der Befehlspalette (`crates/ui/src/palette.rs`) oder
   mit Begründung in `palette::ELSEWHERE`; ein Test prüft das.
-- kittest: Untermenü-Knöpfe heißen „Name⏵“ (Hilfsfunktion `submenu` in `tests.rs`); Tippen in
-  Textfelder über `Event::Text`, nicht `key_press`; die Testumgebung startet im Dunkelmodus.
+- kittest: Tippen in Textfelder über `Event::Text`, nicht `key_press`; die Testumgebung startet
+  im Dunkelmodus. Der Helfer `click` scrollt das Ziel erst ins Bild. Befehle liegen in der
+  Ribbon: erst den Reiter klicken (`text::t().file_menu`, `view_menu`, `ribbon.start`).
 - egui/eframe 0.36: `eframe::App::ui(&mut self, ui, frame)` ist die Zeichenmethode (nicht `update`),
   Panels mit `.show(ui, …)`; Tests ohne Fenster müssen `output.textures_delta.clear()` aufrufen.
 - Browser-Vorschau im Claude-Desktop: Eintrag `plnwrk-web` in `~/.claude/launch.json` (Port 8087).

@@ -11,6 +11,7 @@
     allow(dead_code, reason = "file access in the browser follows in Phase 4")
 )]
 
+mod actions;
 mod autosave;
 mod browser_copy;
 mod dates;
@@ -69,6 +70,8 @@ const RECENT_KEY: &str = "plnwrk.recent";
 const LANGUAGE_KEY: &str = "plnwrk.language";
 /// Key of the theme (light, dark, system) in the app's storage.
 const THEME_KEY: &str = "plnwrk.theme";
+/// Key of the stored choice whether the ribbon is collapsed.
+const RIBBON_KEY: &str = "plnwrk.ribbon";
 /// How many recent files are kept.
 const RECENT_MAX: usize = 8;
 
@@ -148,6 +151,8 @@ pub(crate) enum Intent {
     /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
     /// the browser.
     ExportSchedule(ProjectId),
+    /// One zoom step in (1) or out (-1) in the schedule of a project.
+    Zoom(ProjectId, i8),
     /// New dates for a task; what waits for it moves along (one step). `due_time`: a new time
     /// of day for the deadline (`Some(None)` clears it), `None` keeps it.
     Reschedule {
@@ -203,6 +208,8 @@ impl Default for PlnwrkApp {
 impl PlnwrkApp {
     /// Creates the app when the desktop or web shell starts it.
     pub fn new(cc: &eframe::CreationContext<'_>, host: Box<dyn Host>) -> Self {
+        // Before the first frame: the first frame already shows Fira Sans and the theme.
+        design::install_at_start(&cc.egui_ctx);
         let mut app = Self::with_host(host);
         if let Some(storage) = cc.storage {
             app.load_settings(storage);
@@ -253,6 +260,11 @@ impl PlnwrkApp {
         if let Some(theme) = storage.get_string(THEME_KEY).and_then(|s| theme_from(&s)) {
             self.state.theme = theme;
         }
+        self.state.ribbon_collapsed = match storage.get_string(RIBBON_KEY).as_deref() {
+            Some("collapsed") => Some(true),
+            Some("expanded") => Some(false),
+            _ => None,
+        };
     }
 
     /// Uses this language for the interface (also for texts made before the next frame).
@@ -519,8 +531,13 @@ impl PlnwrkApp {
             views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
         }
         views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
+        // Taken by the schedule in this frame (or not shown: dropped).
+        self.state.zoom_request = None;
         for intent in intents {
             self.apply(intent);
+        }
+        if self.state.zoom_request.is_some() {
+            ui.ctx().request_repaint();
         }
         // egui keeps a closed dialog's backdrop one frame longer: a press in the next frame
         // (a quick click, a tap) was swallowed. Drawing this frame again without the dialog
@@ -661,6 +678,7 @@ impl PlnwrkApp {
             }
             Intent::Open(dialog) => self.state.open_dialog(dialog),
             Intent::CloseDialog => self.state.close_dialog(),
+            Intent::Zoom(project, step) => self.state.zoom_request = Some((project, step)),
             Intent::File(action) => self.file(action),
             Intent::Unlock(source, secret) => {
                 self.state.close_dialog();
@@ -1281,6 +1299,10 @@ impl eframe::App for PlnwrkApp {
         }
         storage.set_string(LANGUAGE_KEY, self.state.language.code().to_owned());
         storage.set_string(THEME_KEY, theme_code(self.state.theme).to_owned());
+        if let Some(collapsed) = self.state.ribbon_collapsed {
+            let value = if collapsed { "collapsed" } else { "expanded" };
+            storage.set_string(RIBBON_KEY, value.to_owned());
+        }
     }
 }
 

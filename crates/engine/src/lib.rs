@@ -8,6 +8,7 @@ mod error;
 mod event;
 pub mod fixture;
 pub mod params;
+pub mod places;
 pub mod query;
 mod session;
 mod tx;

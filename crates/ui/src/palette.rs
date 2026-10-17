@@ -2,13 +2,11 @@
 //! task by name, found by typing. It only offers what the menus and buttons can do, through the
 //! same [`Intent`]s, so questions (unsaved changes, deleting) still come.
 
-use plnwrk_core::{ProjectStatus, TaskStatus};
 use plnwrk_engine::query;
-use serde_json::json;
 
+use crate::actions::Group;
 use crate::doc::OpenDoc;
-use crate::state::{Dialog, FileAction, ProjectForm, State, Tab, TemplateForm, View};
-use crate::views::keys;
+use crate::state::{State, View};
 use crate::{Intent, text};
 
 /// One line of the palette.
@@ -69,208 +67,37 @@ impl List {
     }
 }
 
-/// Everything the palette offers now, actions first, then places to go to.
+/// Everything the palette offers now: the actions of the ribbon that can be used (with their
+/// place, "Start › Neu"), then places to go to.
 pub fn entries(doc: Option<&OpenDoc>, state: &State) -> Vec<Entry> {
-    let t = text::t();
     let mut list = List(Vec::new());
-    let file = t.file_menu;
-    list.add(
-        t.new_file,
-        file,
-        None,
-        &[],
-        vec![Intent::File(FileAction::New)],
-    );
-    let open = Some(keys::OPEN);
-    list.add(
-        t.open_file,
-        file,
-        open,
-        &[],
-        vec![Intent::File(FileAction::Open)],
-    );
-    list.add(
-        t.open_sample,
-        file,
-        None,
-        &[],
-        vec![Intent::File(FileAction::Sample)],
-    );
-    if let Some(doc) = doc {
-        actions(&mut list, doc, state);
-    }
-    let view = t.view_menu;
-    for language in text::Language::ALL {
-        if language != state.language {
-            let label = format!("{}: {}", t.language_menu, language.name());
-            list.add(label, view, None, &[], vec![Intent::Language(language)]);
+    let chosen_task = doc
+        .and_then(|d| state.selected.and_then(|id| d.session.workspace().task(id)))
+        .map(|task| task.title.clone());
+    for action in crate::actions::all(doc, state) {
+        // The palette does not offer itself, nor what is already chosen or not possible.
+        if !action.enabled || action.chosen || action.group == Group::Find {
+            continue;
         }
-    }
-    for (theme, name) in crate::views::themes() {
-        if theme != state.theme {
-            let label = format!("{}: {name}", t.appearance);
-            list.add(label, view, None, &[], vec![Intent::Theme(theme)]);
-        }
-    }
-    // A browser tab is not quit from inside the page.
-    if !state.browser {
-        let quit = Some(keys::QUIT);
+        // What the actions of the tab Task act on: the chosen task, named.
+        let detail = match (action.group.tab(), &chosen_task) {
+            (crate::actions::RibbonTab::Task, Some(title)) => {
+                format!("{} · {title}", action.group.place())
+            }
+            _ => action.group.place(),
+        };
         list.add(
-            t.quit,
-            file,
-            quit,
-            &[],
-            vec![Intent::File(FileAction::Quit)],
+            action.full_name().to_owned(),
+            detail,
+            action.shortcut,
+            action.commands,
+            action.intents,
         );
     }
     if let Some(doc) = doc {
         places(&mut list, doc);
     }
     list.0
-}
-
-/// What can be done with the open workspace.
-fn actions(list: &mut List, doc: &OpenDoc, state: &State) {
-    let t = text::t();
-    let file = t.file_menu;
-    let save = Some(keys::SAVE);
-    list.add(
-        t.save,
-        file,
-        save,
-        &[],
-        vec![Intent::File(FileAction::Save)],
-    );
-    let save_as = Some(keys::SAVE_AS);
-    list.add(
-        t.save_as,
-        file,
-        save_as,
-        &[],
-        vec![Intent::File(FileAction::SaveAs)],
-    );
-    if doc.encrypted() {
-        list.add(
-            t.unprotect,
-            file,
-            None,
-            &[],
-            vec![Intent::Open(Dialog::Unprotect)],
-        );
-    } else {
-        let protect = Dialog::Protect {
-            first: String::new(),
-            second: String::new(),
-        };
-        list.add(t.protect, file, None, &[], vec![Intent::Open(protect)]);
-    }
-    list.add(
-        t.close_file,
-        file,
-        None,
-        &[],
-        vec![Intent::File(FileAction::Close)],
-    );
-
-    let edit = t.edit_menu;
-    if doc.session.can_undo() {
-        let undo = vec![Intent::run("undo", json!({}))];
-        list.add(t.undo, edit, Some(keys::UNDO), &["undo"], undo);
-    }
-    if doc.session.can_redo() {
-        let redo = vec![Intent::run("redo", json!({}))];
-        list.add(t.redo, edit, Some(keys::REDO), &["redo"], redo);
-    }
-
-    let view = t.view_menu;
-    list.add(
-        t.overview,
-        view,
-        None,
-        &[],
-        vec![Intent::Go(View::Overview)],
-    );
-    list.add(
-        t.templates,
-        view,
-        None,
-        &[],
-        vec![Intent::Go(View::Templates)],
-    );
-    let people = &["person.create", "person.update"];
-    list.add(t.people, view, None, people, vec![Intent::Go(View::People)]);
-    let new = Intent::Open(Dialog::NewProject(ProjectForm::default()));
-    list.add(
-        t.new_project_title,
-        edit,
-        None,
-        &["project.create"],
-        vec![new],
-    );
-    let today = doc.session.clock().today();
-    let from = Intent::Open(Dialog::FromTemplate(TemplateForm {
-        start: crate::dates::format(today),
-        ..TemplateForm::default()
-    }));
-    list.add(
-        t.from_template_title,
-        edit,
-        None,
-        &["project.instantiate"],
-        vec![from],
-    );
-
-    let ws = doc.session.workspace();
-    if let View::Project(id) = state.view
-        && let Some(project) = ws.project(id)
-    {
-        let here = project.title.as_str();
-        let tabs: [(Tab, &str, &'static [&'static str]); 4] = [
-            (Tab::List, t.list, &[]),
-            (Tab::Board, t.board, &[]),
-            (Tab::Milestones, t.milestones, &[]),
-            (Tab::Schedule, t.schedule_tab, &["task.reschedule"]),
-        ];
-        for (tab, name, commands) in tabs {
-            list.add(name, here, None, commands, vec![Intent::Tab(tab)]);
-        }
-        // While the project form is open, its head shows the form instead of the buttons
-        // "Bearbeiten" and "Archivieren"; the palette follows that.
-        let editing = state
-            .forms
-            .project
-            .as_ref()
-            .is_some_and(|(p, _)| p.id == id);
-        let focus = vec![Intent::Tab(Tab::List), Intent::FocusNewTask];
-        list.add(t.new_task, here, None, &["task.create"], focus);
-        if !editing {
-            let edit = vec![Intent::EditProject(id)];
-            list.add(t.edit_project, here, None, &["project.update"], edit);
-        }
-        if !editing && project.status != ProjectStatus::Archived {
-            let archive = vec![Intent::run(
-                "project.archive",
-                json!({"project": id.to_string()}),
-            )];
-            list.add(t.archive_project, here, None, &["project.archive"], archive);
-        }
-    }
-
-    if let Some(task) = state.selected.and_then(|id| ws.task(id)) {
-        let here = task.title.as_str();
-        for status in TaskStatus::ALL {
-            if status != task.status {
-                let label = format!("{}: {}", t.status, text::task_status(status));
-                let run = vec![Intent::run(
-                    "task.set_status",
-                    json!({"task": task.id.to_string(), "status": status.name()}),
-                )];
-                list.add(label, here, None, &["task.set_status"], run);
-            }
-        }
-        let delete = vec![Intent::Open(Dialog::DeleteTask(task.id))];
-        list.add(t.delete_task, here, None, &["task.delete"], delete);
-    }
 }
 
 /// Every project, case, template and task, to go to.
