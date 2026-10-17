@@ -304,12 +304,8 @@ pub fn show(
             }
         };
 
-        // Days off set apart from working days: darker in light mode, lighter in dark mode.
-        let days_off = if visuals.dark_mode {
-            visuals.faint_bg_color
-        } else {
-            egui::Color32::from_black_alpha(14)
-        };
+        // Days off set apart from working days.
+        let days_off = crate::design::palette(ui).shade;
         // Days off, weeks, today, the project's deadline.
         for n in 0..days {
             let day = plus(first, n);

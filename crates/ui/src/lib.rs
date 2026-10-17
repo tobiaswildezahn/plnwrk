@@ -14,6 +14,7 @@
 mod autosave;
 mod browser_copy;
 mod dates;
+mod design;
 mod doc;
 mod export;
 mod host;
@@ -490,6 +491,7 @@ impl PlnwrkApp {
     /// Draws one frame and carries out what the person did. Kept apart from [`eframe::App`] so
     /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        design::install(ui.ctx());
         text::set_language(self.state.language);
         // A file chosen in the browser arrives some frames after it was asked for.
         // Another tab opened or closed: its copies are offered or no longer.
