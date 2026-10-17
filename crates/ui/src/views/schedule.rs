@@ -209,7 +209,8 @@ pub fn show(
         Some((asked, request)) if asked == project.id => jump = Some(request),
         _ => {}
     }
-    ui.horizontal(|ui| {
+    // Wraps in a narrow window rather than reach past it (and stretch everything below).
+    ui.horizontal_wrapped(|ui| {
         use crate::design::widgets::{Kind, button_with, segmented};
         if button_with(ui, Kind::Secondary, Some(Icon::Today), text::t().today).clicked() {
             jump = Some(ScheduleRequest::Today);

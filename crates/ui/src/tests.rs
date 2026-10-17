@@ -4635,3 +4635,31 @@ fn the_whole_project_fits_even_beside_a_very_long_title() {
     click(&mut harness, text::t().whole_project);
     assert!(in_view(&harness, "Früher") && in_view(&harness, "Später"));
 }
+
+#[test]
+fn the_schedule_fits_a_narrow_window() {
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(800.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), PlnwrkApp::default());
+    harness.run();
+    click(&mut harness, text::t().open_sample);
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    for name in [
+        text::t().today,
+        text::t().whole_project,
+        text::t().export_schedule,
+    ] {
+        let rect = harness.get_by_label(name).rect();
+        assert!(
+            rect.right() <= 800.0,
+            "{name} reaches past the window: {rect:?}"
+        );
+    }
+}
