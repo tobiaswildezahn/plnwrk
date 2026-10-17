@@ -168,7 +168,7 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 - **Sprache und Darstellung:** Reiter **Ansicht** (Deutsch/English, hell/dunkel).
 - **Schützen:** Reiter **Datei → Mit Passphrase schützen** verschlüsselt die Datei. Ohne
   Passphrase ist der Inhalt dann nicht lesbar – sie lässt sich nicht wiederherstellen.
-- **Verschlusssachen:** **Version 0.1.0 ist nicht für echte Verschlusssachen gedacht.**
+- **Verschlusssachen:** **plnwrk ist noch nicht für echte Verschlusssachen gedacht.**
   plnwrk kann Inhalte als VS-NfD kennzeichnen und verlangt dann Verschlüsselung, aber eine
   Freigabe hat es nicht – darüber entscheidet allein die zuständige Geheimschutzstelle, und
   die dafür nötige Härtung ist noch nicht gebaut.

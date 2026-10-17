@@ -200,4 +200,4 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" \
             --title "plnwrk ${GITHUB_REF_NAME#v}" \
-            --notes "Installieren: https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/handbuch.md – die Pakete sind nicht signiert; macOS und Windows warnen beim ersten Start. Version 0.1.0 ist nicht für echte Verschlusssachen gedacht. Prüfsummen: SHA256SUMS."
+            --notes "Installieren: https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/handbuch.md – die Pakete sind nicht signiert; macOS und Windows warnen beim ersten Start. plnwrk ist noch nicht für echte Verschlusssachen gedacht. Prüfsummen: SHA256SUMS."
