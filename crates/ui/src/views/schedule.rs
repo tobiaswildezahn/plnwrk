@@ -16,7 +16,7 @@ use crate::design::Icon;
 use crate::design::tokens::radius;
 use crate::doc::OpenDoc;
 use crate::state::{ScheduleColumn, ScheduleRequest, State};
-use crate::views::detail::can_wait_for;
+use crate::views::detail::{may_follow, may_precede};
 use crate::{Intent, dates, text};
 
 /// Width of a day at each zoom level, coarse to fine: quarter, month, week, day (names in
@@ -199,6 +199,19 @@ pub fn show(
     let (plan, analysis) = (&worked.plan, &worked.analysis);
     let today = doc.session.clock().today();
     let index = TaskIndex::new(ws);
+    // A task chosen elsewhere is shown: its folded parents unfold.
+    let unfold_id = egui::Id::new(("schedule-unfold", project.id));
+    if ui.data(|d| d.get_temp::<Option<TaskId>>(unfold_id)) != Some(state.selected) {
+        let mut parent = state
+            .selected
+            .and_then(|id| ws.task(id))
+            .and_then(|t| t.parent);
+        while let Some(id) = parent {
+            state.folded.remove(&id);
+            parent = ws.task(id).and_then(|t| t.parent);
+        }
+    }
+    ui.data_mut(|d| d.insert_temp(unfold_id, state.selected));
     let mut rows = rows(&index, project);
     // Folded tasks keep their subtasks out of the schedule.
     let mut folded_at: Option<usize> = None;
@@ -214,18 +227,19 @@ pub fn show(
         }
         true
     });
-    // The table left of the chart: titles, then the columns the person did not switch off.
+    // The table left of the chart: titles, then the columns the person did not switch off. It
+    // takes at most half the width: the titles are narrowed first down to their least, then
+    // the columns go from the right, so the chart keeps its room.
+    let room = ui.clip_rect().right().min(ui.max_rect().right()) - ui.cursor().left();
     let title_width = state
         .title_width
         .unwrap_or(TITLES)
-        .clamp(TITLES_MIN, TITLES_MAX);
+        .clamp(TITLES_MIN, TITLES_MAX)
+        .min((room / 2.0).max(TITLES_MIN));
     let mut columns: Vec<ScheduleColumn> = ScheduleColumn::ALL
         .into_iter()
         .filter(|c| !state.hidden_columns.contains(c))
         .collect();
-    // The table takes at most half the width: in a narrow window the columns go, from the
-    // right, so the chart keeps its room.
-    let room = ui.clip_rect().right().min(ui.max_rect().right()) - ui.cursor().left();
     let width_of =
         |columns: &[ScheduleColumn]| title_width + columns.iter().map(|c| c.width()).sum::<f32>();
     while width_of(&columns) > room / 2.0 && columns.pop().is_some() {}
@@ -388,7 +402,7 @@ pub fn show(
     // stays in place. The buttons keep the first day shown (the title column's edge).
     let anchor = ui
         .data_mut(|d| d.remove_temp::<f32>(anchor_id))
-        .unwrap_or(table);
+        .unwrap_or(table + visible / 2.0);
     // Today a third into the visible chart; the whole project from its first date.
     let today_offset = |width: f32| {
         let third = (visible / width / 3.0) as i32;
@@ -540,6 +554,8 @@ pub fn show(
         // A dependency being drawn from the handle at a bar's end: from which task, from where,
         // and whether it was let go in this frame.
         let mut linking: Option<(TaskId, Pos2, bool)> = None;
+        // The label of a bar being dragged: where the pointer is, and what it says.
+        let mut preview: Option<(Pos2, String)> = None;
         for (i, (task, _)) in rows.iter().enumerate() {
             let y = row_y(i);
             // The chosen row is framed, not filled: bars keep their contrast (3:1) on it.
@@ -559,7 +575,11 @@ pub fn show(
             // Centred in the chart, right of the table that covers the left part of the view:
             // the table's width is added before the bar, so the middle of both is the middle of
             // the view and the bar lands right of the table.
-            if newly_chosen && state.selected == Some(task.id) {
+            // Only when it is not in view already: a click on a bar must not move the chart.
+            if newly_chosen
+                && state.selected == Some(task.id)
+                && !chart.intersect(ui.clip_rect()).contains_rect(bar)
+            {
                 let with_table = Rect::from_min_max(pos2(bar.left() - table, bar.top()), bar.max);
                 ui.scroll_to_rect(with_table, Some(egui::Align::Center));
             }
@@ -579,7 +599,7 @@ pub fn show(
                 let rect =
                     Rect::from_min_max(pos2(at - 4.0, bar.top()), pos2(at + 4.0, bar.bottom()))
                         .intersect(chart);
-                ui.interact(rect, ui.id().with((which, task.id)), Sense::drag())
+                ui.interact(rect, ui.id().with((which, task.id)), Sense::DRAG)
             };
             let start_edge = ends.then(|| edge(bar.left(), "bar-start"));
             let end_edge = ends.then(|| edge(bar.right(), "bar-end"));
@@ -628,8 +648,16 @@ pub fn show(
                 Some((Grip::Move, ..)) => plan
                     .shifted(task.id, plus(start, shift))
                     .map(|m| (m.start, m.due)),
-                Some((Grip::Start, ..)) => Some((Some(plus(start, shift).min(end)), Some(end))),
-                Some((Grip::End, ..)) => Some((task.start, Some(plus(end, shift).max(start)))),
+                // An end changes only its own date, and never crosses the other one; a date the
+                // task does not have is never made up.
+                Some((Grip::Start, ..)) => {
+                    let new = plus(start, shift);
+                    Some((Some(task.due.map_or(new, |due| new.min(due))), task.due))
+                }
+                Some((Grip::End, ..)) => {
+                    let new = plus(end, shift);
+                    Some((task.start, Some(task.start.map_or(new, |s| new.max(s)))))
+                }
                 None => None,
             };
             let landed = landing.and_then(|(from, to)| {
@@ -648,7 +676,9 @@ pub fn show(
                 })
                 .map_or(0, |r| r.along());
             let shown = landed.map_or(bar, |span| bar_of(task.milestone, span, y));
-            let overdue = task.status != TaskStatus::Done && end < today;
+            // Overdue only with a deadline: a task that has only a start is never late.
+            let overdue =
+                task.status != TaskStatus::Done && task.due.is_some_and(|due| due < today);
             let show_critical = critical && !state.hide_critical;
             let (fill, darker) = if task.status == TaskStatus::Done {
                 (palette.control, palette.control)
@@ -673,7 +703,7 @@ pub fn show(
                 painter.add(Shape::convex_polygon(diamond, fill, ring));
                 // Milestones carry their name beside them.
                 painter.text(
-                    pos2(shown.right() + 6.0, c.y),
+                    pos2(shown.right() + 22.0, c.y),
                     egui::Align2::LEFT_CENTER,
                     &task.title,
                     small.clone(),
@@ -697,7 +727,13 @@ pub fn show(
                     );
                 }
             }
-            if overdue {
+            // The warning sits where the link handle appears; while that shows, it gives way.
+            let handle_near = response.hovered()
+                || ui.rect_contains_pointer(crate::design::icons::square(
+                    pos2(shown.right() + 14.0, shown.center().y),
+                    18.0,
+                ));
+            if overdue && !handle_near {
                 Icon::Warning.paint(
                     &painter,
                     crate::design::icons::square(
@@ -707,7 +743,8 @@ pub fn show(
                     palette.danger,
                 );
             }
-            // While dragged: the dates at the pointer and what moves along.
+            // While dragged: the dates at the pointer and what moves along (painted after all
+            // rows, over everything).
             if let Some((from, to)) = landed
                 && let Some(at) = ui.input(|i| i.pointer.interact_pos())
             {
@@ -715,18 +752,7 @@ pub fn show(
                 if along > 0 {
                     lines.push(text::moves_along(along));
                 }
-                let label = lines.join("\n");
-                let galley = painter.layout_no_wrap(label, small.clone(), visuals.text_color());
-                let place =
-                    Rect::from_min_size(at + vec2(14.0, 14.0), galley.size() + vec2(12.0, 8.0));
-                painter.rect(
-                    place,
-                    CornerRadius::same(radius::SMALL),
-                    palette.surface,
-                    Stroke::new(1.0, palette.line),
-                    egui::StrokeKind::Inside,
-                );
-                painter.galley(place.min + vec2(6.0, 4.0), galley, visuals.text_color());
+                preview = Some((at, lines.join("\n")));
             }
             let (from, to) = landed.unwrap_or((start, end));
             let when = if from == to {
@@ -771,13 +797,15 @@ pub fn show(
             }
             // Right click: what it waits for, and what waits for it.
             response.context_menu(|ui| {
+                let precede = may_precede(ws, task.id);
+                let follow = may_follow(ws, task.id);
                 let others: Vec<&Task> = rows
                     .iter()
                     .map(|(t, _)| *t)
                     .filter(|t| t.id != task.id)
                     .collect();
                 ui.menu_button(text::t().add_predecessor_menu, |ui| {
-                    for other in others.iter().filter(|o| can_wait_for(ws, task.id, o.id)) {
+                    for other in others.iter().filter(|o| precede(o.id)) {
                         if ui.button(&other.title).clicked() {
                             out.push(link_intent(other.id, task.id));
                             ui.close();
@@ -785,7 +813,7 @@ pub fn show(
                     }
                 });
                 ui.menu_button(text::t().add_successor_menu, |ui| {
-                    for other in others.iter().filter(|o| can_wait_for(ws, o.id, task.id)) {
+                    for other in others.iter().filter(|o| follow(o.id)) {
                         if ui.button(&other.title).clicked() {
                             out.push(link_intent(task.id, other.id));
                             ui.close();
@@ -794,11 +822,11 @@ pub fn show(
                 });
             });
             // The handle at the end: dragged onto another bar, that one waits for this task.
-            let spot = pos2(shown.right() + 10.0, shown.center().y);
+            let spot = pos2(shown.right() + 14.0, shown.center().y);
             let handle = ui.interact(
                 crate::design::icons::square(spot, 18.0).intersect(chart),
                 ui.id().with(("link", task.id)),
-                Sense::drag(),
+                Sense::DRAG,
             );
             let handle_name = format!("{} · {}", text::t().link_handle, task.title);
             handle.widget_info(|| {
@@ -853,16 +881,47 @@ pub fn show(
             };
             painter.extend(arrow(start, end, Stroke::new(width, color)));
         }
+        // The drag preview over everything, kept inside the view (flipped left or up near an
+        // edge).
+        if let Some((at, label)) = preview {
+            let top = ui.ctx().layer_painter(egui::LayerId::new(
+                egui::Order::Tooltip,
+                egui::Id::new("schedule-preview"),
+            ));
+            let galley = top.layout_no_wrap(label, small.clone(), visuals.text_color());
+            let size = galley.size() + vec2(12.0, 8.0);
+            let view = ui.clip_rect();
+            let x = if at.x + 14.0 + size.x > view.right() {
+                at.x - 14.0 - size.x
+            } else {
+                at.x + 14.0
+            };
+            let y = if at.y + 14.0 + size.y > view.bottom() {
+                at.y - 14.0 - size.y
+            } else {
+                at.y + 14.0
+            };
+            let place = Rect::from_min_size(pos2(x, y), size);
+            top.rect(
+                place,
+                CornerRadius::same(radius::SMALL),
+                palette.surface,
+                Stroke::new(1.0, palette.line),
+                egui::StrokeKind::Inside,
+            );
+            top.galley(place.min + vec2(6.0, 4.0), galley, visuals.text_color());
+        }
         // A link being drawn: a line to the pointer, the bar under it marked; let go on a bar
         // that may wait for it, and it does.
         if let Some((from, spot, dropped)) = linking
             && let Some(at) = ui.input(|i| i.pointer.interact_pos())
         {
+            let follows = may_follow(ws, from);
             let target = boxes
                 .iter()
                 .find(|(id, rect)| **id != from && rect.expand(4.0).contains(at))
                 .map(|(id, rect)| (*id, *rect))
-                .filter(|(id, _)| can_wait_for(ws, *id, from));
+                .filter(|(id, _)| follows(*id));
             painter.line_segment([spot, at], Stroke::new(2.0, palette.accent));
             if let Some((_, rect)) = target {
                 painter.rect_stroke(
@@ -916,9 +975,7 @@ pub fn show(
                 .iter()
                 .map(|column| {
                     let value = match column {
-                        ScheduleColumn::Start => {
-                            spans.get(&task.id).map(|(start, _)| dates::format(*start))
-                        }
+                        ScheduleColumn::Start => task.start.map(dates::format),
                         ScheduleColumn::Due => task.due.map(dates::format),
                         ScheduleColumn::Assignee => task
                             .assignee
@@ -1000,7 +1057,7 @@ pub fn show(
                 area.top() + HEADER + rows.len() as f32 * ROW,
             ),
         );
-        let drag = ui.interact(edge, ui.id().with("title-edge"), Sense::drag());
+        let drag = ui.interact(edge, ui.id().with("title-edge"), Sense::DRAG);
         drag.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Other, true, text::t().title_width)
         });
@@ -1034,7 +1091,7 @@ pub fn show(
         legend.push(text::t().critical_hint);
     }
     let any_overdue = rows.iter().any(|(task, _)| {
-        task.status != TaskStatus::Done && spans.get(&task.id).is_some_and(|(_, end)| *end < today)
+        task.status != TaskStatus::Done && task.due.is_some_and(|due| due < today)
     });
     if any_overdue {
         legend.push(text::t().overdue_hint);

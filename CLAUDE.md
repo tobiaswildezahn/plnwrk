@@ -56,8 +56,11 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   Regel probeweise ausbauen, Test muss **rot** werden, dann exakt zurückbauen (`git diff`
   leer). Bei mehreren Fällen in einem Test **jeden Fall einzeln** (ein Test kann an einer
   Stelle scheitern und die anderen nie prüfen). Wächtertests bekommen eingeschleuste
-  Gegenbeispiele. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
-  Ein grüner Test ohne Gegenprobe gilt nicht als Beleg.
+  Gegenbeispiele. **Auch was nicht passieren darf**, bekommt eine Prüfung (keine erfundene
+  Frist, kein „überfällig“ ohne Frist, kein Sprung beim Klick): Grenzen und Ausnahmen sind die
+  häufigste Lücke. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
+  Ein grüner Test ohne Gegenprobe gilt nicht als Beleg. Prüf-Agenten arbeiten in eigener
+  Arbeitskopie (`isolation: worktree`) und mit eigenen Dateinamen im Scratchpad.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar: `crates/ui/src/tests.rs`

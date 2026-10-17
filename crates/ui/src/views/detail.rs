@@ -333,9 +333,10 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
     }
     // Not offered: what it already waits for, and what waits for it (directly or not) – that
     // would make a circle.
+    let allowed = may_precede(ws, id);
     let mut candidates: Vec<_> = ws
         .tasks_of(task.project)
-        .filter(|t| can_wait_for(ws, id, t.id))
+        .filter(|t| allowed(t.id))
         .collect();
     candidates.sort_by(|a, b| a.title.cmp(&b.title));
     if !candidates.is_empty() {
@@ -369,22 +370,45 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
     }
 }
 
-/// Every task that waits for `id`, directly or through others.
-/// Whether `task` may wait for `predecessor`: not itself, not twice, and not what waits for
-/// `task` already (directly or not) – that would make a circle. Shared by the detail panel and
-/// the schedule.
-pub(crate) fn can_wait_for(ws: &Workspace, task: TaskId, predecessor: TaskId) -> bool {
-    task != predecessor
-        && !ws
-            .dependencies()
-            .any(|d| d.from == predecessor && d.to == task)
-        && !waiting_for(ws, task).contains(&predecessor)
+/// What `task` may wait for: not itself, not what it already waits for, and not what waits
+/// for it (directly or not) – that would make a circle. Worked out once per task, then asked
+/// for each candidate. Shared by the detail panel and the schedule.
+pub(crate) fn may_precede(ws: &Workspace, task: TaskId) -> impl Fn(TaskId) -> bool {
+    let after = reach(ws, task, |d| (d.from, d.to));
+    let direct: BTreeSet<TaskId> = ws
+        .dependencies()
+        .filter(|d| d.to == task)
+        .map(|d| d.from)
+        .collect();
+    move |candidate| {
+        candidate != task && !direct.contains(&candidate) && !after.contains(&candidate)
+    }
 }
 
-fn waiting_for(ws: &Workspace, id: TaskId) -> BTreeSet<TaskId> {
+/// What may wait for `task`: not itself, not what already waits for it, and not what it waits
+/// for (directly or not) – that would make a circle.
+pub(crate) fn may_follow(ws: &Workspace, task: TaskId) -> impl Fn(TaskId) -> bool {
+    let before = reach(ws, task, |d| (d.to, d.from));
+    let direct: BTreeSet<TaskId> = ws
+        .dependencies()
+        .filter(|d| d.from == task)
+        .map(|d| d.to)
+        .collect();
+    move |candidate| {
+        candidate != task && !direct.contains(&candidate) && !before.contains(&candidate)
+    }
+}
+
+/// Every task reached from `id` along the dependencies, read as `step` (from → to, or back).
+fn reach(
+    ws: &Workspace,
+    id: TaskId,
+    step: impl Fn(&plnwrk_core::Dependency) -> (TaskId, TaskId),
+) -> BTreeSet<TaskId> {
     let mut next: BTreeMap<TaskId, Vec<TaskId>> = BTreeMap::new();
     for dependency in ws.dependencies() {
-        next.entry(dependency.from).or_default().push(dependency.to);
+        let (from, to) = step(dependency);
+        next.entry(from).or_default().push(to);
     }
     let mut seen = BTreeSet::new();
     let mut queue = vec![id];
