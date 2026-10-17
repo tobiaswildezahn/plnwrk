@@ -573,8 +573,8 @@ pub struct State {
     pub folded: std::collections::BTreeSet<TaskId>,
     /// The schedule does not mark the critical path in red.
     pub hide_critical: bool,
-    /// What the board shows (Phase 9e).
-    pub board_filter: BoardFilter,
+    /// What the board of each project shows (Phase 9e; per project, Tobi 2026-10-17).
+    pub board_filters: std::collections::BTreeMap<plnwrk_core::ProjectId, BoardFilter>,
     /// Cards on the board with their subtasks folded away.
     pub board_folded: std::collections::BTreeSet<TaskId>,
 }
@@ -612,6 +612,9 @@ impl State {
         self.selected = None;
         self.close_dialog();
         self.forms = Forms::default();
+        // Another file: its projects start unfiltered.
+        self.board_filters.clear();
+        self.board_folded.clear();
     }
 
     /// Shows a dialog.

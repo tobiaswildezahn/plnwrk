@@ -69,7 +69,13 @@ pub fn show(
     let Some(board) = query::board(ws, project.id, now) else {
         return;
     };
-    filters(ui, ws, project, &mut state.board_filter);
+    // Each project keeps its own filter.
+    filters(
+        ui,
+        ws,
+        project,
+        state.board_filters.entry(project.id).or_default(),
+    );
     ui.add_space(6.0);
     let counts = query::deadlines_count(project);
     // The card being dragged, if any, for the line where it would land and the hint.
@@ -170,11 +176,12 @@ fn column_ui(
     fold: &mut Option<TaskId>,
     out: &mut Vec<Intent>,
 ) {
-    let shown: Vec<&TaskCard> = column
-        .tasks
-        .iter()
-        .filter(|c| state.board_filter.keeps(c))
-        .collect();
+    let filter = state
+        .board_filters
+        .get(&project.id)
+        .cloned()
+        .unwrap_or_default();
+    let shown: Vec<&TaskCard> = column.tasks.iter().filter(|c| filter.keeps(c)).collect();
     ui.horizontal(|ui| {
         ui.strong(text::column_heading(
             column.status,

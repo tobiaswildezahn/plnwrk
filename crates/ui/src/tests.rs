@@ -6584,10 +6584,23 @@ fn the_board_filter_keeps_what_was_asked_for() {
         .next()
         .unwrap()
         .id;
-    harness.state_mut().state.board_filter.assignee = Some(Some(anna));
+    let project = projects(harness.state()).first().unwrap().id;
+    harness
+        .state_mut()
+        .state
+        .board_filters
+        .entry(project)
+        .or_default()
+        .assignee = Some(Some(anna));
     harness.run();
     assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
-    harness.state_mut().state.board_filter.assignee = Some(None);
+    harness
+        .state_mut()
+        .state
+        .board_filters
+        .entry(project)
+        .or_default()
+        .assignee = Some(None);
     harness.run();
     assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 8, 9));
 }
@@ -6646,4 +6659,47 @@ fn dragging_to_done_says_what_it_still_waits_for() {
         TaskStatus::Done
     );
     assert!(harness.query_by_label(&text::still_waits_for(1)).is_none());
+}
+
+/// Each project keeps its own board filter (Tobi 2026-10-17): filtering one leaves the other
+/// as it was; back in the first, its filter is still there.
+#[test]
+fn each_project_keeps_its_own_board_filter() {
+    let mut harness = board_9e();
+    let first = projects(harness.state()).first().unwrap().id;
+    click(&mut harness, text::t().board_filter_overdue);
+    let filtered = text::column_heading(TaskStatus::Todo, 1, 9);
+    assert!(harness.query_by_label(&filtered).is_some());
+    // A second project with one open task.
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Zweites"}),
+    ));
+    harness.run();
+    let second = projects(harness.state())
+        .into_iter()
+        .find(|p| p.title == "Zweites")
+        .unwrap()
+        .id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": second.to_string(), "title": "Eins"}),
+    ));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Project(second)));
+    harness.run();
+    click(&mut harness, text::t().board);
+    assert!(
+        harness
+            .query_by_label(&text::column_heading(TaskStatus::Todo, 1, 1))
+            .is_some(),
+        "unfiltered there"
+    );
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Project(first)));
+    harness.run();
+    click(&mut harness, text::t().board);
+    assert!(harness.query_by_label(&filtered).is_some(), "kept here");
 }

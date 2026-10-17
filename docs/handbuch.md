@@ -81,7 +81,8 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
     Kürzel der zuständigen Person, Fahne bei hoher Priorität, Fortschritt der Unteraufgaben.
     Die Unteraufgaben lassen sich mit dem Pfeil einklappen und werden in der Karte abgehakt.
   - **Filter oben:** Zuständig, nur Überfälliges, Suche im Titel; die Spalten nennen dann
-    „2 von 5“. **Filter aufheben** zeigt wieder alles.
+    „2 von 5“. Jedes Projekt behält seinen eigenen Filter (bis die Datei geschlossen wird).
+    **Filter aufheben** zeigt wieder alles.
   - Zieht man eine Karte nach „Erledigt“, die noch auf offene Aufgaben wartet, sagt plnwrk das
     beim Ziehen (es verhindert es nicht). Sind noch Unteraufgaben offen, fragt plnwrk, ob sie
     mit erledigt werden sollen; Meilensteine fragen nach wie überall.
