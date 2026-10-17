@@ -325,7 +325,12 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
   (Englisch + Deutsch); CONTRIBUTING, Code of Conduct, Security-Policy; Repo öffentlich.
 - **DoD:** Version 0.1.0 installierbar auf drei Plattformen und im Browser erreichbar.
 
-### Phase 9 – Team (Zukunft, nicht geplant)
+### Phase 9 – Gestaltung und Bedienbarkeit
+
+Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`: Gestaltungssystem (KERN-nah), Ribbon,
+Zeitplan, Meilensteine (mit Bestätigung), Board, Dialoge; Klicktests und Wiederholungstest.
+
+### Phase 10 – Team (Zukunft, nicht geplant)
 
 `server`-Crate (axum), Event-Abgleich, Anmeldung. Erst nach 0.1.0 entscheiden.
 
@@ -410,6 +415,7 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 2026-10-16 | **Entscheidungen Tobi Phase 8:** 0.1.0 unsigniert (Kurzanleitung erklärt den ersten Start); **eigener Release-Ablauf** statt `cargo-dist` (Abweichung): Tag `v*` baut macOS-.dmg (eine App für Apple Silicon und Intel), Windows-.zip (statisch gelinkt, keine VC-Runtime nötig) und Linux-.tar.gz, jeweils mit `plnwrk-cli`, und veröffentlicht sie samt `SHA256SUMS`; von Hand oder in einem PR, der den Ablauf ändert, nur Probelauf. Browser-Version unter **eigener Subdomain** (Vorschlag `plnwrk.wildezahn.de`, DNS durch Tobi). Doku: nur deutsche Kurzanleitung `docs/handbuch.md` (kein mdbook, kein CONTRIBUTING). Dazu: Version 0.1.0, Programmsymbol (Gantt-Balken mit Meilenstein auf Blau; `.icns` im App-Bündel, Fenstersymbol). Plan `docs/plans/2026-10-16-phase-8.md`. |
 | 2026-10-16 | Review Phase 8 (1 Blocker) → behoben: **Blocker:** jeder Tag hätte veröffentlicht, auch ein ungeprüfter Commit außerhalb von `main` (`main` ist nicht geschützt) → neuer Job `check` vor allen Builds: Tag = Version, Commit liegt auf `main`, CI dieses Commits (Linux, macOS) grün; Veröffentlichen nur bei `push` eines Tags (ein Lauf von Hand auf einem Tag hätte veröffentlicht). Unter Windows öffnete sich neben der App ein Konsolenfenster, dessen Schließen plnwrk samt Eingaben beendet → Fensterprogramm (`windows_subsystem`). macOS-Bündel nur halb signiert („beschädigt“ statt „Dennoch öffnen“ möglich) → ad hoc versiegelt (`codesign --sign -`), auch `plnwrk-cli`. Kurzanleitung: Startmenü unter Linux, Dienstrechner unter Windows (IT entscheidet), MCP ohne Rust, VS-NfD klar „0.1.0 nicht für echte Verschlusssachen“. Linux-Build auf Ubuntu 22.04 (glibc 2.35), Programme ohne Symboltabellen (`-C strip=symbols` nur im Release-Ablauf: global gesetzt brach es den Browser-Build, weil `wasm-opt` die entfernten Merkmalsangaben braucht), Probelauf auch bei Änderungen an App oder Abhängigkeiten, Checkouts ohne gespeicherte Zugangsdaten, `--universal` außerhalb des Macs mit klarer Meldung. Offen gelassen: Herkunftsnachweis (`attest-build-provenance`), Symbol der Windows-.exe. |
 | 2026-10-17 | **plnwrk 0.1.0 veröffentlicht** nach Tobis „Ja merge und veröffentliche“: PR #14 (Phase 8, Review eingearbeitet) und #13 (README) gemergt, CI auf `main` grün, Tag `v0.1.0` → Release mit macOS-.dmg, Windows-.zip, Linux-.tar.gz und `SHA256SUMS` (der Job `check` hat Herkunft und CI selbst geprüft). **Browser-Version unter https://plnwrk.wildezahn.de:** DNS liegt bei Cloudflare (nicht IONOS) – Tobi hat CNAME `plnwrk` → `tobiaswildezahn.github.io` (Proxy aus) und den TXT-Eintrag zur Domain-Bestätigung angelegt; Pages mit eigener Domain, Zertifikat ausgestellt, HTTPS erzwungen. Ohne eigene Domain wäre plnwrk unter der bestehenden Konto-Domain `vucci-news.de/plnwrk/` gelandet und hätte deren Browser-Speicher geteilt. |
+| 2026-10-17 | **Realitätstest 4.10 (Sachbearbeiter):** Aufgabe Vorgang und Projekt anlegen → „unübersichtlich“, Zeitplan-Navigation ging nicht, Design „zu eckig, zu grau, altbacken“. Erster Start von 0.1.0 am Mac (Safari-Download) funktioniert. Recherche (PM-Werkzeuge, Microsoft-Ribbon-Leitfaden, KERN UX-Standard, WCAG, NN/g), Klick-Durchlauf (19 Screenshots in `docs/ux/2026-10-17-ausgangslage/`; u. a. verlorener Klick nach Dialogen, Mausrad im Zeitplan wirkungslos) und Analyse der RustGIS-Ribbon (öffentliches Projekt opengeos/RustGIS, Apache-2.0). **Entscheidungen Tobi:** moderner und schöner, professionell-dezente Farben; Meilensteine, Board und Zeitplan zuerst; Ribbons wie RustGIS; Termine bleiben im Zeitplan ziehbar; **jede Meilenstein-Änderung braucht eine Bestätigung** (App: Dialog; KI über MCP nur nach Rückfrage im Chat, `"confirmed": true`); bewährte Praktiken einführen; Klickarbeit systematisch testen. Plan: **Phase 9 – Gestaltung und Bedienbarkeit** (`docs/plans/2026-10-17-phase-9-gestaltung.md`, Teile 9a–9g, Wiederholungstest als Messlatte). Das bisherige „Phase 9 – Team“ wird Phase 10. |
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
@@ -421,3 +427,4 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 | 6 KI | 6a MCP-Server fertig (PR #10, `bb06599`), 6a+ fertig (PR #11, `094103b`); 6b Assistent in der App ausgesetzt |
 | 7 VS-Härtung | offen |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): Release für macOS/Windows/Linux, Browser unter plnwrk.wildezahn.de |
+| 9 Gestaltung und Bedienbarkeit | geplant (2026-10-17), Teile 9a–9g |

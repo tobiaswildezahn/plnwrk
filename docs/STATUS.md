@@ -70,13 +70,13 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Tobi: erster Start von 0.1.0 am Mac** – das .dmg über **Safari** laden (nur dann greift
-   die Sperre von macOS) und nach `docs/handbuch.md` installieren; melden, ob „Dennoch öffnen“
-   so erscheint. Aufräumen am Rechner: `git branch -D board-zoom-export phase-6a-plus phase-8
-   readme-und-feinschliff` (Agent darf lokale Branches nicht löschen). Nach jedem Update:
-   `cargo install --path apps/plnwrk-cli --locked` (oder `plnwrk-cli` aus dem Release).
-1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
-   Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
+0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
+   als Nächstes **9a** – zuerst die Bedienfehler (verlorener Klick nach Dialogen, Mausrad im
+   Zeitplan), dann das Gestaltungssystem (Tokens, Fira Sans, Knöpfe, Symbole, Kontrasttest).
+   Erster Start von 0.1.0 am Mac und Realitätstest 4.10 sind erledigt (2026-10-17). Aufräumen
+   am Rechner: `git branch -D board-zoom-export phase-6a-plus phase-8 readme-und-feinschliff
+   docs-0.1.0`.
+1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der
    echten App geprüft; offen ist Tobis Urteil, ob die Palette im Alltag trägt.
@@ -134,7 +134,7 @@ Meilenstein wird unhaltbar.
 | 4.7 | **Identität im Protokoll**: „Ich arbeite als“ ist frei wählbar, nicht nachgewiesen – der Verlauf wirkt wie ein Nachweis, ist aber keiner. Signatur (Dienstausweis, Schlüsseldatei)? Bis dahin in der App kennzeichnen? | Klären vor Phase 7; Hinweis in der App erwägen | vor Phase 7 |
 | 4.8 | **VS-NfD ohne Passphrase**: Beim Anlegen eines VS-NfD-Projekts sofort zum Schützen zwingen? Heute lässt sich unverschlüsselt weiterarbeiten; Speichern und Autosave scheitern dann (Statuszeile rot). | Beim Einstufen direkt den Schutz-Dialog öffnen | vor Phase 7 |
 | 4.9 | **Wiederherstellungskopien von VS-Dateien** liegen (verschlüsselt) in einem Systemordner, den IT-Sicherheit kaum im Blick hat. Autosave bei VS aus, oder Kopie neben der Datei? | Für VS: Kopie im Ordner der Datei | vor echtem VS-Einsatz |
-| 4.10 | **Wer testet außer Tobi**, mit welchem realistischen (erfundenen) Vorgang? | Eine Person aus der Abteilung, SKA-Ablauf | vor 3b-3 |
+| 4.10 | ~~Wer testet außer Tobi~~ **erledigt (2026-10-17):** Tobis Sachbearbeiter; Befunde → Phase 9 |
 | 4.12 | ~~Erledigte Aufgaben im Zeitplan~~ **entschieden (Tobi, 2026-10-14):** fest wie Meilensteine, nicht kritisch, keine Warnungen über sie | – | umgesetzt |
 | 4.13 | **Fristen auf Wochenende/Feiertag**: Seit „jeder Tag zählt“ setzen Schub und `move_task` Termine auch auf Samstag/Sonntag. Für Einsatzvorhaben richtig, für Verwaltungsfristen (SKA, Senatskanzlei) evtl. falsch. Nur Hinweis anzeigen, Kalender je Projekt wählbar machen (Hamburg-Kalender liegt bereit) oder so lassen? | Erst im Realitätstest beobachten | nach 4.10 |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
