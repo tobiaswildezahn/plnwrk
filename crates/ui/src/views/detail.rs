@@ -333,12 +333,9 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
     }
     // Not offered: what it already waits for, and what waits for it (directly or not) – that
     // would make a circle.
-    let waiting = waiting_for(ws, id);
     let mut candidates: Vec<_> = ws
         .tasks_of(task.project)
-        .filter(|t| {
-            t.id != id && !waiting.contains(&t.id) && !incoming.iter().any(|d| d.from == t.id)
-        })
+        .filter(|t| can_wait_for(ws, id, t.id))
         .collect();
     candidates.sort_by(|a, b| a.title.cmp(&b.title));
     if !candidates.is_empty() {
@@ -373,6 +370,17 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
 }
 
 /// Every task that waits for `id`, directly or through others.
+/// Whether `task` may wait for `predecessor`: not itself, not twice, and not what waits for
+/// `task` already (directly or not) – that would make a circle. Shared by the detail panel and
+/// the schedule.
+pub(crate) fn can_wait_for(ws: &Workspace, task: TaskId, predecessor: TaskId) -> bool {
+    task != predecessor
+        && !ws
+            .dependencies()
+            .any(|d| d.from == predecessor && d.to == task)
+        && !waiting_for(ws, task).contains(&predecessor)
+}
+
 fn waiting_for(ws: &Workspace, id: TaskId) -> BTreeSet<TaskId> {
     let mut next: BTreeMap<TaskId, Vec<TaskId>> = BTreeMap::new();
     for dependency in ws.dependencies() {

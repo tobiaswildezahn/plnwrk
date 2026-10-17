@@ -16,6 +16,7 @@ use crate::design::Icon;
 use crate::design::tokens::radius;
 use crate::doc::OpenDoc;
 use crate::state::{ScheduleColumn, ScheduleRequest, State};
+use crate::views::detail::can_wait_for;
 use crate::{Intent, dates, text};
 
 /// Width of a day at each zoom level, coarse to fine: quarter, month, week, day (names in
@@ -35,6 +36,14 @@ const TITLES_MAX: f32 = 480.0;
 const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
+
+/// The command for "`to` waits for `from`".
+fn link_intent(from: TaskId, to: TaskId) -> Intent {
+    Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": from.to_string(), "to": to.to_string()}),
+    )
+}
 
 /// Which part of a bar is held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -512,6 +521,9 @@ pub fn show(
 
         // Rows: titles and bars.
         let mut boxes: BTreeMap<TaskId, Rect> = BTreeMap::new();
+        // A dependency being drawn from the handle at a bar's end: from which task, from where,
+        // and whether it was let go in this frame.
+        let mut linking: Option<(TaskId, Pos2, bool)> = None;
         for (i, (task, _)) in rows.iter().enumerate() {
             let y = row_y(i);
             // The chosen row is framed, not filled: bars keep their contrast (3:1) on it.
@@ -741,6 +753,50 @@ pub fn show(
             if response.clicked() {
                 out.push(Intent::Select(Some(task.id)));
             }
+            // Right click: what it waits for, and what waits for it.
+            response.context_menu(|ui| {
+                let others: Vec<&Task> = rows
+                    .iter()
+                    .map(|(t, _)| *t)
+                    .filter(|t| t.id != task.id)
+                    .collect();
+                ui.menu_button(text::t().add_predecessor_menu, |ui| {
+                    for other in others.iter().filter(|o| can_wait_for(ws, task.id, o.id)) {
+                        if ui.button(&other.title).clicked() {
+                            out.push(link_intent(other.id, task.id));
+                            ui.close();
+                        }
+                    }
+                });
+                ui.menu_button(text::t().add_successor_menu, |ui| {
+                    for other in others.iter().filter(|o| can_wait_for(ws, o.id, task.id)) {
+                        if ui.button(&other.title).clicked() {
+                            out.push(link_intent(task.id, other.id));
+                            ui.close();
+                        }
+                    }
+                });
+            });
+            // The handle at the end: dragged onto another bar, that one waits for this task.
+            let spot = pos2(shown.right() + 10.0, shown.center().y);
+            let handle = ui.interact(
+                crate::design::icons::square(spot, 18.0).intersect(chart),
+                ui.id().with(("link", task.id)),
+                Sense::drag(),
+            );
+            let handle_name = format!("{} · {}", text::t().link_handle, task.title);
+            handle.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, &handle_name)
+            });
+            if response.hovered() || handle.hovered() || handle.dragged() {
+                painter.circle(spot, 5.0, palette.surface, Stroke::new(2.0, palette.accent));
+            }
+            if handle.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            }
+            if handle.dragged() || handle.drag_stopped() {
+                linking = Some((task.id, spot, handle.drag_stopped()));
+            }
             if let Some((_, _, true)) = held
                 && let Some((from, to)) = landing
             {
@@ -760,10 +816,15 @@ pub fn show(
             };
             let both_critical =
                 analysis.critical.contains(&link.from) && analysis.critical.contains(&link.to);
-            let color = if both_critical {
-                visuals.error_fg_color
+            // Muted; red on the critical path; the chosen task's links stand out.
+            let touches_chosen =
+                state.selected == Some(link.from) || state.selected == Some(link.to);
+            let (color, width) = if touches_chosen {
+                (palette.accent, 2.0)
+            } else if both_critical && !state.hide_critical {
+                (visuals.error_fg_color, 1.2)
             } else {
-                visuals.weak_text_color()
+                (palette.control, 1.0)
             };
             let (start, end) = match link.kind {
                 plnwrk_core::DependencyKind::FinishToStart => {
@@ -774,7 +835,30 @@ pub fn show(
                     (from.right_center(), to.right_center())
                 }
             };
-            painter.extend(arrow(start, end, Stroke::new(1.2, color)));
+            painter.extend(arrow(start, end, Stroke::new(width, color)));
+        }
+        // A link being drawn: a line to the pointer, the bar under it marked; let go on a bar
+        // that may wait for it, and it does.
+        if let Some((from, spot, dropped)) = linking
+            && let Some(at) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let target = boxes
+                .iter()
+                .find(|(id, rect)| **id != from && rect.expand(4.0).contains(at))
+                .map(|(id, rect)| (*id, *rect))
+                .filter(|(id, _)| can_wait_for(ws, *id, from));
+            painter.line_segment([spot, at], Stroke::new(2.0, palette.accent));
+            if let Some((_, rect)) = target {
+                painter.rect_stroke(
+                    rect.expand(3.0),
+                    CornerRadius::same(radius::MEDIUM),
+                    Stroke::new(2.0, palette.accent),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            if dropped && let Some((to, _)) = target {
+                out.push(link_intent(from, to));
+            }
         }
 
         // The table last, over the bars: titles and columns. A click chooses the task.

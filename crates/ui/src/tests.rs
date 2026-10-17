@@ -4889,3 +4889,78 @@ fn bars_say_what_their_colours_show() {
     );
     assert!(!named(&harness, "Später").contains(critical));
 }
+
+fn waits_for(harness: &Harness<'_, PlnwrkApp>, from: TaskId, to: TaskId) -> bool {
+    harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .dependencies()
+        .any(|d| d.from == from && d.to == to)
+}
+
+#[test]
+fn a_dependency_is_drawn_from_the_handle_onto_another_bar() {
+    let (mut harness, first, second) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let handle = harness
+        .get_by_label(&format!("{} · Ausschreibung", text::t().link_handle))
+        .rect()
+        .center();
+    let target = bar(&harness, "Vergabe").center();
+    drag(&mut harness, handle, target - handle);
+    assert!(
+        waits_for(&harness, first, second),
+        "Vergabe waits for Ausschreibung"
+    );
+    // Back the other way would be a circle: nothing happens.
+    let handle = harness
+        .get_by_label(&format!("{} · Vergabe", text::t().link_handle))
+        .rect()
+        .center();
+    let target = bar(&harness, "Ausschreibung").center();
+    drag(&mut harness, handle, target - handle);
+    assert!(!waits_for(&harness, second, first));
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_none_or(|m| !m.error)
+    );
+}
+
+#[test]
+fn a_right_click_on_a_bar_adds_a_predecessor() {
+    let (mut harness, first, second) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let at = bar(&harness, "Vergabe").center();
+    harness.hover_at(at);
+    harness.run_steps(2);
+    harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with("Vergabe: ")))
+        .click_secondary();
+    harness.run_steps(4);
+    // A submenu carries an arrow after its name.
+    let submenu = harness
+        .get_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(text::t().add_predecessor_menu))
+        })
+        .rect()
+        .center();
+    tap(&mut harness, submenu);
+    harness.run_steps(4);
+    // The menu offers Ausschreibung (not Vergabe itself).
+    let offered = harness
+        .query_all_by_label("Ausschreibung")
+        .map(|n| n.rect())
+        .find(|r| r.width() < 400.0 && r.left() > at.x - 200.0);
+    let offered = offered.expect("offered in the menu");
+    tap(&mut harness, offered.center());
+    harness.run_steps(4);
+    assert!(waits_for(&harness, first, second));
+}
