@@ -1,8 +1,8 @@
 # plnwrk – Stand und offene Punkte
 
-> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-15 morgens:
-> Phase 6a+ gemergt (jeder Tag zählt, MCP-Feinschliff), Repository öffentlich**; 6b
-> (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
+> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17:
+> plnwrk 0.1.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); 6b (Assistent in
+> der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
 ## 1. Kurzfassung
@@ -25,7 +25,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 5 Zeitplanung (jeder Tag zählt, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
 | 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6a+ (jeder Tag zählt, `move_task`, sprechende Antworten) **fertig**; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10), [#11](https://github.com/tobiaswildezahn/plnwrk/pull/11) |
 | 7 VS-Härtung | offen | – |
-| 8 Veröffentlichung | in Arbeit: Release-Ablauf, Kurzanleitung, Symbol (Plan `docs/plans/2026-10-16-phase-8.md`) | – |
+| 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0), Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
@@ -70,10 +70,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Aufräumen (Tobi, am Rechner):** `git branch -D phase-6a-plus` (lokaler Branch; Agent darf
-   lokale Branches nicht löschen). `plnwrk-cli` ist auf dem Stand von `main` installiert
-   (5 Werkzeuge); nach jedem Update: `cargo install --path apps/plnwrk-cli --locked`.
-   Zwei Tests durch eine zweite Claude-Instanz bestanden (6a, 6a+).
+0. **Tobi: erster Start von 0.1.0 am Mac** – das .dmg über **Safari** laden (nur dann greift
+   die Sperre von macOS) und nach `docs/handbuch.md` installieren; melden, ob „Dennoch öffnen“
+   so erscheint. Aufräumen am Rechner: `git branch -D board-zoom-export phase-6a-plus phase-8
+   readme-und-feinschliff` (Agent darf lokale Branches nicht löschen). Nach jedem Update:
+   `cargo install --path apps/plnwrk-cli --locked` (oder `plnwrk-cli` aus dem Release).
 1. **Realitätstest** mit einem erfundenen, aber typischen Vorgang der Abteilung (z. B. SKA von
    Eingang bis Abgabe) – möglichst durch eine zweite Person (offene Frage 4.10, überfällig).
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,

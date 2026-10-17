@@ -52,8 +52,7 @@ Läuft auf Ubuntu ab 22.04, Debian ab 12 und vergleichbar aktuellen Systemen.
 
 ### Im Browser
 
-Ohne Installation: die Browser-Version unter `https://plnwrk.wildezahn.de` öffnen (sobald sie
-eingerichtet ist). Dateien werden dort hochgeladen und heruntergeladen. **Nicht für
+Ohne Installation: die Browser-Version unter https://plnwrk.wildezahn.de öffnen. Dateien werden dort hochgeladen und heruntergeladen. **Nicht für
 Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 
 ## 2. Erste Schritte
