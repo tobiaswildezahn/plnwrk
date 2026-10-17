@@ -7892,3 +7892,34 @@ fn a_message_stands_once_under_the_ribbon() {
     assert!(harness.state().state.message.is_none());
     assert!(harness.query_by_label("Etwas ging schief.").is_none());
 }
+
+/// Known since the real test (fixed in 9f): with the details open the middle is narrow – the
+/// project's buttons must not lie over its title; there is room, they stand beside it.
+#[test]
+fn the_project_buttons_never_lie_over_its_title() {
+    let mut harness = harness_with_sample();
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    let overlaps = |h: &Harness<'_, PlnwrkApp>| {
+        // The heading is a plain label: its text is the value.
+        let title = h
+            .query_all_by(|n| n.value().as_deref() == Some("Digitalfunk Umrüstung Wachen"))
+            .map(|n| n.rect())
+            .find(|r| r.left() > 200.0)
+            .unwrap();
+        let edit = h.get_by_label(text::t().edit).rect();
+        (title.intersects(edit), edit.top() > title.bottom())
+    };
+    // Wide: beside it on one line.
+    assert_eq!(overlaps(&harness), (false, false));
+    // Narrow with the details open: below it, not over it.
+    harness.set_size(egui::vec2(980.0, 900.0));
+    let task = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
+    harness.state_mut().apply(crate::Intent::Select(Some(task)));
+    harness.run();
+    assert_eq!(overlaps(&harness), (false, true));
+}

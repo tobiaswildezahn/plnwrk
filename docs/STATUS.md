@@ -71,11 +71,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   **9a–9d gemergt** (#16–#19). **9e gebaut** (Branch `phase-9e`: Board über die ganze Breite,
-   Karten mit Fristchip, Person, Priorität, einklappbaren Unteraufgaben; Filter; Linie beim
-   Ziehen; weiche Warnung bei offenen Vorgängern) – Review steht aus. Danach **9f**. Bekannt für 9f: Mit offenem
-   Detailbereich rutschen „Bearbeiten/Archivieren“ über den Projekttitel; Eingabefelder noch
-   flach; „Vorgang“ ohne Aktenzeichen bekommt noch keine Uhrzeit bei der Frist.
+   **9a–9e gemergt** (#16–#20). **9f gebaut** (Branch `phase-9f`: Anlegen-Dialog Vorgang | Projekt,
+   Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten, Detailbereich in
+   Gruppen, Leerzustände, Meldungsleiste, angeheftete Datumsleiste) – Review steht aus. Danach **9g**
+   (Klickpfade, Wiederholungstest, Block „Überholte Meilensteine“, v0.2.0). Behoben in 9f:
+   „Bearbeiten/Archivieren“ über dem Projekttitel, keine Uhrzeit bei Vorgängen ohne Aktenzeichen.
+   Offen: ob die Eingabefelder „flach“ wirken – Tobis Urteil am echten Bildschirm.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der

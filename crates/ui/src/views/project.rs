@@ -19,6 +19,8 @@ const LIST_STATUS: f32 = 100.0;
 const LIST_PLUS: f32 = 28.0;
 const LIST_TITLE_MIN: f32 = 200.0;
 const FRESH_SECONDS: f64 = 1.5;
+/// Room the project's buttons (Bearbeiten, Archivieren) need beside its title.
+const HEAD_BUTTONS: f32 = 240.0;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -161,15 +163,19 @@ fn head(
         line.push(format!("{} {reference}", text::t().reference));
     }
     line.push(text::project_status(project.status).to_owned());
-    ui.horizontal(|ui| {
-        ui.heading(&project.title);
-        if project.classification >= Classification::VsNfd {
-            ui.label(
-                RichText::new("VS-NfD")
-                    .strong()
-                    .color(ui.visuals().error_fg_color),
-            );
-        }
+    // The title and its buttons in one line where they fit; otherwise the buttons go below
+    // the title (with the details open the middle is narrow – they must not lie over it).
+    let title_width = ui
+        .painter()
+        .layout_no_wrap(
+            project.title.clone(),
+            egui::TextStyle::Heading.resolve(ui.style()),
+            egui::Color32::PLACEHOLDER,
+        )
+        .size()
+        .x;
+    let one_line = ui.available_width() >= title_width + HEAD_BUTTONS;
+    let mut buttons = |ui: &mut egui::Ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if project.status != ProjectStatus::Archived && ui.button(text::t().archive).clicked() {
                 out.push(Intent::run(
@@ -181,7 +187,23 @@ fn head(
                 state.forms.project = Some((project.clone(), ProjectForm::of(project)));
             }
         });
+    };
+    ui.horizontal(|ui| {
+        ui.add(egui::Label::new(RichText::new(&project.title).heading()).wrap());
+        if project.classification >= Classification::VsNfd {
+            ui.label(
+                RichText::new("VS-NfD")
+                    .strong()
+                    .color(ui.visuals().error_fg_color),
+            );
+        }
+        if one_line {
+            buttons(ui);
+        }
     });
+    if !one_line {
+        ui.horizontal(|ui| buttons(ui));
+    }
     ui.weak(line.join(" · "));
     ui.horizontal(|ui| {
         if let Some(due) = project.due {
