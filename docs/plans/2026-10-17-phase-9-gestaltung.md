@@ -370,6 +370,12 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
   - Optionen für „Wartet auf“, die einen Kreis ergäben, ausgegraut mit Begründung statt
     unsichtbar;
   - Terminkonflikt markiert.
+- **Zeitplan: angeheftete Datumsleiste** (Tobi, 2026-10-17: „ja, Datumsleiste anheften in 9f“):
+  - Die Zeitachse (Kalenderwochen, Monate, Tagesziffern) und die Spaltenköpfe der Tabelle
+    bleiben stehen, wenn die Zeilen scrollen, wie eine fixierte Zeile in Excel;
+  - die Meilenstein-Zeile aus 9d sitzt direkt darunter und bleibt ebenfalls stehen;
+  - Heute- und Projektfrist-Beschriftung wandern mit in die angeheftete Leiste (sie ragen bisher
+    in die erste Zeile).
 - **Leerzustände überall:** Symbol, ein Satz, eine Aktion.
 - **Statuszeile:** nur noch für Speichern/Wiederherstellung; Fehler gehören an den Ort.
 
