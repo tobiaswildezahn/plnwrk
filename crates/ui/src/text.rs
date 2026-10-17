@@ -944,10 +944,7 @@ pub fn deadline_state(
     now: jiff::civil::DateTime,
 ) -> (String, bool) {
     let past = plnwrk_engine::query::is_past(due, time, now);
-    let days = now
-        .date()
-        .until(due)
-        .map_or(0, |span| i64::from(span.get_days()));
+    let days = plnwrk_engine::query::days_between(now.date(), due);
     let text = match (time, days, past) {
         (Some(time), 0, true) => {
             let time = crate::dates::format_time(time);

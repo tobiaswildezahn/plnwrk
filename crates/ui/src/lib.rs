@@ -111,8 +111,9 @@ pub(crate) enum Intent {
     },
     /// Show another view.
     Go(View),
-    /// Show a message (after the intents before it, e.g. a command that clears it).
-    Say(Message),
+    /// Show a message once the command just before it was carried out (not when it was
+    /// refused: then its reason stays in view).
+    SayWhenDone(Message),
     /// Select a task (detail panel) or none.
     Select(Option<TaskId>),
     /// Open a dialog.
@@ -204,6 +205,8 @@ pub struct PlnwrkApp {
     /// The intent being carried out was confirmed already (a question about milestones or
     /// deleting was answered with yes).
     confirmed: bool,
+    /// The last command run was carried out (for `Intent::SayWhenDone`).
+    last_done: bool,
     /// What waits for the answer to a question about a milestone (closing, saving, opening,
     /// exporting): carried out once it is answered, either way.
     after_answer: Option<Intent>,
@@ -262,6 +265,7 @@ impl PlnwrkApp {
             autosave: autosave::Autosave::default(),
             browser_copy: browser_copy::BrowserCopy::default(),
             confirmed: false,
+            last_done: false,
             after_answer: None,
         }
     }
@@ -773,7 +777,11 @@ impl PlnwrkApp {
             }
             Intent::Open(dialog) => self.state.open_dialog(dialog),
             Intent::CloseDialog => self.state.close_dialog(),
-            Intent::Say(message) => self.state.message = Some(message),
+            Intent::SayWhenDone(message) => {
+                if self.last_done {
+                    self.state.message = Some(message);
+                }
+            }
             Intent::Schedule(project, request) => {
                 self.state.schedule_request = Some((project, request));
             }
@@ -893,6 +901,7 @@ impl PlnwrkApp {
 
     /// Runs a command; says whether it was carried out (a refusal is shown as a message).
     fn run(&mut self, command: &str, params: &Value, then: Then, clear: Option<Clear>) -> bool {
+        self.last_done = false;
         let Some(doc) = &mut self.doc else {
             return false;
         };
@@ -945,6 +954,7 @@ impl PlnwrkApp {
                 false
             }
             Ok(outcome) => {
+                self.last_done = true;
                 self.state.message = match news {
                     Some((along, overtaken)) if !overtaken.is_empty() => {
                         let said = if along > 0 {

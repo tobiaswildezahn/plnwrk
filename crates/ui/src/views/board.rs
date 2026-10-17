@@ -239,7 +239,7 @@ fn column_ui(
             });
             // Created, but the filter would hide it: said, so it is not lost from sight.
             if !filter.keeps_new(&title) {
-                out.push(Intent::Say(crate::state::Message::info(
+                out.push(Intent::SayWhenDone(crate::state::Message::info(
                     text::created_but_filtered(&title),
                 )));
             }
@@ -310,6 +310,10 @@ fn column_ui(
             if click.clicked() {
                 out.push(Intent::Select(Some(card.id)));
             }
+            // Its height, for the hint beside it while it is held.
+            ui.data_mut(|d| {
+                d.insert_temp(Id::new(("card-height", card.id)), response.rect.height())
+            });
             rects.push((card.id, response.rect));
         }
     });
@@ -322,14 +326,18 @@ fn column_ui(
             egui::StrokeKind::Inside,
         );
     }
-    // Said at the pointer, where the eyes are – also when the column's top is scrolled away.
+    // Said at the pointer, where the eyes are – also when the column's top is scrolled away –
+    // and below the card held there (egui paints the held card over every tooltip area).
     if waiting > 0
         && over
         && let Some(at) = ui.ctx().pointer_interact_pos()
     {
+        let below = dragged
+            .and_then(|id| ui.data(|d| d.get_temp::<f32>(Id::new(("card-height", id)))))
+            .map_or(18.0, |height| height / 2.0 + 8.0);
         egui::Area::new(Id::new("board-waits-hint"))
             .order(egui::Order::Tooltip)
-            .fixed_pos(at + vec2(16.0, 18.0))
+            .fixed_pos(at + vec2(0.0, below))
             .interactable(false)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {

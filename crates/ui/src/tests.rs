@@ -6944,25 +6944,14 @@ fn no_hint_when_nothing_open_is_waited_for() {
     assert!(!held(&mut harness, "Nachher"), "predecessor done");
 }
 
-/// Review 9e (M4): with a filter, a card dropped back on its own place does not move – its
-/// place is counted among the cards in view.
+/// Review 9e (M4): with a filter, where a card lands is counted among the cards in view.
 #[test]
-fn a_card_dropped_on_its_place_with_a_filter_stays() {
+fn with_a_filter_a_card_lands_among_the_cards_in_view() {
     let mut harness = board_9e();
     type_into(&mut harness, text::t().board_search, "a", false);
-    let before = harness.state().doc().unwrap().session.log().len();
-    let at = harness.get_by_label("Alt").rect().center();
-    // A real drag (past egui's threshold), let go still on its own place.
-    drag(&mut harness, at, egui::vec2(0.0, 14.0));
-    assert!(
-        harness.state().state.message.is_none(),
-        "{:?}",
-        harness.state().state.message
-    );
-    assert_eq!(harness.state().doc().unwrap().session.log().len(), before);
-    // The same drop without the filter's view would count hidden cards: proved by the
-    // counter-check; here the card also lands right when moved one place up among those in
-    // view – above "Dahinter", below "Bald".
+    // Moved one place up among the cards in view – above "Dahinter", below "Bald": counting
+    // the hidden ones too would put it elsewhere (counter-check). (Let go over its own place,
+    // egui hands the drop to the held card, not the column: nothing to prove there.)
     let dahinter = harness.get_by_label("Dahinter").rect();
     let at = harness.get_by_label("Alt").rect().center();
     drag(
@@ -7002,11 +6991,11 @@ fn a_board_card_is_read_as_chosen_and_its_priority_in_words() {
         serde_json::json!({"task": heute.to_string(), "priority": "critical"}),
     ));
     harness.run();
-    assert!(
-        harness
-            .query_by_label(text::priority(plnwrk_core::Priority::Critical))
-            .is_some()
-    );
+    // In words: a chip wider than the 16 px flag of "hoch".
+    let critical = harness
+        .get_by_label(text::priority(plnwrk_core::Priority::Critical))
+        .rect();
+    assert!(critical.width() > 24.0, "{critical:?}");
 }
 
 /// Review 9e: a card made with "+" that the filter hides is said, not lost from sight.
@@ -7036,4 +7025,79 @@ fn query_titles_in_todo(harness: &Harness<'_, PlnwrkApp>) -> Vec<String> {
         .into_iter()
         .map(|c| c.title)
         .collect()
+}
+
+/// Nachreview 9e (E1): a "+" card that is refused (title too long) is not said as created –
+/// the reason stays in view.
+#[test]
+fn a_refused_new_card_is_not_said_as_created() {
+    let mut harness = board_9e();
+    click(&mut harness, text::t().board_filter_overdue);
+    click(&mut harness, &text::new_in_column(TaskStatus::Todo));
+    let long = "x".repeat(201);
+    type_where_the_focus_is(&mut harness, &long);
+    assert!(task_named(harness.state(), &long).is_none());
+    let said = harness.state().state.message.clone();
+    assert!(said.as_ref().is_some_and(|m| m.error), "{said:?}");
+}
+
+/// Nachreview 9e: a new card in view is not said to be hidden.
+#[test]
+fn a_new_card_in_view_is_not_said_to_be_hidden() {
+    let mut harness = board_9e();
+    click(&mut harness, &text::new_in_column(TaskStatus::Todo));
+    type_where_the_focus_is(&mut harness, "Sichtbar");
+    assert!(task_named(harness.state(), "Sichtbar").is_some());
+    assert_ne!(
+        harness.state().state.message.clone().map(|m| m.text),
+        Some(text::created_but_filtered("Sichtbar"))
+    );
+}
+
+/// Nachreview 9e (E2): the hint sits at the pointer, below the card held there – also a tall
+/// one with subtasks (egui paints the held card over it).
+#[test]
+fn the_hint_sits_below_a_tall_held_card() {
+    let mut harness = board_9e();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let nachher = task_named(harness.state(), "Nachher")
+        .unwrap()
+        .id
+        .to_string();
+    for title in ["Teil 1", "Teil 2", "Teil 3"] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "parent": nachher}),
+        ));
+    }
+    harness.run();
+    harness.get_by_label("Nachher").scroll_to_me();
+    harness.run();
+    let card = harness.get_by_label("Nachher").rect().center();
+    // From the title down to the last subtask: less than the whole card.
+    let tall = harness.get_by_label("Teil 3").rect().bottom()
+        - harness.get_by_label("Nachher").rect().top();
+    let done = egui::pos2(
+        column_heading_node(&harness, TaskStatus::Done)
+            .rect()
+            .center()
+            .x,
+        card.y.min(700.0),
+    );
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(done);
+    harness.run();
+    let hint = harness.get_by_label(&text::still_waits_for(1)).rect();
+    // Below the held card (its half below the pointer), and close by.
+    assert!(
+        hint.top() >= done.y + tall / 2.0,
+        "{hint:?} at {done:?}, card {tall}"
+    );
+    assert!(hint.top() <= done.y + 400.0, "{hint:?} at {done:?}");
+    assert!((hint.left() - done.x).abs() < 40.0, "{hint:?} at {done:?}");
+    harness.drop_at(done);
+    harness.run();
 }
