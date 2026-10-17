@@ -2,7 +2,7 @@
 
 mod board;
 mod date;
-mod detail;
+pub(crate) mod detail;
 mod dialogs;
 mod overview;
 mod people;

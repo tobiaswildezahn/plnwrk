@@ -143,14 +143,31 @@ pub struct Texts {
     pub delete_task: &'static str,
     pub delete_task_question: &'static str,
     pub close_subtasks_title: &'static str,
-    pub zoom_in: &'static str,
+    pub whole_project: &'static str,
+    pub float_hint: &'static str,
+    pub overdue_hint: &'static str,
+    pub due_line_hint: &'static str,
+    pub drag_hint: &'static str,
+    pub schedule_empty: &'static str,
+    pub give_dates: &'static str,
+    pub first_task: &'static str,
+    pub link_handle: &'static str,
+    pub add_predecessor_menu: &'static str,
+    pub add_successor_menu: &'static str,
+    pub show: &'static str,
+    pub critical_path: &'static str,
+    pub overdue_short: &'static str,
+    pub critical_short: &'static str,
+    pub fold_subtasks: &'static str,
+    pub unfold_subtasks: &'static str,
+    pub title_width: &'static str,
+    pub zoom_levels: [&'static str; 4],
     /// "ja" in tables (critical, milestone).
     pub yes: &'static str,
     pub export_schedule: &'static str,
     pub exported: &'static str,
     pub export_failed: &'static str,
     pub export_over_open_file: &'static str,
-    pub zoom_out: &'static str,
     pub close_all_subtasks: &'static str,
     pub only_this_task: &'static str,
     pub name: &'static str,
@@ -261,7 +278,6 @@ pub struct Texts {
     pub add_predecessor: &'static str,
     pub remove_dependency: &'static str,
     pub schedule_tab: &'static str,
-    pub no_scheduled: &'static str,
     pub unscheduled: &'static str,
     pub critical_hint: &'static str,
     pub project_due: &'static str,
@@ -302,6 +318,7 @@ pub struct RibbonTexts {
     pub scroll_right: &'static str,
     pub new_case_long: &'static str,
     pub schedule_tools: &'static str,
+    pub navigate: &'static str,
     pub edit: &'static str,
     pub new_project_long: &'static str,
 }
@@ -372,13 +389,30 @@ pub static DE: Texts = Texts {
     delete_task: "Aufgabe löschen",
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
     close_subtasks_title: "Unteraufgaben auch erledigen?",
-    zoom_in: "Vergrößern",
+    whole_project: "Ganzes Projekt",
+    float_hint: "So viele Tage kann sich die Aufgabe verschieben, ohne dass sich das Ende verschiebt.",
+    overdue_hint: "Rot umrandet mit ⚠: überfällig.",
+    due_line_hint: "Rote Linie: Frist des Projekts.",
+    drag_hint: "Balken ziehen verschiebt, an den Enden ziehen ändert Beginn oder Frist; was wartet, rutscht mit. Der Punkt am Ende verbindet.",
+    schedule_empty: "Noch keine Aufgabe mit Termin. Der Zeitplan zeigt Aufgaben, sobald sie Beginn oder Frist haben.",
+    give_dates: "Termine vergeben",
+    first_task: "Erste Aufgabe anlegen",
+    link_handle: "Verbinden",
+    add_predecessor_menu: "Vorgänger hinzufügen…",
+    add_successor_menu: "Nachfolger hinzufügen…",
+    show: "Anzeigen",
+    critical_path: "Kritischer Pfad",
+    overdue_short: "überfällig",
+    critical_short: "auf dem kritischen Pfad",
+    fold_subtasks: "Unteraufgaben zuklappen",
+    unfold_subtasks: "Unteraufgaben aufklappen",
+    title_width: "Breite der Titelspalte",
+    zoom_levels: ["Quartal", "Monat", "Woche", "Tag"],
     yes: "ja",
     export_schedule: "Als Tabelle exportieren (Excel)",
     exported: "Exportiert:",
     export_failed: "Export fehlgeschlagen:",
     export_over_open_file: "Nicht exportiert: Das ist die geöffnete plnwrk-Datei. Bitte einen anderen Namen wählen.",
-    zoom_out: "Verkleinern",
     close_all_subtasks: "Alle erledigen",
     only_this_task: "Nur die Hauptaufgabe",
     name: "Name",
@@ -485,9 +519,8 @@ pub static DE: Texts = Texts {
     add_predecessor: "+ Vorgänger …",
     remove_dependency: "Abhängigkeit entfernen",
     schedule_tab: "Zeitplan",
-    no_scheduled: "Noch keine Aufgabe mit Termin. Beginn oder Frist in den Details setzen.",
     unscheduled: "Ohne Termin:",
-    critical_hint: "Rot: kritischer Pfad – rutscht eine dieser Aufgaben, rutscht das Ende. Balken ziehen verschiebt, Nachfolger rutschen mit.",
+    critical_hint: "Rot: kritischer Pfad – rutscht eine dieser Aufgaben, rutscht das Ende.",
     project_due: "Projektfrist",
     critical: "kritisch",
     kinds: ["Projekt", "Vorgang"],
@@ -529,6 +562,7 @@ pub static DE: Texts = Texts {
         scroll_right: "Menüband nach rechts",
         new_case_long: "Neuer Vorgang",
         schedule_tools: "Zeitplan-Werkzeuge",
+        navigate: "Gehe zu",
         edit: "Ändern",
         new_project_long: "Neues Projekt",
     },
@@ -600,13 +634,30 @@ pub static EN: Texts = Texts {
     delete_task: "Delete task",
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
     close_subtasks_title: "Close the subtasks too?",
-    zoom_in: "Zoom in",
+    whole_project: "Whole project",
+    float_hint: "By this many days the task can slip without the end slipping.",
+    overdue_hint: "Framed red with ⚠: overdue.",
+    due_line_hint: "Red line: the project's deadline.",
+    drag_hint: "Drag a bar to move it, its ends to change start or deadline; what waits moves along. The dot at the end links.",
+    schedule_empty: "No task with dates yet. The schedule shows tasks once they have a start or deadline.",
+    give_dates: "Give dates",
+    first_task: "Create the first task",
+    link_handle: "Link",
+    add_predecessor_menu: "Add predecessor…",
+    add_successor_menu: "Add successor…",
+    show: "Show",
+    critical_path: "Critical path",
+    overdue_short: "overdue",
+    critical_short: "on the critical path",
+    fold_subtasks: "Fold subtasks",
+    unfold_subtasks: "Unfold subtasks",
+    title_width: "Width of the title column",
+    zoom_levels: ["Quarter", "Month", "Week", "Day"],
     yes: "yes",
     export_schedule: "Export as table (Excel)",
     exported: "Exported:",
     export_failed: "Export failed:",
     export_over_open_file: "Not exported: that is the open plnwrk file. Please choose another name.",
-    zoom_out: "Zoom out",
     close_all_subtasks: "Close them all",
     only_this_task: "Only this task",
     name: "Name",
@@ -713,9 +764,8 @@ pub static EN: Texts = Texts {
     add_predecessor: "+ Predecessor …",
     remove_dependency: "Remove dependency",
     schedule_tab: "Schedule",
-    no_scheduled: "No task with dates yet. Set a start or deadline in the details.",
     unscheduled: "Without dates:",
-    critical_hint: "Red: critical path – if one of these slips, the end slips. Drag a bar to move it; what waits for it moves along.",
+    critical_hint: "Red: critical path – if one of these slips, the end slips.",
     project_due: "Project deadline",
     critical: "critical",
     kinds: ["Project", "Case"],
@@ -757,6 +807,7 @@ pub static EN: Texts = Texts {
         scroll_right: "Scroll the ribbon right",
         new_case_long: "New case",
         schedule_tools: "Schedule tools",
+        navigate: "Go to",
         edit: "Change",
         new_project_long: "New project",
     },
@@ -978,12 +1029,40 @@ pub fn week(number: i8) -> String {
 }
 
 /// "Puffer: 3 Tage".
+/// A span with weekdays, for the preview while dragging: "Fr 16.10. – Di 20.10.".
+pub fn span_with_weekdays(from: jiff::civil::Date, to: jiff::civil::Date) -> String {
+    let day = |d: jiff::civil::Date| {
+        let weekday = t()
+            .weekdays
+            .get(usize::try_from(d.weekday().to_monday_zero_offset()).unwrap_or(0))
+            .copied()
+            .unwrap_or("");
+        format!("{weekday} {}", crate::dates::format_short(d))
+    };
+    if from == to {
+        day(to)
+    } else {
+        format!("{} – {}", day(from), day(to))
+    }
+}
+
+/// How many tasks that wait move along with a change: "+2 Aufgaben verschieben sich".
+pub fn moves_along(count: usize) -> String {
+    match count {
+        1 => pick("+1 Aufgabe verschiebt sich", "+1 task moves along").to_owned(),
+        n => pick(
+            format!("+{n} Aufgaben verschieben sich"),
+            format!("+{n} tasks move along"),
+        ),
+    }
+}
+
 pub fn float(days: i32) -> String {
     match (language(), days) {
-        (Language::German, 1) => "Puffer: 1 Tag".to_owned(),
-        (Language::German, n) => format!("Puffer: {n} Tage"),
-        (Language::English, 1) => "Float: 1 day".to_owned(),
-        (Language::English, n) => format!("Float: {n} days"),
+        (Language::German, 1) => "Spielraum: 1 Tag".to_owned(),
+        (Language::German, n) => format!("Spielraum: {n} Tage"),
+        (Language::English, 1) => "Slack: 1 day".to_owned(),
+        (Language::English, n) => format!("Slack: {n} days"),
     }
 }
 

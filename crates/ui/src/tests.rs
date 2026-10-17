@@ -3442,7 +3442,7 @@ fn the_drag_preview_names_the_working_days_it_will_land_on() {
     harness.run_steps(2);
     assert!(
         harness
-            .query_by_label("Ausschreibung: 16.10.2026 – 18.10.2026")
+            .query_by_label_contains("Ausschreibung: 16.10.2026 – 18.10.2026")
             .is_some()
     );
     harness.drop_at(to);
@@ -3554,36 +3554,32 @@ fn a_date_changed_elsewhere_is_not_written_back_by_saving() {
 }
 
 #[test]
-fn the_schedule_zooms_in_and_out() {
+fn the_schedule_zooms_by_named_levels() {
     let (mut harness, _, _) = two_dated_tasks();
     click(&mut harness, text::t().schedule_tab);
     let width = |h: &Harness<'_, PlnwrkApp>| bar(h, "Ausschreibung").width();
-    let start = width(&harness);
-    click(&mut harness, text::t().zoom_in);
-    assert!(
-        width(&harness) > start * 1.3,
-        "{} → {}",
-        start,
-        width(&harness)
-    );
-    for _ in 0..3 {
-        click(&mut harness, text::t().zoom_out);
+    // Three days (12th to 14th): 3 days wide less a pixel at each end.
+    let [quarter, month, week, day] = text::t().zoom_levels;
+    for (name, per_day) in [(day, 48.0), (month, 8.0), (quarter, 3.0), (week, 22.0)] {
+        // The whole project in the middle first: the zoom keeps the middle, so the bar stays
+        // in view at any level.
+        click(&mut harness, text::t().whole_project);
+        click(&mut harness, name);
+        let expected = (3.0 * per_day - 2.0_f32).max(4.0);
+        assert!(
+            (width(&harness) - expected).abs() < 1.0,
+            "{name}: {} instead of {expected}",
+            width(&harness)
+        );
     }
-    let coarse = width(&harness);
-    assert!(coarse < start / 2.0, "{start} → {coarse}");
-    // Coarsest and finest are the ends: more clicks change nothing.
-    for _ in 0..5 {
-        click(&mut harness, text::t().zoom_out);
-    }
-    assert!(width(&harness) <= coarse);
-    // Ctrl/⌘ and the mouse wheel over the chart zoom in too.
-    let over = bar(&harness, "Ausschreibung").center();
+    // Ctrl/⌘ and the mouse wheel (a pinch) zoom in too, anywhere in the schedule: from week
+    // to day.
+    let over = egui::pos2(1000.0, bar(&harness, "Ausschreibung").center().y);
     harness.hover_at(over);
     harness.run();
-    let before = width(&harness);
     harness.event(egui::Event::Zoom(1.5));
     harness.run();
-    assert!(width(&harness) > before, "{before} → {}", width(&harness));
+    assert!((width(&harness) - (3.0 * 48.0 - 2.0)).abs() < 1.0);
 }
 
 /// Opens the sample's project "Digitalfunk Umrüstung Wachen" in the schedule tab.
@@ -3703,8 +3699,9 @@ fn one_notch_of_the_wheel_is_one_zoom_level() {
     }
     harness.run();
     let one = width(&harness);
+    // From week (22 px a day) to day (48 px), not further.
     assert!(
-        one > start * 1.3 && one < start * 1.7,
+        one > start * 1.9 && one < start * 2.4,
         "{start} → {one}: one level only"
     );
 }
@@ -3728,21 +3725,18 @@ fn zooming_keeps_the_dates_in_view() {
     harness.run();
     click(&mut harness, text::t().schedule_tab);
     harness.run();
-    // From the title column's edge to the bar: a week before today, at any zoom.
+    // From the middle of the visible chart to the bar: the day in the middle stays in the
+    // middle (plan §7.1), so the distance grows with the zoom.
     let gap = |h: &Harness<'_, PlnwrkApp>| {
-        let titles = h
-            .get_all_by_label("Jetzt")
-            .map(|n| n.rect())
-            .find(|r| r.width() > 100.0)
-            .unwrap();
-        bar(h, "Jetzt").left() - titles.right()
+        let view = chart_view(h);
+        bar(h, "Jetzt").center().x - view.center().x
     };
     let before = gap(&harness);
-    click(&mut harness, text::t().zoom_in);
+    click(&mut harness, text::t().zoom_levels[3]);
     let after = gap(&harness);
     assert!(
-        (after - before * 34.0 / 22.0).abs() < 30.0,
-        "{before} → {after}: the same day stays at the left edge"
+        (after - before * 48.0 / 22.0).abs() < 30.0,
+        "{before} → {after}: the day in the middle stays there"
     );
 }
 
@@ -3804,7 +3798,7 @@ fn a_project_without_dates_can_be_exported_too() {
     let mut harness = with_project("Ohne Termine");
     type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
     click(&mut harness, text::t().schedule_tab);
-    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label(text::t().schedule_empty).is_some());
     assert!(harness.query_by_label(text::t().export_schedule).is_some());
 }
 
@@ -3818,7 +3812,7 @@ fn the_schedule_shows_bars_and_dragging_moves_what_waits() {
     click(&mut harness, text::t().schedule_tab);
     assert!(
         harness
-            .query_by_label("Ausschreibung: 12.10.2026 – 14.10.2026")
+            .query_by_label_contains("Ausschreibung: 12.10.2026 – 14.10.2026")
             .is_some()
     );
     assert!(harness.query_by_label(text::t().critical_hint).is_some());
@@ -3878,7 +3872,7 @@ fn an_empty_schedule_says_what_to_do() {
     type_into(&mut harness, text::t().new_task_hint, "Ohne Datum", true);
     palette(&mut harness, "zeitplan");
     assert_eq!(harness.state().state.tab, crate::state::Tab::Schedule);
-    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label(text::t().schedule_empty).is_some());
     assert!(harness.query_by_label("Ohne Datum").is_some());
 }
 
@@ -4409,7 +4403,7 @@ fn a_peek_lies_over_the_content_and_closes_with_an_action_or_escape() {
 }
 
 #[test]
-fn the_tools_of_the_schedule_zoom_one_step() {
+fn the_tools_of_the_schedule_choose_the_zoom_level() {
     let mut harness = wide_schedule(0);
     let before = bar(&harness, "Jetzt").width();
     click(&mut harness, text::t().ribbon.schedule_tools);
@@ -4417,15 +4411,23 @@ fn the_tools_of_the_schedule_zoom_one_step() {
         harness.state().state.ribbon_tab,
         crate::actions::RibbonTab::Schedule
     );
-    // The button of the ribbon (the schedule's own is called only "Vergrößern").
+    // The button of the ribbon (the schedule's own segment is called only "Tag").
     click(
         &mut harness,
-        &format!("{}: {}", text::t().ribbon.zoom, text::t().zoom_in),
+        &format!("{}: {}", text::t().ribbon.zoom, text::t().zoom_levels[3]),
     );
     let after = bar(&harness, "Jetzt").width();
-    // One level: from 22 to 34 px a day.
+    // From week to day: 22 to 48 px a day.
     let ratio = after / before;
-    assert!((ratio - 34.0 / 22.0).abs() < 0.08, "{before} → {after}");
+    assert!((ratio - 48.0 / 22.0).abs() < 0.08, "{before} → {after}");
+    // The ribbon shows the level chosen.
+    let app = harness.state();
+    let chosen: Vec<String> = crate::actions::all(app.doc(), &app.state)
+        .into_iter()
+        .filter(|a| a.group == crate::actions::Group::Zoom && a.chosen)
+        .map(|a| a.label)
+        .collect();
+    assert_eq!(chosen, [text::t().zoom_levels[3]]);
 }
 
 #[test]
@@ -4523,4 +4525,778 @@ fn a_dialog_or_the_keyboard_leaving_ends_a_peek() {
         }
     }
     assert!(!ribbon_open(&harness), "focus left the peek");
+}
+
+/// The visible part of the chart: right of the title column, inside the window.
+fn chart_view(harness: &Harness<'_, PlnwrkApp>) -> egui::Rect {
+    let titles = harness
+        .get_all_by_label("Jetzt")
+        .map(|n| n.rect())
+        .find(|r| r.width() > 100.0)
+        .unwrap();
+    // The detail panel, when open, covers the right of the window.
+    let right = harness
+        .query_by_label(text::t().delete_task)
+        .map_or(1400.0, |n| n.rect().left() - 8.0);
+    // The row of the table (titles and columns) ends where the chart begins.
+    egui::Rect::from_min_max(
+        egui::pos2(titles.right(), titles.top() - 200.0),
+        egui::pos2(right, titles.bottom() + 800.0),
+    )
+}
+
+/// Whether the bar of a task is fully in view (bars out of view are not drawn at all).
+fn in_view(harness: &Harness<'_, PlnwrkApp>, title: &str) -> bool {
+    harness
+        .query_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(&format!("{title}: ")))
+        })
+        .is_some_and(|n| chart_view(harness).contains_rect(n.rect()))
+}
+
+#[test]
+fn today_and_the_whole_project_are_one_click_away() {
+    let mut harness = wide_schedule(0);
+    assert!(in_view(&harness, "Jetzt"), "opens at today");
+    assert!(!in_view(&harness, "Später"));
+    // Somewhere else, then back to today.
+    harness.state_mut().state.schedule_request = None;
+    let at = bar(&harness, "Jetzt").right_center() + egui::vec2(30.0, 0.0);
+    for _ in 0..6 {
+        wheel(&mut harness, at, Modifiers::SHIFT);
+    }
+    assert!(!in_view(&harness, "Jetzt"), "scrolled away");
+    click(&mut harness, text::t().today);
+    assert!(in_view(&harness, "Jetzt"), "back at today");
+    // The whole project: first and last task at once.
+    click(&mut harness, text::t().whole_project);
+    assert!(in_view(&harness, "Früher") && in_view(&harness, "Später"));
+    assert_eq!(
+        harness
+            .state()
+            .state
+            .zoom_levels
+            .values()
+            .copied()
+            .collect::<Vec<_>>(),
+        [0],
+        "the finest level that fits: four months need 984 px at month, 940 are there"
+    );
+}
+
+#[test]
+fn dragging_the_empty_chart_moves_the_view() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt").left();
+    // In the row of "Jetzt", right of its bar where the chart is empty: drag to the left.
+    let from = bar(&harness, "Jetzt").center() + egui::vec2(200.0, 0.0);
+    // The pointer comes there first, then presses (as a hand on the mouse does).
+    harness.hover_at(from);
+    harness.run();
+    harness.drag_at(from);
+    harness.run();
+    for step in 1..=10 {
+        harness.hover_at(from - egui::vec2(20.0 * step as f32, 0.0));
+        harness.run();
+    }
+    harness.drop_at(from - egui::vec2(200.0, 0.0));
+    // The view glides on a little after letting go.
+    harness.run_steps(120);
+    let after = bar(&harness, "Jetzt").left();
+    assert!(after < before - 150.0, "{before} → {after}");
+}
+
+#[test]
+fn choosing_a_task_elsewhere_brings_its_bar_into_view() {
+    let mut harness = wide_schedule(0);
+    assert!(!in_view(&harness, "Später"));
+    let later = task_named(harness.state(), "Später").unwrap().id;
+    // As the detail panel, the palette or the list would choose it.
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(later)));
+    harness.run_steps(30);
+    assert!(in_view(&harness, "Später"));
+}
+
+#[test]
+fn the_whole_project_fits_even_beside_a_very_long_title() {
+    let mut harness = with_project(&"Sehr langer Projekttitel ".repeat(7));
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    for (title, start, due) in [
+        ("Früher", day(-60), day(-58)),
+        ("Jetzt", day(0), day(2)),
+        ("Später", day(60), day(62)),
+    ] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    click(&mut harness, text::t().whole_project);
+    assert!(in_view(&harness, "Früher") && in_view(&harness, "Später"));
+}
+
+#[test]
+fn the_schedule_fits_a_narrow_window() {
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(800.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), PlnwrkApp::default());
+    harness.run();
+    click(&mut harness, text::t().open_sample);
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    for name in [
+        text::t().today,
+        text::t().whole_project,
+        text::t().export_schedule,
+    ] {
+        let rect = harness.get_by_label(name).rect();
+        assert!(
+            rect.right() <= 800.0,
+            "{name} reaches past the window: {rect:?}"
+        );
+    }
+    // The table leaves the chart at least half of the room.
+    let row = table_row(&harness, "Einbau Wache 11");
+    let room = 800.0 - row.left();
+    assert!(row.width() <= room / 2.0 + 1.0, "{row:?} of {room}");
+}
+
+/// The row of a task in the schedule's table (wider than a title alone).
+fn table_row(harness: &Harness<'_, PlnwrkApp>, title: &str) -> egui::Rect {
+    harness
+        .get_all_by_label(title)
+        .map(|n| n.rect())
+        .find(|r| r.width() > 100.0)
+        .unwrap()
+}
+
+#[test]
+fn the_schedule_table_shows_and_speaks_dates_and_who() {
+    let mut harness = harness_with_sample();
+    sample_schedule_open(&mut harness);
+    let row = harness
+        .get_all_by_label("Ausschreibung vorbereiten")
+        .find(|n| n.rect().width() > 100.0)
+        .unwrap();
+    let value = row.value().unwrap_or_default();
+    assert!(value.contains(text::t().start), "{value}");
+    assert!(value.contains("Anna Berg"), "{value}");
+    assert!(
+        value.contains(&crate::dates::format(
+            task_named(harness.state(), "Ausschreibung vorbereiten")
+                .unwrap()
+                .due
+                .unwrap()
+        ))
+    );
+    // Rows are 32 high, bars 16.
+    let bar = bar(&harness, "Einbau Wache 11");
+    assert!((bar.height() - 16.0).abs() < 0.5, "{bar:?}");
+}
+
+/// Opens the sample's project "Digitalfunk Umrüstung Wachen" in the schedule tab, the sample
+/// being open already.
+fn sample_schedule_open(harness: &mut Harness<'_, PlnwrkApp>) {
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(harness, text::t().schedule_tab);
+}
+
+#[test]
+fn columns_are_switched_off_in_the_ribbon_and_the_title_column_is_dragged_wider() {
+    let mut harness = wide_schedule(0);
+    let full = table_row(&harness, "Jetzt").width();
+    click(&mut harness, text::t().ribbon.schedule_tools);
+    click(
+        &mut harness,
+        &format!("{}: {}", text::t().show, text::t().assignee),
+    );
+    let without = table_row(&harness, "Jetzt").width();
+    assert!((full - without - 112.0).abs() < 1.0, "{full} → {without}");
+    // Dragging the edge of the title column.
+    let edge = harness.get_by_label(text::t().title_width).rect().center();
+    harness.hover_at(edge);
+    harness.run();
+    harness.drag_at(edge);
+    harness.run();
+    for step in 1..=5 {
+        harness.hover_at(edge + egui::vec2(16.0 * step as f32, 0.0));
+        harness.run();
+    }
+    harness.drop_at(edge + egui::vec2(80.0, 0.0));
+    harness.run();
+    let wider = table_row(&harness, "Jetzt").width();
+    assert!((wider - without - 80.0).abs() < 2.0, "{without} → {wider}");
+}
+
+#[test]
+fn subtasks_fold_away_in_the_schedule() {
+    let mut harness = harness_with_sample();
+    sample_schedule_open(&mut harness);
+    let in_table = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_all_by_label(title)
+            .any(|n| n.rect().width() > 100.0)
+    };
+    assert!(in_table(&harness, "Leistungsverzeichnis"));
+    click(&mut harness, text::t().fold_subtasks);
+    assert!(!in_table(&harness, "Leistungsverzeichnis"), "folded away");
+    assert!(
+        in_table(&harness, "Ausschreibung vorbereiten"),
+        "the parent stays"
+    );
+    click(&mut harness, text::t().unfold_subtasks);
+    assert!(in_table(&harness, "Leistungsverzeichnis"));
+}
+
+/// Drags from `from` by `by`, like a hand: there first, press, a few steps, let go.
+fn drag(harness: &mut Harness<'_, PlnwrkApp>, from: egui::Pos2, by: egui::Vec2) {
+    harness.hover_at(from);
+    harness.run_steps(2);
+    harness.drag_at(from);
+    harness.run_steps(2);
+    for step in 1..=4 {
+        harness.hover_at(from + by * (step as f32 / 4.0));
+        harness.run_steps(2);
+    }
+    harness.drop_at(from + by);
+    harness.run_steps(2);
+}
+
+fn dates_of(harness: &Harness<'_, PlnwrkApp>, id: TaskId) -> (String, String) {
+    let task = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .task(id)
+        .cloned()
+        .unwrap();
+    (
+        task.start.unwrap().to_string(),
+        task.due.unwrap().to_string(),
+    )
+}
+
+#[test]
+fn the_ends_of_a_bar_change_start_and_deadline() {
+    let (mut harness, first, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    // The deadline two days later (a week level: 22 px a day).
+    let end = harness
+        .get_by_label(&format!("{} · Ausschreibung", text::t().due))
+        .rect()
+        .center();
+    drag(&mut harness, end, egui::vec2(44.0, 0.0));
+    assert_eq!(
+        dates_of(&harness, first),
+        ("2026-10-12".into(), "2026-10-16".into())
+    );
+    // The start a day earlier.
+    let start = harness
+        .get_by_label(&format!("{} · Ausschreibung", text::t().start))
+        .rect()
+        .center();
+    drag(&mut harness, start, egui::vec2(-22.0, 0.0));
+    assert_eq!(
+        dates_of(&harness, first),
+        ("2026-10-11".into(), "2026-10-16".into())
+    );
+}
+
+#[test]
+fn the_preview_says_how_many_tasks_move_along() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let link = serde_json::json!({"from": first.to_string(), "to": second.to_string()});
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("dependency.add", link));
+    click(&mut harness, text::t().schedule_tab);
+    let from = bar(&harness, "Ausschreibung").center();
+    harness.hover_at(from);
+    harness.run_steps(2);
+    harness.drag_at(from);
+    harness.run_steps(2);
+    harness.hover_at(from + egui::vec2(66.0, 0.0));
+    harness.run_steps(2);
+    assert!(
+        harness
+            .query_by_label_contains(&text::moves_along(1))
+            .is_some(),
+        "named while dragged"
+    );
+    harness.drop_at(from + egui::vec2(66.0, 0.0));
+    harness.run_steps(2);
+    // What was announced happens: three days later, and Vergabe moved along.
+    assert_eq!(
+        dates_of(&harness, first),
+        ("2026-10-15".into(), "2026-10-17".into())
+    );
+    assert_eq!(dates_of(&harness, second).0, "2026-10-18");
+}
+
+#[test]
+fn bars_say_what_their_colours_show() {
+    use egui_kittest::kittest::NodeT as _;
+    let mut harness = wide_schedule(0);
+    let named = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(&format!("{title}: ")))
+        })
+        .and_then(|n| n.accesskit_node().label())
+        .unwrap_or_default()
+    };
+    let overdue = text::t().overdue_short;
+    assert!(
+        named(&harness, "Früher").contains(overdue) || {
+            // Out of view at first: bring it in.
+            click(&mut harness, text::t().whole_project);
+            named(&harness, "Früher").contains(overdue)
+        }
+    );
+    assert!(!named(&harness, "Jetzt").contains(overdue));
+    // Progress.
+    let now = task_named(harness.state(), "Jetzt").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.set_progress",
+        serde_json::json!({"task": now.to_string(), "progress": 60}),
+    ));
+    harness.run();
+    assert!(named(&harness, "Jetzt").contains("60 %"));
+    // The critical path, switched off in the ribbon.
+    let critical = text::t().critical_short;
+    assert!(
+        named(&harness, "Später").contains(critical),
+        "{}",
+        named(&harness, "Später")
+    );
+    click(&mut harness, text::t().ribbon.schedule_tools);
+    click(
+        &mut harness,
+        &format!("{}: {}", text::t().show, text::t().critical_path),
+    );
+    assert!(!named(&harness, "Später").contains(critical));
+}
+
+fn waits_for(harness: &Harness<'_, PlnwrkApp>, from: TaskId, to: TaskId) -> bool {
+    harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .dependencies()
+        .any(|d| d.from == from && d.to == to)
+}
+
+#[test]
+fn a_dependency_is_drawn_from_the_handle_onto_another_bar() {
+    let (mut harness, first, second) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let handle = harness
+        .get_by_label(&format!("{} · Ausschreibung", text::t().link_handle))
+        .rect()
+        .center();
+    let target = bar(&harness, "Vergabe").center();
+    drag(&mut harness, handle, target - handle);
+    assert!(
+        waits_for(&harness, first, second),
+        "Vergabe waits for Ausschreibung"
+    );
+    // Back the other way would be a circle: nothing happens.
+    let handle = harness
+        .get_by_label(&format!("{} · Vergabe", text::t().link_handle))
+        .rect()
+        .center();
+    let target = bar(&harness, "Ausschreibung").center();
+    drag(&mut harness, handle, target - handle);
+    assert!(!waits_for(&harness, second, first));
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_none_or(|m| !m.error)
+    );
+}
+
+#[test]
+fn a_right_click_on_a_bar_adds_a_predecessor() {
+    let (mut harness, first, second) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let at = bar(&harness, "Vergabe").center();
+    harness.hover_at(at);
+    harness.run_steps(2);
+    harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with("Vergabe: ")))
+        .click_secondary();
+    harness.run_steps(4);
+    // A submenu carries an arrow after its name.
+    let submenu = harness
+        .get_by(|n| {
+            n.label()
+                .is_some_and(|l| l.starts_with(text::t().add_predecessor_menu))
+        })
+        .rect()
+        .center();
+    tap(&mut harness, submenu);
+    harness.run_steps(4);
+    // The menu offers Ausschreibung (not Vergabe itself).
+    let offered = harness
+        .query_all_by_label("Ausschreibung")
+        .map(|n| n.rect())
+        .find(|r| r.width() < 400.0 && r.left() > at.x - 200.0);
+    let offered = offered.expect("offered in the menu");
+    tap(&mut harness, offered.center());
+    harness.run_steps(4);
+    assert!(waits_for(&harness, first, second));
+}
+
+#[test]
+fn the_legend_explains_only_the_red_that_is_shown() {
+    let mut harness = wide_schedule(0);
+    // "Früher" is overdue; tasks without links: the last one is critical.
+    assert!(harness.query_by_label(text::t().overdue_hint).is_some());
+    assert!(harness.query_by_label(text::t().critical_hint).is_some());
+    assert!(
+        harness.query_by_label(text::t().due_line_hint).is_none(),
+        "no project deadline"
+    );
+    harness.state_mut().apply(crate::Intent::ToggleCritical);
+    harness.run();
+    assert!(harness.query_by_label(text::t().critical_hint).is_none());
+    assert_eq!(text::float(39), "Spielraum: 39 Tage");
+}
+
+#[test]
+fn an_empty_schedule_says_what_to_do_and_leads_there() {
+    let mut harness = with_project("Leer");
+    type_into(&mut harness, text::t().new_task_hint, "Ohne Termin", true);
+    click(&mut harness, text::t().schedule_tab);
+    assert!(harness.query_by_label(text::t().schedule_empty).is_some());
+    click(&mut harness, text::t().give_dates);
+    let task = task_named(harness.state(), "Ohne Termin").unwrap().id;
+    assert_eq!(
+        harness.state().state.selected,
+        Some(task),
+        "its details are open"
+    );
+}
+
+// ---- Review 9c: what must not happen ----
+
+/// A project with one task holding only these dates, shown in the schedule at day level.
+fn one_task_schedule(
+    start: Option<i64>,
+    due: Option<i64>,
+) -> (Harness<'static, PlnwrkApp>, TaskId) {
+    let mut harness = with_project("Eins");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    let mut params = serde_json::json!({"project": project, "title": "Eins"});
+    if let Some(start) = start {
+        params["start"] = serde_json::json!(day(start));
+    }
+    if let Some(due) = due {
+        params["due"] = serde_json::json!(day(due));
+    }
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("task.create", params));
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    click(&mut harness, text::t().zoom_levels[3]);
+    click(&mut harness, text::t().today);
+    let id = task_named(harness.state(), "Eins").unwrap().id;
+    (harness, id)
+}
+
+fn task_dates(
+    harness: &Harness<'_, PlnwrkApp>,
+    id: TaskId,
+) -> (Option<jiff::civil::Date>, Option<jiff::civil::Date>) {
+    let task = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .task(id)
+        .cloned()
+        .unwrap();
+    (task.start, task.due)
+}
+
+#[test]
+fn edges_never_invent_a_deadline_and_never_cross() {
+    let today = |h: &Harness<'_, PlnwrkApp>| h.state().doc().unwrap().session.clock().today();
+    let day = |h: &Harness<'_, PlnwrkApp>, n: i64| today(h) + jiff::Span::new().days(n);
+    // Only a start: its start moves, no deadline appears.
+    let (mut harness, id) = one_task_schedule(Some(2), None);
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().start))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(96.0, 0.0));
+    assert_eq!(task_dates(&harness, id), (Some(day(&harness, 4)), None));
+    // Only a deadline: it moves earlier.
+    let (mut harness, id) = one_task_schedule(None, Some(6));
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().due))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(-96.0, 0.0));
+    assert_eq!(task_dates(&harness, id), (None, Some(day(&harness, 4))));
+    // Start past the deadline stops at the deadline; deadline before the start stops there.
+    let (mut harness, id) = one_task_schedule(Some(2), Some(4));
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().start))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(48.0 * 5.0, 0.0));
+    assert_eq!(
+        task_dates(&harness, id),
+        (Some(day(&harness, 4)), Some(day(&harness, 4)))
+    );
+    let (mut harness, id) = one_task_schedule(Some(2), Some(4));
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().due))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(-48.0 * 5.0, 0.0));
+    assert_eq!(
+        task_dates(&harness, id),
+        (Some(day(&harness, 2)), Some(day(&harness, 2)))
+    );
+}
+
+#[test]
+fn without_a_deadline_nothing_is_overdue() {
+    use egui_kittest::kittest::NodeT as _;
+    let (harness, _) = one_task_schedule(Some(-3), None);
+    let name = harness
+        .query_by(|n| n.label().is_some_and(|l| l.starts_with("Eins: ")))
+        .and_then(|n| n.accesskit_node().label())
+        .expect("the bar is there");
+    assert!(!name.contains(text::t().overdue_short), "{name}");
+    assert!(harness.query_by_label(text::t().overdue_hint).is_none());
+}
+
+#[test]
+fn clicking_a_bar_in_view_does_not_move_the_chart() {
+    let mut harness = wide_schedule(0);
+    // The detail panel open already (it narrows the chart when it opens).
+    let early = task_named(harness.state(), "Früher").unwrap().id;
+    harness.state_mut().state.select(Some(early));
+    harness.run_steps(30);
+    click(&mut harness, text::t().today);
+    let before = bar(&harness, "Jetzt");
+    tap(&mut harness, before.center());
+    harness.run_steps(30);
+    assert_eq!(
+        harness.state().state.selected,
+        task_named(harness.state(), "Jetzt").map(|t| t.id)
+    );
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        (after.center() - before.center()).length() < 1.0,
+        "{before:?} → {after:?}"
+    );
+}
+
+#[test]
+fn even_a_wide_title_column_leaves_the_chart_half() {
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(800.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), PlnwrkApp::default());
+    harness.run();
+    harness.state_mut().state.title_width = Some(480.0);
+    click(&mut harness, text::t().open_sample);
+    sample_schedule_open(&mut harness);
+    let row = table_row(&harness, "Einbau Wache 11");
+    let room = 800.0 - row.left();
+    assert!(row.width() <= room / 2.0 + 1.0, "{row:?} of {room}");
+}
+
+#[test]
+fn the_keyboard_does_not_stop_on_drag_handles() {
+    use egui_kittest::kittest::NodeT as _;
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, text::t().schedule_tab);
+    let handles = [text::t().start, text::t().due, text::t().link_handle];
+    for _ in 0..40 {
+        harness.key_press(Key::Tab);
+        harness.run();
+        if let Some(label) = harness
+            .query_by(|n| n.is_focused())
+            .and_then(|n| n.accesskit_node().label())
+        {
+            assert!(
+                !handles
+                    .iter()
+                    .any(|h| label.starts_with(&format!("{h} · "))),
+                "focus on {label}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_subtask_chosen_elsewhere_unfolds_its_parent() {
+    let mut harness = harness_with_sample();
+    sample_schedule_open(&mut harness);
+    click(&mut harness, text::t().fold_subtasks);
+    let sub = task_named(harness.state(), "Leistungsverzeichnis")
+        .unwrap()
+        .id;
+    harness.state_mut().apply(crate::Intent::Select(Some(sub)));
+    harness.run();
+    assert!(
+        harness
+            .query_all_by_label("Leistungsverzeichnis")
+            .any(|n| n.rect().width() > 100.0),
+        "the parent unfolds"
+    );
+}
+
+#[test]
+fn the_circle_rule_holds_both_ways() {
+    // A → B → C: C may not precede A, A may not follow C, and nothing twice or itself.
+    let mut harness = with_project("Kette");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    for title in ["A", "B", "C"] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title}),
+        ));
+    }
+    let id = |h: &Harness<'_, PlnwrkApp>, t: &str| task_named(h.state(), t).unwrap().id;
+    let (a, b, c) = (id(&harness, "A"), id(&harness, "B"), id(&harness, "C"));
+    for (from, to) in [(a, b), (b, c)] {
+        harness.state_mut().apply(crate::Intent::run(
+            "dependency.add",
+            serde_json::json!({"from": from.to_string(), "to": to.to_string()}),
+        ));
+    }
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let a_may_wait_for = crate::views::detail::may_precede(&ws, a);
+    assert!(!a_may_wait_for(c) && !a_may_wait_for(b) && !a_may_wait_for(a));
+    let c_may_wait_for = crate::views::detail::may_precede(&ws, c);
+    assert!(c_may_wait_for(a), "a shortcut is no circle");
+    assert!(!c_may_wait_for(b), "not twice");
+    let may_wait_for_c = crate::views::detail::may_follow(&ws, c);
+    assert!(!may_wait_for_c(a) && !may_wait_for_c(b) && !may_wait_for_c(c));
+    let may_wait_for_a = crate::views::detail::may_follow(&ws, a);
+    assert!(
+        may_wait_for_a(c),
+        "C waits for A through B; directly too is a shortcut, no circle"
+    );
+    assert!(!may_wait_for_a(b), "not twice");
+}
+
+#[test]
+fn an_edge_held_against_the_other_date_makes_up_nothing() {
+    let today = |h: &Harness<'_, PlnwrkApp>| h.state().doc().unwrap().session.clock().today();
+    let day = |h: &Harness<'_, PlnwrkApp>, n: i64| today(h) + jiff::Span::new().days(n);
+    // Only a start: the deadline end pulled left onto the start stays without a deadline.
+    let (mut harness, id) = one_task_schedule(Some(-3), None);
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().due))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(-96.0, 0.0));
+    assert_eq!(task_dates(&harness, id), (Some(day(&harness, -3)), None));
+    // Only a deadline: the start end pushed right onto it stays without a start.
+    let (mut harness, id) = one_task_schedule(None, Some(3));
+    let at = harness
+        .get_by_label(&format!("{} · Eins", text::t().start))
+        .rect()
+        .center();
+    drag(&mut harness, at, egui::vec2(96.0, 0.0));
+    assert_eq!(task_dates(&harness, id), (None, Some(day(&harness, 3))));
+}
+
+#[test]
+fn clicking_a_long_bar_does_not_move_the_chart() {
+    let (mut harness, id) = one_task_schedule(Some(-40), Some(80));
+    let at = egui::pos2(1000.0, bar(&harness, "Eins").center().y);
+    // Measured from the chart's left edge (the table can narrow when the details open), at the
+    // bar's right end: its left end is cut at the table and would stay put anyway.
+    let from_chart =
+        |h: &Harness<'_, PlnwrkApp>| bar(h, "Eins").right() - table_row(h, "Eins").right();
+    let before = from_chart(&harness);
+    tap(&mut harness, at);
+    harness.run_steps(30);
+    assert_eq!(harness.state().state.selected, Some(id));
+    let after = from_chart(&harness);
+    assert!((after - before).abs() < 1.0, "{before} → {after}");
+}
+
+#[test]
+fn the_schedule_calls_overdue_what_the_list_calls_overdue() {
+    use egui_kittest::kittest::NodeT as _;
+    // Due today at midnight: past already, as the list and the overview say.
+    let mut harness = with_project("Heute fällig");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Mitternacht", "start": today.to_string(),
+            "due": format!("{today}T00:00")}),
+    ));
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    let name = harness
+        .query_by(|n| n.label().is_some_and(|l| l.starts_with("Mitternacht: ")))
+        .and_then(|n| n.accesskit_node().label())
+        .expect("the bar is there");
+    assert!(name.contains(text::t().overdue_short), "{name}");
+}
+
+/// "Overdue" is decided in one place (`plnwrk_engine::query::task_overdue`): no view compares
+/// dates with today on its own (the schedule did, and disagreed with the list).
+#[test]
+fn views_ask_the_engine_what_is_overdue() {
+    let own_rule = |line: &str| {
+        let line = line.replace(' ', "");
+        ["<today", "<=today", "today>", "today>="]
+            .iter()
+            .any(|p| line.contains(p))
+    };
+    assert!(
+        own_rule("due < today") && own_rule("today >= due") && !own_rule("days_from(first, today)")
+    );
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/views");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            if own_rule(line) {
+                found.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+            }
+        }
+    }
+    assert!(found.is_empty(), "{found:#?}");
 }

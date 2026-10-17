@@ -71,16 +71,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   **9a fertig** (PR #16: Bedienfehler Klick und Mausrad, Pinch überall, Gestaltungssystem in
-   `crates/ui/src/design/`, Vorher/Nachher in `docs/ux/2026-10-17-9a/`; Review + Nachreview
-   eingearbeitet) – wartet auf Tobis „ja, merge“. **9b gebaut** (Branch `phase-9b`, Ribbon,
-   gemeinsame Aktionsliste mit der Palette, Ort im MCP) – Review steht aus. Danach **9c**
-   (Zeitplan neu). Bekannt für 9f: Mit offenem
+   **9a und 9b gemergt** (#16, #17). **9c gebaut** (Branch `phase-9c`: Zeitplan mit Navigation,
+   Tabelle, Balken-Enden, Abhängigkeiten per Ziehen) – Review steht aus. Danach **9d**
+   (Meilensteine, Bestätigung jeder Meilenstein-Änderung). Bekannt für 9f: Mit offenem
    Detailbereich rutschen „Bearbeiten/Archivieren“ über den Projekttitel; Eingabefelder noch
-   flach (egui-Rand). Erster Start von 0.1.0 am Mac und Realitätstest 4.10 sind erledigt
-   (2026-10-17). Aufräumen
-   am Rechner: `git branch -D board-zoom-export phase-6a-plus phase-8 readme-und-feinschliff
-   docs-0.1.0`.
+   flach; „Vorgang“ ohne Aktenzeichen bekommt noch keine Uhrzeit bei der Frist.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der

@@ -151,8 +151,12 @@ pub(crate) enum Intent {
     /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
     /// the browser.
     ExportSchedule(ProjectId),
-    /// One zoom step in (1) or out (-1) in the schedule of a project.
-    Zoom(ProjectId, i8),
+    /// Something for the schedule of a project: zoom level, today, the whole project.
+    Schedule(ProjectId, state::ScheduleRequest),
+    /// Show or hide a column of the schedule's table.
+    ToggleColumn(state::ScheduleColumn),
+    /// Mark the critical path in red, or not.
+    ToggleCritical,
     /// New dates for a task; what waits for it moves along (one step). `due_time`: a new time
     /// of day for the deadline (`Some(None)` clears it), `None` keeps it.
     Reschedule {
@@ -532,11 +536,11 @@ impl PlnwrkApp {
         }
         views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
         // Taken by the schedule in this frame (or not shown: dropped).
-        self.state.zoom_request = None;
+        self.state.schedule_request = None;
         for intent in intents {
             self.apply(intent);
         }
-        if self.state.zoom_request.is_some() {
+        if self.state.schedule_request.is_some() {
             ui.ctx().request_repaint();
         }
         // egui keeps a closed dialog's backdrop one frame longer: a press in the next frame
@@ -678,7 +682,15 @@ impl PlnwrkApp {
             }
             Intent::Open(dialog) => self.state.open_dialog(dialog),
             Intent::CloseDialog => self.state.close_dialog(),
-            Intent::Zoom(project, step) => self.state.zoom_request = Some((project, step)),
+            Intent::Schedule(project, request) => {
+                self.state.schedule_request = Some((project, request));
+            }
+            Intent::ToggleCritical => self.state.hide_critical = !self.state.hide_critical,
+            Intent::ToggleColumn(column) => {
+                if !self.state.hidden_columns.remove(&column) {
+                    self.state.hidden_columns.insert(column);
+                }
+            }
             Intent::File(action) => self.file(action),
             Intent::Unlock(source, secret) => {
                 self.state.close_dialog();

@@ -11,7 +11,10 @@ use serde_json::json;
 
 use crate::design::Icon;
 use crate::doc::OpenDoc;
-use crate::state::{Dialog, FileAction, ProjectForm, State, Tab, TemplateForm, View};
+use crate::state::{
+    Dialog, FileAction, ProjectForm, ScheduleColumn, ScheduleRequest, State, Tab, TemplateForm,
+    View,
+};
 use crate::views::keys;
 use crate::{Intent, text};
 
@@ -71,12 +74,14 @@ pub enum Group {
     Language,
     TaskStatus,
     TaskEdit,
+    Navigate,
     Zoom,
+    Show,
     Share,
 }
 
 impl Group {
-    pub const ALL: [Group; 15] = [
+    pub const ALL: [Group; 17] = [
         Group::FileNew,
         Group::FileSave,
         Group::FileProtect,
@@ -90,7 +95,9 @@ impl Group {
         Group::Language,
         Group::TaskStatus,
         Group::TaskEdit,
+        Group::Navigate,
         Group::Zoom,
+        Group::Show,
         Group::Share,
     ];
 
@@ -102,7 +109,7 @@ impl Group {
             Group::New | Group::Undo | Group::Find => RibbonTab::Start,
             Group::Views | Group::Areas | Group::Appearance | Group::Language => RibbonTab::View,
             Group::TaskStatus | Group::TaskEdit => RibbonTab::Task,
-            Group::Zoom | Group::Share => RibbonTab::Schedule,
+            Group::Navigate | Group::Zoom | Group::Show | Group::Share => RibbonTab::Schedule,
         }
     }
 
@@ -123,7 +130,9 @@ impl Group {
             Group::Language => t.language_menu,
             Group::TaskStatus => t.status,
             Group::TaskEdit => r.edit,
+            Group::Navigate => r.navigate,
             Group::Zoom => r.zoom,
+            Group::Show => t.show,
             Group::Share => r.share,
         }
     }
@@ -579,23 +588,64 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
     if let Some(project) = project
         && state.tab == Tab::Schedule
     {
+        let ask = |request| vec![Intent::Schedule(project.id, request)];
         a.push(
             act(
-                Group::Zoom,
-                Icon::ZoomIn,
-                t.zoom_in,
-                vec![Intent::Zoom(project.id, 1)],
+                Group::Navigate,
+                Icon::Today,
+                t.today,
+                ask(ScheduleRequest::Today),
             )
-            .long(format!("{}: {}", r.zoom, t.zoom_in)),
+            .long(format!("{}: {}", r.navigate, t.today))
+            .large(),
         );
         a.push(
             act(
-                Group::Zoom,
-                Icon::ZoomOut,
-                t.zoom_out,
-                vec![Intent::Zoom(project.id, -1)],
+                Group::Navigate,
+                Icon::WholeProject,
+                t.whole_project,
+                ask(ScheduleRequest::Whole),
             )
-            .long(format!("{}: {}", r.zoom, t.zoom_out)),
+            .large(),
+        );
+        let level = state
+            .zoom_levels
+            .get(&project.id)
+            .copied()
+            .unwrap_or(crate::views::schedule::LEVEL_START);
+        for (n, name) in t.zoom_levels.iter().enumerate().rev() {
+            a.push(
+                act(
+                    Group::Zoom,
+                    Icon::Calendar,
+                    *name,
+                    ask(ScheduleRequest::Level(n)),
+                )
+                .long(format!("{}: {name}", r.zoom))
+                .chosen(level == n),
+            );
+        }
+        for column in ScheduleColumn::ALL {
+            a.push(
+                act(
+                    Group::Show,
+                    Icon::List,
+                    column.name(),
+                    vec![Intent::ToggleColumn(column)],
+                )
+                .long(format!("{}: {}", t.show, column.name()))
+                .chosen(!state.hidden_columns.contains(&column)),
+            );
+        }
+        a.push(
+            act(
+                Group::Show,
+                Icon::Schedule,
+                t.critical_path,
+                vec![Intent::ToggleCritical],
+            )
+            .long(format!("{}: {}", t.show, t.critical_path))
+            .chosen(!state.hide_critical),
         );
         a.push(
             act(

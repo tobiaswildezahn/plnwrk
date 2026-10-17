@@ -14,6 +14,14 @@ pub fn format(date: Date) -> String {
     }
 }
 
+/// Shows a date without the year, for short labels: `16.10.` or `10-16`.
+pub fn format_short(date: Date) -> String {
+    match crate::text::language() {
+        Language::German => format!("{:02}.{:02}.", date.day(), date.month()),
+        Language::English => format!("{:02}-{:02}", date.month(), date.day()),
+    }
+}
+
 /// Shows a moment in local time: `31.12.2026 14:00` or `2026-12-31 14:00`.
 pub fn format_moment(moment: jiff::Timestamp) -> String {
     let local = moment.to_zoned(jiff::tz::TimeZone::system());

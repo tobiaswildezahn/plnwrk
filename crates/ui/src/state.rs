@@ -24,6 +24,51 @@ pub enum View {
     People,
 }
 
+/// A column of the schedule's table beside the titles (Phase 9c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ScheduleColumn {
+    Start,
+    Due,
+    Assignee,
+}
+
+impl ScheduleColumn {
+    pub const ALL: [ScheduleColumn; 3] = [
+        ScheduleColumn::Start,
+        ScheduleColumn::Due,
+        ScheduleColumn::Assignee,
+    ];
+
+    /// Its heading.
+    pub fn name(self) -> &'static str {
+        let t = crate::text::t();
+        match self {
+            ScheduleColumn::Start => t.start,
+            ScheduleColumn::Due => t.due,
+            ScheduleColumn::Assignee => t.assignee,
+        }
+    }
+
+    /// Its width in points.
+    pub fn width(self) -> f32 {
+        match self {
+            ScheduleColumn::Start | ScheduleColumn::Due => 88.0,
+            ScheduleColumn::Assignee => 112.0,
+        }
+    }
+}
+
+/// What the ribbon asks of the schedule (Phase 9c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleRequest {
+    /// Show this zoom level (index, coarse to fine).
+    Level(usize),
+    /// Bring today into view.
+    Today,
+    /// Fit the whole project into view.
+    Whole,
+}
+
 /// The parts of a project view.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -503,8 +548,18 @@ pub struct State {
     /// Whether the ribbon starts collapsed, decided once from the window height (until the
     /// person chooses).
     pub ribbon_default: Option<bool>,
-    /// A zoom step for the schedule of this project (from the ribbon), taken in the next frame.
-    pub zoom_request: Option<(plnwrk_core::ProjectId, i8)>,
+    /// What the ribbon asks of the schedule of a project, taken in the next frame.
+    pub schedule_request: Option<(plnwrk_core::ProjectId, ScheduleRequest)>,
+    /// The zoom level of each project's schedule (index into the levels of the schedule).
+    pub zoom_levels: std::collections::HashMap<plnwrk_core::ProjectId, usize>,
+    /// Columns of the schedule's table the person switched off.
+    pub hidden_columns: std::collections::BTreeSet<ScheduleColumn>,
+    /// Width of the title column of the schedule (the person can drag it); `None`: standard.
+    pub title_width: Option<f32>,
+    /// Tasks whose subtasks the schedule hides.
+    pub folded: std::collections::BTreeSet<TaskId>,
+    /// The schedule does not mark the critical path in red.
+    pub hide_critical: bool,
 }
 
 impl State {
