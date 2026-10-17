@@ -36,7 +36,10 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
     let mut message = None;
     // A refusal while the dialog is open is said in it, not behind it (one message, one
     // place: the message bar waits while a dialog is open).
-    let refusal = state.message.clone().filter(|m| m.error);
+    let refusal = state
+        .message
+        .clone()
+        .filter(|m| m.error && Some(m) != state.message_at_open.as_ref());
     let response = Modal::new(Id::new("dialog"))
         .frame(w::dialog_frame(ctx))
         .show(ctx, |ui| {
@@ -561,7 +564,6 @@ fn new_project(
     // click of that button – "Abbrechen" must not create).
     let enter = ui.input(|i| i.key_pressed(Key::Enter));
     let mut enter_in_field = false;
-    let mut person_enter = false;
     // The person's field takes the cursor once, in the frame after it was chosen.
     let focus_id = Id::new(("new-person-focus", serial));
     let focus_person = ui
@@ -663,7 +665,6 @@ fn new_project(
                             field.request_focus();
                         }
                         let entered = field.lost_focus() && enter;
-                        person_enter = entered;
                         let add = w::button(ui, Kind::Secondary, t.create).clicked();
                         if (entered || add) && !name.trim().is_empty() {
                             out.push(Intent::Run {
@@ -672,7 +673,11 @@ fn new_project(
                                 then: Then::OwnerOfNew,
                                 clear: None,
                             });
-                        } else if field.lost_focus() && name.trim().is_empty() {
+                        } else if field.lost_focus()
+                            && name.trim().is_empty()
+                            && !ui.input(|i| i.key_pressed(Key::Escape))
+                        {
+                            // Left empty (not by Escape: that is handled in `show`).
                             drop_person = true;
                         }
                     });
@@ -690,8 +695,13 @@ fn new_project(
     }
     ui.add_space(space::S);
     let titled = !form.title.trim().is_empty();
-    let ready = titled && !wrong_dates && !too_long;
-    let entered = enter_in_field && !person_enter;
+    // A name typed for a new person and not added yet would be lost: added (or emptied) first.
+    let person_pending = form
+        .new_person
+        .as_ref()
+        .is_some_and(|name| !name.trim().is_empty());
+    let ready = titled && !wrong_dates && !too_long && !person_pending;
+    let entered = enter_in_field;
     ui.horizontal(|ui| {
         let create = ui
             .add_enabled_ui(ready, |ui| w::button(ui, Kind::Primary, t.create))
@@ -720,5 +730,7 @@ fn new_project(
     });
     if !titled {
         ui.weak(t.title_needed);
+    } else if person_pending {
+        ui.weak(t.person_pending);
     }
 }

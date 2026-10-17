@@ -8070,3 +8070,180 @@ fn messages_go_with_the_view_and_cards_fit_the_window() {
         );
     }
 }
+
+/// The new dialog with the field for a new person open (chosen in the list).
+fn new_person_chosen() -> Harness<'static, PlnwrkApp> {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, "Übung", false);
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    harness.run();
+    harness
+}
+
+fn new_form(harness: &Harness<'_, PlnwrkApp>) -> crate::state::ProjectForm {
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the new dialog is open")
+    };
+    form
+}
+
+/// Nachreview 9f (N1): Escape at once in the (empty) field for a new person drops only it.
+#[test]
+fn escape_in_the_empty_person_field_keeps_the_dialog() {
+    let mut harness = new_person_chosen();
+    harness.key_press(Key::Escape);
+    harness.run();
+    let form = new_form(&harness);
+    assert_eq!(form.title, "Übung");
+    assert!(form.new_person.is_none());
+}
+
+/// Nachreview 9f (K1): the person's field does not take the cursor back – typing in the title
+/// goes there – and left empty it goes away.
+#[test]
+fn the_person_field_lets_go_of_the_cursor_and_goes_when_left_empty() {
+    let mut harness = new_person_chosen();
+    assert!(new_form(&harness).new_person.is_some());
+    // Into the title with the mouse, then typing.
+    let title = harness.get_by_label(text::t().title).rect().center();
+    harness.hover_at(title);
+    harness.run();
+    tap(&mut harness, title);
+    harness.run_steps(3);
+    harness.event(egui::Event::Text("!".to_owned()));
+    harness.run();
+    let form = new_form(&harness);
+    assert_eq!(form.title, "Übung!");
+    assert!(form.new_person.is_none(), "left empty: gone");
+}
+
+/// Nachreview 9f (N3): a name typed for a new person and not added yet is not lost by Enter in
+/// the title – nothing is created until it is added or emptied, and it says so.
+#[test]
+fn a_typed_person_is_not_lost_by_enter() {
+    let mut harness = new_person_chosen();
+    harness.event(egui::Event::Text("Ann".to_owned()));
+    harness.run();
+    type_into(&mut harness, text::t().title, "Übung", true);
+    assert!(projects(harness.state()).is_empty());
+    assert!(harness.query_by_label(text::t().person_pending).is_some());
+    assert_eq!(new_form(&harness).new_person.as_deref(), Some("Ann"));
+}
+
+/// Nachreview 9f (N2): a refusal said earlier is not said again in a later dialog.
+#[test]
+fn an_old_refusal_does_not_show_in_a_new_dialog() {
+    let mut harness = harness_after_new_file();
+    harness.state_mut().state.message = Some(crate::state::Message::error("Früher abgelehnt."));
+    harness.run();
+    click(&mut harness, text::t().new_project);
+    assert!(harness.query_by_label("Früher abgelehnt.").is_none());
+    // One that comes up while it is open is said in it.
+    harness.state_mut().state.message = Some(crate::state::Message::error("Jetzt abgelehnt."));
+    harness.run();
+    assert_eq!(harness.query_all_by_label("Jetzt abgelehnt.").count(), 1);
+}
+
+/// Nachreview 9f (K2): Enter in every field of the form creates – reference, start, deadline,
+/// its time – not only in the title.
+#[test]
+fn enter_in_any_field_of_the_new_dialog_creates() {
+    let t = text::t();
+    let today = jiff::Zoned::now().date();
+    let day = crate::dates::format(today);
+    for (field, typed) in [
+        (t.reference, "23/1"),
+        (t.start, day.as_str()),
+        (t.due, day.as_str()),
+        (t.time_hint, "14:00"),
+    ] {
+        let mut harness = new_project_dialog();
+        type_into(&mut harness, t.title, "Übung", false);
+        // A time needs its day.
+        if field == t.time_hint {
+            type_into(&mut harness, t.due, &day, false);
+        }
+        type_into(&mut harness, field, typed, true);
+        assert_eq!(projects(harness.state()).len(), 1, "Enter in {field}");
+    }
+}
+
+/// Nachreview 9f (K3): a long overdue line does not widen the overview past the window; the
+/// card's title is a link.
+#[test]
+fn a_long_line_does_not_widen_the_overview() {
+    let mut harness = harness_with_sample();
+    let project = projects(harness.state())
+        .into_iter()
+        .find(|p| !p.template && !p.is_case())
+        .unwrap()
+        .id
+        .to_string();
+    let long = "Eine sehr lange überfällige Aufgabe mit einem Titel, der in einer Zeile weit über das Fenster hinausreichen würde";
+    let yesterday = day_from_today(&harness, -1);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": long, "due": yesterday}),
+    ));
+    harness.set_size(egui::vec2(700.0, 900.0));
+    harness.run();
+    let roles: Vec<(egui::accesskit::Role, egui::Rect)> = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .map(|n| {
+            (
+                egui_kittest::kittest::NodeT::accesskit_node(&n).role(),
+                n.rect(),
+            )
+        })
+        .collect();
+    let card = roles
+        .iter()
+        .find(|(role, _)| *role == egui::accesskit::Role::Link)
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("the card's title is a link: {roles:?}"));
+    assert!(card.right() <= 700.0, "{card:?}");
+    // The long line itself wraps inside the window.
+    let line = harness
+        .query_all_by_label_contains("Eine sehr lange überfällige Aufgabe")
+        .map(|n| n.rect())
+        .next()
+        .unwrap();
+    assert!(line.right() <= 700.0, "{line:?}");
+}
+
+/// Nachreview 9f (K4): a refusal on the way to another view (a title emptied) stays said there.
+#[test]
+fn a_refusal_on_the_way_out_stays_said() {
+    let (mut harness, first, _) = two_dated_tasks();
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(first)));
+    harness.run();
+    let title = harness
+        .query_all_by(|n| n.value().as_deref() == Some("Ausschreibung"))
+        .find(|n| {
+            egui_kittest::kittest::NodeT::accesskit_node(n).role()
+                == egui::accesskit::Role::TextInput
+        })
+        .unwrap();
+    title.focus();
+    harness.run();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run();
+    harness.key_press(Key::Backspace);
+    harness.run();
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::People));
+    harness.run();
+    let said = harness
+        .state()
+        .state
+        .message
+        .clone()
+        .map(|m| m.text)
+        .unwrap_or_default();
+    assert!(said.contains(text::t().not_taken), "{said}");
+}

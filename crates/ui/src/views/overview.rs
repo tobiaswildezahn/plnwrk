@@ -178,7 +178,7 @@ fn project_card(
             {
                 ui.label(RichText::new(why).color(design::palette(ui).warning));
             }
-            // A link that wraps (egui's own link stays on one line).
+            // A link that wraps, read as a link (egui's `link` is read as a plain label here).
             let title =
                 design::subheading_text(ui, &card.title).color(ui.visuals().hyperlink_color);
             let link = ui

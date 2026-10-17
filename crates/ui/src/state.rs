@@ -547,6 +547,8 @@ pub struct State {
     pub quitting: bool,
     /// Counts opened dialogs, so each one can focus its first field once.
     pub dialog_serial: u64,
+    /// The message standing when the dialog opened – not said again in it.
+    pub message_at_open: Option<Message>,
     /// How the recovery copy stands, for the status bar.
     pub recovery: Option<crate::autosave::Written>,
     /// The language of the interface.
@@ -654,6 +656,8 @@ impl State {
         self.close_dialog();
         self.dialog = Some(dialog);
         self.dialog_serial = self.dialog_serial.wrapping_add(1);
+        // What was said before belongs to before: the dialog says only what comes up in it.
+        self.message_at_open = self.message.clone();
     }
 
     /// Closes the dialog; a typed passphrase is wiped from memory.
