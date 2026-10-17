@@ -14,6 +14,7 @@
 mod autosave;
 mod browser_copy;
 mod dates;
+mod design;
 mod doc;
 mod export;
 mod host;
@@ -490,6 +491,9 @@ impl PlnwrkApp {
     /// Draws one frame and carries out what the person did. Kept apart from [`eframe::App`] so
     /// tests can run it without a window.
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        design::install(ui.ctx());
+        // Before anything that may close a dialog (an upload replacing the work, too).
+        let had_dialog = self.state.dialog.is_some();
         text::set_language(self.state.language);
         // A file chosen in the browser arrives some frames after it was asked for.
         // Another tab opened or closed: its copies are offered or no longer.
@@ -517,6 +521,12 @@ impl PlnwrkApp {
         views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
         for intent in intents {
             self.apply(intent);
+        }
+        // egui keeps a closed dialog's backdrop one frame longer: a press in the next frame
+        // (a quick click, a tap) was swallowed. Drawing this frame again without the dialog
+        // clears it before any further input arrives.
+        if had_dialog && self.state.dialog.is_none() {
+            ui.ctx().request_discard("dialog closed");
         }
         self.autosave_tick(ui.ctx());
         let unsaved = self.has_unsaved_changes();

@@ -13,9 +13,11 @@ use egui::{Key, RichText};
 use plnwrk_core::{Classification, TaskStatus};
 use plnwrk_engine::query;
 
+use crate::design::Icon;
+use crate::design::widgets::Kind;
 use crate::doc::OpenDoc;
 use crate::state::{Dialog, FileAction, ProjectForm, State, TemplateForm, View};
-use crate::{Intent, text};
+use crate::{Intent, design, text};
 
 /// The keyboard shortcuts (Cmd on the Mac, Ctrl elsewhere).
 pub mod keys {
@@ -268,7 +270,7 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
 fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() * 0.2);
-        ui.heading(RichText::new(crate::APP_NAME).size(32.0));
+        ui.heading(RichText::new(crate::APP_NAME).size(design::tokens::size::DISPLAY));
         ui.label(text::t().welcome);
         ui.weak(format!(
             "{} {}",
@@ -282,17 +284,14 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
             ui.weak(text::t().browser_not_vs_hint);
         }
         ui.add_space(16.0);
-        let big = |label: &str| {
-            egui::Button::new(RichText::new(label).size(16.0)).min_size(egui::vec2(220.0, 34.0))
-        };
-        if ui.add(big(text::t().new_file)).clicked() {
-            out.push(Intent::File(FileAction::New));
-        }
-        if ui.add(big(text::t().open_file)).clicked() {
-            out.push(Intent::File(FileAction::Open));
-        }
-        if ui.add(big(text::t().open_sample)).clicked() {
-            out.push(Intent::File(FileAction::Sample));
+        for (kind, label, action) in [
+            (Kind::Primary, text::t().new_file, FileAction::New),
+            (Kind::Secondary, text::t().open_file, FileAction::Open),
+            (Kind::Secondary, text::t().open_sample, FileAction::Sample),
+        ] {
+            if design::widgets::wide_button(ui, kind, label, 220.0).clicked() {
+                out.push(Intent::File(action));
+            }
         }
         if !state.stored_copies.is_empty() {
             ui.add_space(16.0);
@@ -377,7 +376,7 @@ fn copy_row(ui: &mut egui::Ui, name: &str, hover: &str) -> (bool, bool) {
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(size, layout, |ui| {
         let open = ui.link(name).on_hover_text(hover).clicked();
-        let delete = icon_button(ui, "🗑", text::t().delete_copy).clicked();
+        let delete = icon_button(ui, Icon::Delete, text::t().delete_copy).clicked();
         (open, delete)
     })
     .inner
@@ -474,14 +473,8 @@ fn status_tag(ui: &mut egui::Ui, status: TaskStatus) {
     }
 }
 
-/// A small button showing only a symbol, with a spoken name for screen readers (and as
-/// tooltip): "📅" is read as "Im Kalender wählen", not as "calendar emoji".
-pub fn icon_button(ui: &mut egui::Ui, icon: &str, name: &str) -> egui::Response {
-    let response = ui.small_button(icon).on_hover_text(name);
-    let enabled = ui.is_enabled();
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
-    response
-}
+/// A button showing only a symbol, with a spoken name for screen readers (and as tooltip).
+pub use crate::design::widgets::icon_button;
 
 /// A text field that commits on Enter or when it loses focus; returns whether to commit.
 fn commit_field(response: &egui::Response) -> bool {

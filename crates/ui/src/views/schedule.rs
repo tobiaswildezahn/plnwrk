@@ -12,6 +12,7 @@ use plnwrk_core::{Project, Task, TaskId, TaskStatus};
 use plnwrk_engine::query::TaskIndex;
 use plnwrk_schedule::{Analysis, Calendar, Item, Plan, Warning};
 
+use crate::design::Icon;
 use crate::doc::OpenDoc;
 use crate::state::State;
 use crate::{Intent, dates, text};
@@ -25,7 +26,7 @@ const ROW: f32 = 24.0;
 /// Width of the column with the titles.
 const LABELS: f32 = 220.0;
 /// Height of the time axis on top.
-const HEADER: f32 = 34.0;
+const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
 
@@ -158,6 +159,8 @@ pub fn show(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
+    // Where the schedule begins on screen (its toolbar), for the zoom gesture.
+    let top = ui.cursor().top();
     // Only to show weekends and holidays; plnwrk counts every day (Calendar::standard).
     let office = Calendar::hamburg();
     let worked = worked(ui, doc, project);
@@ -184,13 +187,19 @@ pub fn show(
         .unwrap_or(ZOOM_START)
         .min(ZOOM.len() - 1);
     ui.horizontal(|ui| {
-        if super::icon_button(ui, "−", text::t().zoom_out).clicked() {
+        if super::icon_button(ui, Icon::ZoomOut, text::t().zoom_out).clicked() {
             level = level.saturating_sub(1);
         }
-        if super::icon_button(ui, "+", text::t().zoom_in).clicked() {
+        if super::icon_button(ui, Icon::ZoomIn, text::t().zoom_in).clicked() {
             level = (level + 1).min(ZOOM.len() - 1);
         }
-        if ui.button(text::t().export_schedule).clicked() {
+        if crate::design::widgets::button(
+            ui,
+            crate::design::widgets::Kind::Secondary,
+            text::t().export_schedule,
+        )
+        .clicked()
+        {
             out.push(Intent::ExportSchedule(project.id));
         }
         ui.weak(text::t().critical_hint);
@@ -208,6 +217,38 @@ pub fn show(
         unscheduled_list(ui, &unscheduled, out);
         return;
     };
+    // Zoom by pinching or Ctrl/⌘ and the wheel anywhere in the schedule: over the bars, the
+    // titles and below the last row. One notch (or a pinch) comes in over several frames: the
+    // factor is gathered and one level taken per 25 %.
+    let anchor_id = egui::Id::new(("schedule-zoom-anchor", project.id));
+    let region = Rect::from_min_max(pos2(ui.max_rect().left(), top), ui.max_rect().max);
+    // Through the layer, so a dialog or menu on top still takes the gesture.
+    if let Some(pointer) = ui.ctx().pointer_hover_pos()
+        && ui
+            .ctx()
+            .rect_contains_pointer(ui.layer_id(), region.intersect(ui.clip_rect()))
+    {
+        let gesture_id = egui::Id::new(("schedule-zoom-gesture", project.id));
+        let zoom = ui.input(|i| i.zoom_delta());
+        if (zoom - 1.0).abs() > f32::EPSILON {
+            let mut gathered = ui.data(|d| d.get_temp::<f32>(gesture_id)).unwrap_or(1.0) * zoom;
+            let before = level;
+            if gathered >= 1.25 {
+                level = (level + 1).min(ZOOM.len() - 1);
+                gathered = 1.0;
+            } else if gathered <= 0.8 {
+                level = level.saturating_sub(1);
+                gathered = 1.0;
+            }
+            if level != before {
+                // The scroll area starts at the left edge of this region.
+                let anchor = pointer.x - region.left();
+                ui.data_mut(|d| d.insert_temp(anchor_id, anchor));
+            }
+            ui.data_mut(|d| d.insert_temp(gesture_id, gathered));
+            ui.ctx().request_repaint();
+        }
+    }
     let day_width = ZOOM.get(level).copied().unwrap_or(22.0);
 
     // Opens a week before today (once per project), so the current work is in view.
@@ -216,15 +257,25 @@ pub fn show(
     ui.data_mut(|d| d.insert_temp(opened, true));
     let scroll_salt = ("schedule-scroll", project.id);
     let scroll_id = ui.make_persistent_id(egui::IdSalt::new(scroll_salt));
-    let mut scroll = egui::ScrollArea::both()
+    let max_height = (ui.available_height() - 70.0).max(ROW * 4.0);
+    // The mouse wheel moves the rows while there are more than fit, otherwise through time
+    // (with only one direction left, egui turns the wheel sideways). Shift and the wheel, or a
+    // trackpad swiped sideways, always move through time.
+    let rows_fit = HEADER + rows.len() as f32 * ROW <= max_height;
+    let mut scroll = egui::ScrollArea::new([true, !rows_fit])
         .id_salt(scroll_salt)
         .auto_shrink([false, true])
-        .max_height((ui.available_height() - 70.0).max(ROW * 4.0));
+        .max_height(max_height);
     // The zoom level last drawn: a change keeps the same dates in view (the scroll offset is
     // in pixels, so it is scaled along).
     let drawn_id = egui::Id::new(("schedule-drawn-zoom", project.id));
     let drawn = ui.data(|d| d.get_temp::<usize>(drawn_id));
     ui.data_mut(|d| d.insert_temp(drawn_id, level));
+    // Where the zoom was asked for, from the left edge of the visible chart: the day there
+    // stays in place. The buttons keep the first day shown (the title column's edge).
+    let anchor = ui
+        .data_mut(|d| d.remove_temp::<f32>(anchor_id))
+        .unwrap_or(LABELS);
     if first_time && (0..days).contains(&days_from(first, today)) {
         let offset = (days_from(first, today) - 7).max(0) as f32 * day_width;
         scroll = scroll.horizontal_scroll_offset(offset);
@@ -235,32 +286,22 @@ pub fn show(
             egui::scroll_area::State::load(ui.ctx(), scroll_id),
         )
     {
-        scroll = scroll.horizontal_scroll_offset(state.offset.x * day_width / before);
+        let from_labels = state.offset.x + anchor - LABELS;
+        scroll = scroll.horizontal_scroll_offset(
+            (LABELS + from_labels * day_width / before - anchor).max(0.0),
+        );
     }
+    let only_direction = ui.style().always_scroll_the_only_direction;
+    ui.style_mut().always_scroll_the_only_direction = true;
     scroll.show(ui, |ui| {
         let width = LABELS + days as f32 * day_width;
         let height = HEADER + rows.len() as f32 * ROW;
-        let (area, hover) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-        // Anywhere over the chart, bars included. One notch of the wheel (or a pinch) comes
-        // in over several frames: the factor is gathered and one level taken per 25 %.
-        if hover.contains_pointer() {
-            let gesture_id = egui::Id::new(("schedule-zoom-gesture", project.id));
-            let zoom = ui.input(|i| i.zoom_delta());
-            if (zoom - 1.0).abs() > f32::EPSILON {
-                let mut gathered = ui.data(|d| d.get_temp::<f32>(gesture_id)).unwrap_or(1.0) * zoom;
-                if gathered >= 1.25 {
-                    level = (level + 1).min(ZOOM.len() - 1);
-                    gathered = 1.0;
-                } else if gathered <= 0.8 {
-                    level = level.saturating_sub(1);
-                    gathered = 1.0;
-                }
-                ui.data_mut(|d| d.insert_temp(gesture_id, gathered));
-                ui.ctx().request_repaint();
-            }
-        }
+        let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
+        let palette = crate::design::palette(ui);
+        // Dates and markers in the smallest size there is (12.5), never smaller.
+        let small = egui::TextStyle::Small.resolve(ui.style());
         let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * day_width;
         let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
         // The column with the titles stays at the left edge while scrolling sideways; what
@@ -281,12 +322,8 @@ pub fn show(
             }
         };
 
-        // Days off set apart from working days: darker in light mode, lighter in dark mode.
-        let days_off = if visuals.dark_mode {
-            visuals.faint_bg_color
-        } else {
-            egui::Color32::from_black_alpha(14)
-        };
+        // Days off set apart from working days.
+        let days_off = palette.shade;
         // Days off, weeks, today, the project's deadline.
         for n in 0..days {
             let day = plus(first, n);
@@ -312,11 +349,12 @@ pub fn show(
                     pos2(x + 3.0, area.top() + 2.0),
                     egui::Align2::LEFT_TOP,
                     text::month(day),
-                    egui::FontId::proportional(11.0),
+                    small.clone(),
                     visuals.weak_text_color(),
                 );
             }
-            if day_width >= 10.0 && week_starts {
+            // "KW 42 · 12.10.2026" needs about 110 px: a week of at least 16 px days.
+            if day_width >= 16.0 && week_starts {
                 painter.line_segment(
                     [pos2(x, area.top()), pos2(x, area.bottom())],
                     Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
@@ -329,16 +367,17 @@ pub fn show(
                         text::week(day.iso_week_date().week()),
                         dates::format(day)
                     ),
-                    egui::FontId::proportional(11.0),
+                    small.clone(),
                     visuals.weak_text_color(),
                 );
             }
-            if day_width >= 14.0 {
+            // Two digits in the small size need about 16 px.
+            if day_width >= 18.0 {
                 painter.text(
-                    pos2(x + day_width / 2.0, area.top() + HEADER - 4.0),
+                    pos2(x + day_width / 2.0, area.top() + HEADER - 3.0),
                     egui::Align2::CENTER_BOTTOM,
                     day.day().to_string(),
-                    egui::FontId::proportional(10.0),
+                    small.clone(),
                     visuals.weak_text_color(),
                 );
             }
@@ -353,7 +392,7 @@ pub fn show(
                 pos2(x + 2.0, area.top() + HEADER),
                 egui::Align2::LEFT_TOP,
                 label,
-                egui::FontId::proportional(10.0),
+                small.clone(),
                 color,
             );
         };
@@ -370,12 +409,12 @@ pub fn show(
         let mut boxes: BTreeMap<TaskId, Rect> = BTreeMap::new();
         for (i, (task, _)) in rows.iter().enumerate() {
             let y = row_y(i);
+            // The chosen row is framed, not filled: bars keep their contrast (3:1) on it.
             if state.selected == Some(task.id) {
-                painter.rect_filled(
-                    Rect::from_min_max(pos2(area.left(), y), pos2(area.right(), y + ROW)),
-                    0.0,
-                    visuals.selection.bg_fill.gamma_multiply(0.25),
-                );
+                let line = Stroke::new(1.0, palette.accent);
+                for edge in [y + 0.5, y + ROW - 0.5] {
+                    painter.hline(area.left()..=area.right(), edge, line);
+                }
             }
 
             let Some((start, end)) = spans.get(&task.id).copied() else {
@@ -430,11 +469,11 @@ pub fn show(
                 });
             let shown = landing.map_or(bar, |span| bar_of(task.milestone, span, y));
             let fill = if task.status == TaskStatus::Done {
-                visuals.widgets.inactive.bg_fill
+                palette.control
             } else if critical {
-                visuals.error_fg_color
+                palette.danger_fill
             } else {
-                visuals.selection.bg_fill
+                palette.accent_fill
             };
             if task.milestone {
                 let c = shown.center();
@@ -515,7 +554,7 @@ pub fn show(
             let y = row_y(i);
             let cell = Rect::from_min_max(pos2(left, y), pos2(left + LABELS - 6.0, y + ROW));
             if state.selected == Some(task.id) {
-                painter.rect_filled(cell, 0.0, visuals.selection.bg_fill.gamma_multiply(0.25));
+                painter.rect_filled(cell, 0.0, palette.accent_soft);
             }
             let response = ui.interact(cell, ui.id().with(("title", task.id)), Sense::click());
             let enabled = ui.is_enabled();
@@ -529,11 +568,12 @@ pub fn show(
                 pos2(left + 4.0 + *depth as f32 * 14.0, y + ROW / 2.0),
                 egui::Align2::LEFT_CENTER,
                 &task.title,
-                egui::FontId::proportional(13.0),
+                egui::TextStyle::Body.resolve(ui.style()),
                 visuals.text_color(),
             );
         }
     });
+    ui.style_mut().always_scroll_the_only_direction = only_direction;
 
     ui.data_mut(|d| d.insert_temp(zoom_id, level));
 

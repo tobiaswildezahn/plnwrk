@@ -50,7 +50,14 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   (`workspace.upgrade`), nie durch Umschreiben der Geschichte; stillgelegte Befehle bleiben in
   `LEGACY` (`crates/engine/src/command.rs`), damit alte Protokolle prüfbar bleiben.
 - Skript-Ersetzungen in Quelltexten immer mit `assert old in s` absichern (nach `cargo fmt`
-  passen Muster oft nicht mehr) und Testbehauptungen per Mutationsprobe belegen.
+  passen Muster oft nicht mehr).
+- **Gegenprobe ist Pflicht** (Entscheidung Tobi, 2026-10-17): Jeder Test, der einen Fehler oder
+  eine Regel festhalten soll, wird einmal gegen den Fehler laufen gelassen – Korrektur bzw.
+  Regel probeweise ausbauen, Test muss **rot** werden, dann exakt zurückbauen (`git diff`
+  leer). Bei mehreren Fällen in einem Test **jeden Fall einzeln** (ein Test kann an einer
+  Stelle scheitern und die anderen nie prüfen). Wächtertests bekommen eingeschleuste
+  Gegenbeispiele. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
+  Ein grüner Test ohne Gegenprobe gilt nicht als Beleg.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).
 - Versionen von Abhängigkeiten stehen nur im Workspace-`Cargo.toml` (`[workspace.dependencies]`).
 - UI-Code ist über `PlnwrkApp::show(&mut egui::Ui)` ohne Fenster testbar: `crates/ui/src/tests.rs`
@@ -63,8 +70,15 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
 - UI-Texte gehören nach `crates/ui/src/text.rs`: feste Texte als Feld in `struct Texts` mit Wert
   in `DE` **und** `EN` (Zugriff `text::t().feld`), Texte mit Werten als Funktion mit
   `pick(deutsch, englisch)`. Ein Wächtertest verbietet deutsche Textliterale anderswo, ein
-  englischer Rundgangtest sucht deutsche Wörter. Nur Zeichen verwenden, die die eingebauten Schriften
-  haben (Ubuntu-Light, NotoEmoji, emoji-icon-font) – z. B. ♦ • 🗙 statt ◆ ● ✕.
+  englischer Rundgangtest sucht deutsche Wörter. Schrift ist Fira Sans (Teilmenge in
+  `crates/ui/assets/fonts/`), dahinter die egui-Schriften; nur Zeichen verwenden, die eine davon
+  hat (z. B. ♦ • statt ◆ ✕). Symbole in Knöpfen sind Vektoren (`design::Icon`), keine Emoji.
+- **Gestaltung** (Phase 9, `crates/ui/src/design/`): Farben nur als Rolle aus
+  `design::palette(ui)` – ein Wächtertest verbietet `Color32::from_*` und Farbkonstanten
+  außerhalb `design/`, ein Kontrasttest prüft jedes Paar (WCAG AA). Knöpfe über
+  `design::widgets::button(ui, Kind::…, text)`: eine Hauptaktion `Primary`, Löschen/Verwerfen
+  `Destructive` (nie direkt neben `Primary`); Symbolknöpfe `icon_button(ui, Icon::…, name)`
+  (mindestens 24 × 24). Neue Bausteine setzen `widget_info`.
 - Browser: Logik für Dateien/Zwischenstand gehört in `plnwrk-ui` (Host-Methoden, nativ mit
   `TestBrowser` testbar), nur die JavaScript-Anbindung nach `apps/plnwrk-web/src/host.rs`.
   Nichts in `plnwrk-ui` darf im Browser anhalten: `std::process::id` ist dort per Clippy

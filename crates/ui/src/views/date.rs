@@ -3,6 +3,7 @@
 use egui::{Id, Popup, PopupCloseBehavior, RichText};
 use jiff::civil::Date;
 
+use crate::design::Icon;
 use crate::{dates, text};
 
 /// What happened in a date field this frame.
@@ -57,7 +58,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
     let mut choice = None;
     let mut next = shown;
     ui.horizontal(|ui| {
-        if super::icon_button(ui, "⏴", text::t().previous_month).clicked() {
+        if super::icon_button(ui, Icon::ChevronLeft, text::t().previous_month).clicked() {
             next = month_start(shown, -1);
         }
         let name = text::t()
@@ -66,7 +67,7 @@ fn calendar(ui: &mut egui::Ui, id: Id, current: Option<Date>, today: Date) -> Op
             .copied()
             .unwrap_or_default();
         ui.strong(format!("{name} {}", shown.year()));
-        if super::icon_button(ui, "⏵", text::t().next_month).clicked() {
+        if super::icon_button(ui, Icon::ChevronRight, text::t().next_month).clicked() {
             next = month_start(shown, 1);
         }
     });
@@ -137,7 +138,7 @@ pub fn date_input(
             if let Some(label) = label {
                 field = field.labelled_by(label);
             }
-            let button = super::icon_button(ui, "📅", text::t().pick_date);
+            let button = super::icon_button(ui, Icon::Calendar, text::t().pick_date);
             let current = dates::parse(value).ok().flatten();
             let popup = Popup::from_toggle_button_response(&button)
                 .id(id.with("calendar"))
@@ -196,7 +197,7 @@ pub fn deadline_input(
                     .desired_width(48.0),
             );
             input.time_done = field.lost_focus();
-        } else if super::icon_button(ui, "🕑", text::t().add_time).clicked() {
+        } else if super::icon_button(ui, Icon::Clock, text::t().add_time).clicked() {
             ui.ctx().data_mut(|d| d.insert_temp(open_id, true));
         }
         input

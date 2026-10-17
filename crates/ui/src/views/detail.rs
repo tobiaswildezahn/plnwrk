@@ -7,6 +7,7 @@ use plnwrk_core::{EntityKey, PersonId, Priority, TaskId, TaskStatus, Workspace};
 use plnwrk_engine::query::{self, Action, TaskIndex};
 use serde_json::{Value, json};
 
+use crate::design::Icon;
 use crate::doc::OpenDoc;
 use crate::state::{Dialog, Message, State, TaskDraft, tags};
 use crate::views::project::person_choice;
@@ -55,7 +56,7 @@ pub fn panel(
                         out.push(Intent::Select(Some(parent.id)));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if super::icon_button(ui, "🗙", text::t().close_details).clicked() {
+                        if super::icon_button(ui, Icon::Close, text::t().close_details).clicked() {
                             out.push(Intent::Select(None));
                         }
                     });
@@ -238,7 +239,13 @@ pub fn panel(
                 history(ui, doc, id);
 
                 ui.add_space(12.0);
-                if ui.button(text::t().delete_task).clicked() {
+                if crate::design::widgets::button(
+                    ui,
+                    crate::design::widgets::Kind::Destructive,
+                    text::t().delete_task,
+                )
+                .clicked()
+                {
                     out.push(Intent::Open(Dialog::DeleteTask(id)));
                 }
             });
@@ -316,7 +323,7 @@ fn dependencies(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId, out: &mut Vec<Inte
             if ui.link(&from.title).clicked() {
                 out.push(Intent::Select(Some(from.id)));
             }
-            if super::icon_button(ui, "🗙", text::t().remove_dependency).clicked() {
+            if super::icon_button(ui, Icon::Close, text::t().remove_dependency).clicked() {
                 out.push(Intent::run(
                     "dependency.remove",
                     json!({"dependency": dependency.id.to_string()}),

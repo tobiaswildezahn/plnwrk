@@ -3894,3 +3894,260 @@ fn the_schedule_speaks_english() {
         .collect();
     assert!(german.is_empty(), "German in the schedule: {german:?}");
 }
+
+/// Moves the pointer and presses in one frame, releases in the next – what a touch screen or a
+/// quick click delivers, unlike [`egui_kittest::kittest::NodeT::click`] (one frame per event).
+fn tap(harness: &mut Harness<'_, PlnwrkApp>, at: egui::Pos2) {
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    let events = &mut harness.input_mut().events;
+    events.push(egui::Event::PointerMoved(at));
+    events.push(button(true));
+    harness.step();
+    harness.input_mut().events.push(button(false));
+    harness.run();
+}
+
+/// The next click after a dialog closes counts (Phase 9a, real test 2026-10-17): egui blocks
+/// input one frame longer than a modal is shown, and the app sleeps until the next input – if
+/// that input is the click itself, it was lost.
+#[test]
+fn the_first_click_after_a_dialog_counts() {
+    let mut harness = harness_with_sample();
+    let closing: [fn(&mut Harness<'_, PlnwrkApp>); 3] = [
+        // The palette, closed with Escape (only the press: a release would spend the frame).
+        |h| {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run();
+            h.event(egui::Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            });
+        },
+        // "From template", closed with its button.
+        |h| {
+            click(h, text::t().from_template);
+            h.get_by_label(text::t().cancel).click();
+        },
+        // Deleting a task, cancelled.
+        |h| {
+            let task = task_named(h.state(), "Vergabevermerk").unwrap().id;
+            h.state_mut()
+                .state
+                .open_dialog(crate::state::Dialog::DeleteTask(task));
+            h.run();
+            h.get_by_label(text::t().cancel).click();
+        },
+    ];
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    for (n, close) in closing.iter().enumerate() {
+        click(&mut harness, text::t().list);
+        // Where the tab is (it does not move; without the fix the closed palette would still
+        // be drawn in the next frame, with an entry of the same name).
+        let at = harness.get_by_label(text::t().schedule_tab).rect().center();
+        close(&mut harness);
+        // The closing input and nothing more: the next press comes in the very next frame.
+        harness.step();
+        assert!(harness.state().state.dialog.is_none(), "dialog {n} closed");
+        // Like a tap or a quick click: the pointer arrives and presses in the first frame
+        // after the dialog is gone.
+        tap(&mut harness, at);
+        assert_eq!(
+            harness.state().state.tab,
+            Tab::Schedule,
+            "click after dialog {n}"
+        );
+    }
+    // "Discard" in the question about unsaved work: the sample opens anew, on the overview.
+    let sidebar_project = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .rect()
+        .center();
+    harness
+        .state_mut()
+        .state
+        .open_dialog(crate::state::Dialog::Unsaved(
+            crate::state::FileAction::Sample,
+        ));
+    harness.run();
+    harness.get_by_label(text::t().discard).click();
+    harness.step();
+    assert!(harness.state().state.dialog.is_none(), "discarded");
+    tap(&mut harness, sidebar_project);
+    assert!(
+        matches!(harness.state().state.view, View::Project(_)),
+        "click after discarding"
+    );
+}
+
+/// A project whose dates reach far beyond the window: from 60 days ago to 60 days ahead, with
+/// `extra` more tasks today. Shown in the schedule tab.
+fn wide_schedule(extra: usize) -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Weit");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    let mut all = vec![
+        ("Früher".to_owned(), day(-60), day(-58)),
+        ("Jetzt".to_owned(), day(0), day(2)),
+        ("Später".to_owned(), day(60), day(62)),
+    ];
+    all.extend((0..extra).map(|n| (format!("Zeile {n}"), day(0), day(1))));
+    for (title, start, due) in all {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    harness.run();
+    harness
+}
+
+/// Turns the mouse wheel one notch down (towards the person) at this point of the chart.
+fn wheel(harness: &mut Harness<'_, PlnwrkApp>, at: egui::Pos2, modifiers: Modifiers) {
+    harness.hover_at(at);
+    harness.run();
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, -3.0),
+        phase: egui::TouchPhase::Move,
+        modifiers,
+    });
+    // egui scrolls smoothly, over many frames.
+    harness.run_steps(60);
+}
+
+#[test]
+fn the_wheel_moves_through_time_when_all_rows_fit() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt");
+    wheel(
+        &mut harness,
+        before.right_center() + egui::vec2(20.0, 0.0),
+        Modifiers::NONE,
+    );
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        after.left() < before.left() - 20.0,
+        "{before:?} → {after:?}"
+    );
+    assert!((after.top() - before.top()).abs() < 1.0);
+}
+
+#[test]
+fn the_wheel_moves_the_rows_when_they_do_not_fit_and_shift_moves_through_time() {
+    let mut harness = wide_schedule(40);
+    let before = bar(&harness, "Jetzt");
+    let at = before.right_center() + egui::vec2(20.0, 0.0);
+    wheel(&mut harness, at, Modifiers::NONE);
+    let rows = bar(&harness, "Jetzt");
+    assert!(rows.top() < before.top() - 20.0, "{before:?} → {rows:?}");
+    assert!((rows.left() - before.left()).abs() < 1.0);
+    wheel(&mut harness, at, Modifiers::SHIFT);
+    let time = bar(&harness, "Jetzt");
+    assert!(time.left() < rows.left() - 20.0, "{rows:?} → {time:?}");
+    assert!((time.top() - rows.top()).abs() < 1.0);
+}
+
+#[test]
+fn ctrl_and_the_wheel_zoom_around_the_pointer() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt");
+    // The pointer stands right of the bar; the day under it stays put.
+    let pointer = before.center().x + 40.0;
+    // Up, away from the person: zoom in.
+    harness.hover_at(egui::pos2(pointer, before.center().y));
+    harness.run();
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, 3.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::COMMAND,
+    });
+    harness.run_steps(60);
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        after.width() > before.width() * 1.3,
+        "zoomed in: {before:?} → {after:?}"
+    );
+    let scale = after.width() / before.width();
+    let expected = pointer - (pointer - before.left()) * scale;
+    assert!(
+        (after.left() - expected).abs() < 6.0,
+        "the day under the pointer stays: left {} expected {expected}",
+        after.left()
+    );
+}
+
+/// A pinch on the trackpad (or Ctrl/⌘ and the wheel) zooms anywhere in the schedule, also
+/// below the last row and over the title column – not only over the bars (Tobi, 2026-10-17).
+#[test]
+fn a_pinch_zooms_anywhere_in_the_schedule() {
+    for place in ["below the rows", "over the titles"] {
+        let mut harness = wide_schedule(0);
+        let before = bar(&harness, "Jetzt");
+        let at = match place {
+            "below the rows" => before.center() + egui::vec2(0.0, 300.0),
+            _ => egui::pos2(
+                harness
+                    .get_all_by_label("Jetzt")
+                    .map(|n| n.rect())
+                    .find(|r| r.width() > 100.0)
+                    .unwrap()
+                    .center()
+                    .x,
+                before.center().y,
+            ),
+        };
+        harness.hover_at(at);
+        harness.run();
+        harness.event(egui::Event::Zoom(1.5));
+        harness.run();
+        let after = bar(&harness, "Jetzt");
+        assert!(
+            after.width() > before.width() * 1.3,
+            "{place}: {before:?} → {after:?}"
+        );
+    }
+}
+
+/// A dialog over the schedule takes the pinch: the schedule behind it does not zoom.
+#[test]
+fn a_pinch_over_a_dialog_does_not_zoom_the_schedule() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt");
+    let task = task_named(harness.state(), "Jetzt").unwrap().id;
+    harness
+        .state_mut()
+        .state
+        .open_dialog(crate::state::Dialog::DeleteTask(task));
+    harness.run();
+    // Below the rows, where the schedule would zoom without the dialog.
+    harness.hover_at(before.center() + egui::vec2(0.0, 300.0));
+    harness.run();
+    harness.event(egui::Event::Zoom(1.5));
+    harness.run();
+    harness.state_mut().state.close_dialog();
+    harness.run();
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        (after.width() - before.width()).abs() < 0.5,
+        "{before:?} → {after:?}"
+    );
+}
