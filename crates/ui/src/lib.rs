@@ -514,9 +514,16 @@ impl PlnwrkApp {
         if self.state.dialog.is_none() {
             views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
         }
+        let had_dialog = self.state.dialog.is_some();
         views::show(ui, self.doc.as_ref(), &mut self.state, &mut intents);
         for intent in intents {
             self.apply(intent);
+        }
+        // egui keeps a closed dialog's backdrop one frame longer: a press in the next frame
+        // (a quick click, a tap) was swallowed. Drawing this frame again without the dialog
+        // clears it before any further input arrives.
+        if had_dialog && self.state.dialog.is_none() {
+            ui.ctx().request_discard("dialog closed");
         }
         self.autosave_tick(ui.ctx());
         let unsaved = self.has_unsaved_changes();

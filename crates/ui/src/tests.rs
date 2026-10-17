@@ -3894,3 +3894,72 @@ fn the_schedule_speaks_english() {
         .collect();
     assert!(german.is_empty(), "German in the schedule: {german:?}");
 }
+
+/// Moves the pointer and presses in one frame, releases in the next – what a touch screen or a
+/// quick click delivers, unlike [`egui_kittest::kittest::NodeT::click`] (one frame per event).
+fn tap(harness: &mut Harness<'_, PlnwrkApp>, at: egui::Pos2) {
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    let events = &mut harness.input_mut().events;
+    events.push(egui::Event::PointerMoved(at));
+    events.push(button(true));
+    harness.step();
+    harness.input_mut().events.push(button(false));
+    harness.run();
+}
+
+/// The next click after a dialog closes counts (Phase 9a, real test 2026-10-17): egui blocks
+/// input one frame longer than a modal is shown, and the app sleeps until the next input – if
+/// that input is the click itself, it was lost.
+#[test]
+fn the_first_click_after_a_dialog_counts() {
+    let mut harness = harness_with_sample();
+    let closing: [fn(&mut Harness<'_, PlnwrkApp>); 3] = [
+        // The palette, closed with Escape.
+        |h| {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run();
+            h.key_press(Key::Escape);
+        },
+        // "From template", closed with its button.
+        |h| {
+            click(h, text::t().from_template);
+            h.get_by_label(text::t().cancel).click();
+        },
+        // Deleting a task, cancelled.
+        |h| {
+            let task = task_named(h.state(), "Vergabevermerk").unwrap().id;
+            h.state_mut()
+                .state
+                .open_dialog(crate::state::Dialog::DeleteTask(task));
+            h.run();
+            h.get_by_label(text::t().cancel).click();
+        },
+    ];
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    for (n, close) in closing.iter().enumerate() {
+        click(&mut harness, text::t().list);
+        close(&mut harness);
+        // The closing input and nothing more: the next press comes in the very next frame.
+        harness.step();
+        assert!(harness.state().state.dialog.is_none(), "dialog {n} closed");
+        // Like a tap or a quick click: the pointer arrives and presses in the first frame
+        // after the dialog is gone.
+        let at = harness.get_by_label(text::t().schedule_tab).rect().center();
+        tap(&mut harness, at);
+        assert_eq!(
+            harness.state().state.tab,
+            Tab::Schedule,
+            "click after dialog {n}"
+        );
+    }
+}
