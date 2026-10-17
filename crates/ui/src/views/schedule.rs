@@ -292,7 +292,23 @@ pub fn show(
         .filter_map(Item::span)
         .collect();
     let Some((first, days)) = window(&all, &open, today, project.due) else {
-        ui.weak(text::t().no_scheduled);
+        // Nothing to draw: say why, and offer the one step that helps – dates for the first
+        // task without any, or a first task.
+        let action = match unscheduled.first() {
+            Some(_) => text::t().give_dates,
+            None => text::t().first_task,
+        };
+        if crate::design::widgets::empty_state(
+            ui,
+            Icon::Calendar,
+            text::t().schedule_empty,
+            Some(action),
+        ) {
+            match unscheduled.first() {
+                Some(task) => out.push(Intent::Select(Some(task.id))),
+                None => out.extend([Intent::Tab(crate::state::Tab::List), Intent::FocusNewTask]),
+            }
+        }
         unscheduled_list(ui, &unscheduled, out);
         return;
     };
@@ -747,7 +763,7 @@ pub fn show(
             let float = analysis.float.get(&task.id).copied();
             let response = response.on_hover_text(match float {
                 Some(days) if days <= 0 => format!("{name}\n{}", text::t().critical),
-                Some(days) => format!("{name}\n{}", text::float(days)),
+                Some(days) => format!("{name}\n{}\n{}", text::float(days), text::t().float_hint),
                 None => name.clone(),
             });
             if response.clicked() {
@@ -1012,9 +1028,26 @@ pub fn show(
 
     state.zoom_levels.insert(project.id, level);
 
-    // The legend, only when something red is shown.
-    if !analysis.critical.is_empty() || project.due.is_some() {
-        ui.add(egui::Label::new(RichText::new(text::t().critical_hint).weak()).wrap());
+    // The legend: only what is red now, and how to work with the bars.
+    let mut legend = Vec::new();
+    if !state.hide_critical && !analysis.critical.is_empty() {
+        legend.push(text::t().critical_hint);
+    }
+    let any_overdue = rows.iter().any(|(task, _)| {
+        task.status != TaskStatus::Done && spans.get(&task.id).is_some_and(|(_, end)| *end < today)
+    });
+    if any_overdue {
+        legend.push(text::t().overdue_hint);
+    }
+    if project
+        .due
+        .is_some_and(|due| (0..days).contains(&days_from(first, due)))
+    {
+        legend.push(text::t().due_line_hint);
+    }
+    legend.push(text::t().drag_hint);
+    for line in legend {
+        ui.add(egui::Label::new(RichText::new(line).weak()).wrap());
     }
 
     // What cannot hold.

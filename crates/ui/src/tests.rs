@@ -3798,7 +3798,7 @@ fn a_project_without_dates_can_be_exported_too() {
     let mut harness = with_project("Ohne Termine");
     type_into(&mut harness, text::t().new_task_hint, "Kisten", true);
     click(&mut harness, text::t().schedule_tab);
-    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label(text::t().schedule_empty).is_some());
     assert!(harness.query_by_label(text::t().export_schedule).is_some());
 }
 
@@ -3872,7 +3872,7 @@ fn an_empty_schedule_says_what_to_do() {
     type_into(&mut harness, text::t().new_task_hint, "Ohne Datum", true);
     palette(&mut harness, "zeitplan");
     assert_eq!(harness.state().state.tab, crate::state::Tab::Schedule);
-    assert!(harness.query_by_label(text::t().no_scheduled).is_some());
+    assert!(harness.query_by_label(text::t().schedule_empty).is_some());
     assert!(harness.query_by_label("Ohne Datum").is_some());
 }
 
@@ -4963,4 +4963,35 @@ fn a_right_click_on_a_bar_adds_a_predecessor() {
     tap(&mut harness, offered.center());
     harness.run_steps(4);
     assert!(waits_for(&harness, first, second));
+}
+
+#[test]
+fn the_legend_explains_only_the_red_that_is_shown() {
+    let mut harness = wide_schedule(0);
+    // "Früher" is overdue; tasks without links: the last one is critical.
+    assert!(harness.query_by_label(text::t().overdue_hint).is_some());
+    assert!(harness.query_by_label(text::t().critical_hint).is_some());
+    assert!(
+        harness.query_by_label(text::t().due_line_hint).is_none(),
+        "no project deadline"
+    );
+    harness.state_mut().apply(crate::Intent::ToggleCritical);
+    harness.run();
+    assert!(harness.query_by_label(text::t().critical_hint).is_none());
+    assert_eq!(text::float(39), "Spielraum: 39 Tage");
+}
+
+#[test]
+fn an_empty_schedule_says_what_to_do_and_leads_there() {
+    let mut harness = with_project("Leer");
+    type_into(&mut harness, text::t().new_task_hint, "Ohne Termin", true);
+    click(&mut harness, text::t().schedule_tab);
+    assert!(harness.query_by_label(text::t().schedule_empty).is_some());
+    click(&mut harness, text::t().give_dates);
+    let task = task_named(harness.state(), "Ohne Termin").unwrap().id;
+    assert_eq!(
+        harness.state().state.selected,
+        Some(task),
+        "its details are open"
+    );
 }

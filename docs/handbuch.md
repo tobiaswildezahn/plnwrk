@@ -78,18 +78,27 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   nach „Erledigt“, während noch Unteraufgaben offen sind, fragt plnwrk, ob sie mit erledigt
   werden sollen.
 - **Meilensteine:** die festen Termine (♦) eines Projekts.
-- **Zeitplan:** Balken von Beginn bis Frist.
-  - **Abhängigkeiten:** in den Details einer Aufgabe unter **Wartet auf** einen Vorgänger
-    wählen; im Zeitplan erscheint ein Pfeil.
-  - **Verschieben:** einen Balken ziehen. Was darauf wartet, rutscht so weit wie nötig mit
-    (jeder Tag zählt, auch Wochenende und Feiertag). Rückgängig (⌘Z / Strg+Z) nimmt alles in
-    einem Schritt zurück.
-  - **Rot** ist der kritische Pfad: Verzögert sich eine dieser Aufgaben, verschiebt sich das
-    Ende. Warnungen unter dem Zeitplan nennen, was nicht hält.
-  - **Zoom:** Lupen-Knöpfe, Reiter **Zeitplan**, Strg/⌘ + Mausrad oder mit zwei Fingern auf dem
-    Trackpad – überall im Zeitplan; der Tag unter dem Zeiger bleibt stehen.
-  - **Mausrad:** bewegt die Zeilen, wenn es mehr gibt als Platz, sonst die Zeit;
-    Shift + Mausrad bewegt immer die Zeit.
+- **Zeitplan:** links eine Tabelle (Aufgabe, Beginn, Frist, Zuständig), rechts Balken von Beginn
+  bis Frist.
+  - **Navigation:** **Heute** springt zum heutigen Tag, **Ganzes Projekt** zeigt alles auf einen
+    Blick. Zoomstufen **Tag / Woche / Monat / Quartal**; dazu Strg/⌘ + Mausrad oder zwei Finger
+    auf dem Trackpad, überall im Zeitplan (der Tag unter dem Zeiger bleibt stehen). Die leere
+    Fläche ziehen schiebt die Ansicht; das Mausrad bewegt die Zeilen (wenn es mehr gibt als
+    Platz), sonst die Zeit; Shift + Mausrad bewegt immer die Zeit.
+  - **Verschieben:** einen Balken in der Mitte ziehen. **An den Enden ziehen** ändert Beginn
+    oder Frist. Beim Ziehen zeigt ein Hinweis die neuen Tage und wie viele Aufgaben mitrutschen.
+    Was wartet, rutscht so weit wie nötig mit (jeder Tag zählt, auch Wochenende und Feiertag).
+    Rückgängig (⌘Z / Strg+Z) nimmt alles in einem Schritt zurück.
+  - **Abhängigkeiten:** den Punkt am Ende eines Balkens auf einen anderen Balken ziehen – der
+    wartet dann darauf. Oder Rechtsklick auf einen Balken: **Vorgänger / Nachfolger
+    hinzufügen…**. Oder in den Details unter **Wartet auf**. Kreise lässt plnwrk nicht zu.
+  - **Farben:** Rot ist der kritische Pfad (verzögert sich eine dieser Aufgaben, verschiebt sich
+    das Ende; abschaltbar unter **Zeitplan-Werkzeuge › Anzeigen**). Rot umrandet mit ⚠ ist
+    überfällig, die dunklere Füllung zeigt den Fortschritt. **Spielraum** (im Tooltip): um so
+    viele Tage kann sich eine Aufgabe verschieben, ohne das Ende zu verschieben.
+  - **Tabelle:** Spalten unter **Zeitplan-Werkzeuge › Anzeigen** ab- und zuschalten; die
+    Titelspalte am Rand breiter ziehen; Unteraufgaben mit dem Pfeil zuklappen. In schmalen
+    Fenstern fallen Spalten von rechts weg.
   - **Als Tabelle exportieren (Excel):** speichert den Zeitplan als Datei, die Excel direkt
     öffnet.
 
