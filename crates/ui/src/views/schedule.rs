@@ -159,6 +159,8 @@ pub fn show(
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
+    // Where the schedule begins on screen (its toolbar), for the zoom gesture.
+    let top = ui.cursor().top();
     // Only to show weekends and holidays; plnwrk counts every day (Calendar::standard).
     let office = Calendar::hamburg();
     let worked = worked(ui, doc, project);
@@ -209,6 +211,36 @@ pub fn show(
         unscheduled_list(ui, &unscheduled, out);
         return;
     };
+    // Zoom by pinching or Ctrl/⌘ and the wheel anywhere in the schedule: over the bars, the
+    // titles and below the last row. One notch (or a pinch) comes in over several frames: the
+    // factor is gathered and one level taken per 25 %.
+    let anchor_id = egui::Id::new(("schedule-zoom-anchor", project.id));
+    let region = Rect::from_min_max(pos2(ui.max_rect().left(), top), ui.max_rect().max);
+    if let Some(pointer) = ui.ctx().pointer_hover_pos()
+        && region.contains(pointer)
+        && ui.ui_contains_pointer()
+    {
+        let gesture_id = egui::Id::new(("schedule-zoom-gesture", project.id));
+        let zoom = ui.input(|i| i.zoom_delta());
+        if (zoom - 1.0).abs() > f32::EPSILON {
+            let mut gathered = ui.data(|d| d.get_temp::<f32>(gesture_id)).unwrap_or(1.0) * zoom;
+            let before = level;
+            if gathered >= 1.25 {
+                level = (level + 1).min(ZOOM.len() - 1);
+                gathered = 1.0;
+            } else if gathered <= 0.8 {
+                level = level.saturating_sub(1);
+                gathered = 1.0;
+            }
+            if level != before {
+                // The scroll area starts at the left edge of this region.
+                let anchor = pointer.x - region.left();
+                ui.data_mut(|d| d.insert_temp(anchor_id, anchor));
+            }
+            ui.data_mut(|d| d.insert_temp(gesture_id, gathered));
+            ui.ctx().request_repaint();
+        }
+    }
     let day_width = ZOOM.get(level).copied().unwrap_or(22.0);
 
     // Opens a week before today (once per project), so the current work is in view.
@@ -233,7 +265,6 @@ pub fn show(
     ui.data_mut(|d| d.insert_temp(drawn_id, level));
     // Where the zoom was asked for, from the left edge of the visible chart: the day there
     // stays in place. The buttons keep the first day shown (the title column's edge).
-    let anchor_id = egui::Id::new(("schedule-zoom-anchor", project.id));
     let anchor = ui
         .data_mut(|d| d.remove_temp::<f32>(anchor_id))
         .unwrap_or(LABELS);
@@ -257,32 +288,7 @@ pub fn show(
     scroll.show(ui, |ui| {
         let width = LABELS + days as f32 * day_width;
         let height = HEADER + rows.len() as f32 * ROW;
-        let (area, hover) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-        // Anywhere over the chart, bars included. One notch of the wheel (or a pinch) comes
-        // in over several frames: the factor is gathered and one level taken per 25 %.
-        if hover.contains_pointer() {
-            let gesture_id = egui::Id::new(("schedule-zoom-gesture", project.id));
-            let zoom = ui.input(|i| i.zoom_delta());
-            if (zoom - 1.0).abs() > f32::EPSILON {
-                let mut gathered = ui.data(|d| d.get_temp::<f32>(gesture_id)).unwrap_or(1.0) * zoom;
-                let before = level;
-                if gathered >= 1.25 {
-                    level = (level + 1).min(ZOOM.len() - 1);
-                    gathered = 1.0;
-                } else if gathered <= 0.8 {
-                    level = level.saturating_sub(1);
-                    gathered = 1.0;
-                }
-                if level != before
-                    && let Some(pointer) = hover.hover_pos()
-                {
-                    let anchor = pointer.x - ui.clip_rect().left();
-                    ui.data_mut(|d| d.insert_temp(anchor_id, anchor));
-                }
-                ui.data_mut(|d| d.insert_temp(gesture_id, gathered));
-                ui.ctx().request_repaint();
-            }
-        }
+        let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
         let palette = crate::design::palette(ui);

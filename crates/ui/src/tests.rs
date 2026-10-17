@@ -4064,3 +4064,35 @@ fn ctrl_and_the_wheel_zoom_around_the_pointer() {
         after.left()
     );
 }
+
+/// A pinch on the trackpad (or Ctrl/⌘ and the wheel) zooms anywhere in the schedule, also
+/// below the last row and over the title column – not only over the bars (Tobi, 2026-10-17).
+#[test]
+fn a_pinch_zooms_anywhere_in_the_schedule() {
+    for place in ["below the rows", "over the titles"] {
+        let mut harness = wide_schedule(0);
+        let before = bar(&harness, "Jetzt");
+        let at = match place {
+            "below the rows" => before.center() + egui::vec2(0.0, 300.0),
+            _ => egui::pos2(
+                harness
+                    .get_all_by_label("Jetzt")
+                    .map(|n| n.rect())
+                    .find(|r| r.width() > 100.0)
+                    .unwrap()
+                    .center()
+                    .x,
+                before.center().y,
+            ),
+        };
+        harness.hover_at(at);
+        harness.run();
+        harness.event(egui::Event::Zoom(1.5));
+        harness.run();
+        let after = bar(&harness, "Jetzt");
+        assert!(
+            after.width() > before.width() * 1.3,
+            "{place}: {before:?} → {after:?}"
+        );
+    }
+}
