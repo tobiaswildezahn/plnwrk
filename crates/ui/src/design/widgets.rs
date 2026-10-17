@@ -344,13 +344,14 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
     changed
 }
 
-/// What is wrong with a field, right under it: a symbol and a sentence in red.
+/// What is wrong with a field, right under it: a symbol and a sentence in red. A long sentence
+/// wraps rather than widen what holds it (the detail panel grew with it, Phase 9g).
 pub fn field_error(ui: &mut Ui, message: &str) -> Response {
     let p = palette(ui);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(size::ICON, size::ICON), Sense::hover());
         Icon::Warning.paint(ui.painter(), rect, p.danger);
-        ui.label(egui::RichText::new(message).color(p.danger))
+        ui.add(egui::Label::new(egui::RichText::new(message).color(p.danger)).wrap())
     })
     .inner
 }

@@ -5,7 +5,7 @@
 
 use egui::{Align2, Rect, Sense, Shape, Stroke, pos2, vec2};
 use jiff::civil::{Date, DateTime};
-use plnwrk_core::{Project, Task, TaskStatus, Workspace};
+use plnwrk_core::{Project, Task, TaskId, TaskStatus, Workspace};
 use plnwrk_engine::query::{self, MilestoneState};
 use plnwrk_schedule::Analysis;
 use serde_json::json;
@@ -505,13 +505,17 @@ fn edit_date(
         apply |= widgets::button(ui, Kind::Primary, text::t().apply).clicked();
         cancel = widgets::button(ui, Kind::Quiet, text::t().cancel).clicked();
     });
+    // A date that cannot be read is said under the field.
+    let field = edit_said(milestone.id);
     if cancel {
         state.forms.milestone_edit = None;
+        state.unsay_at(field);
     } else if apply {
         let (day, time) = (day.clone(), time.clone());
         match dates::parse_deadline(&day, &time) {
             Ok(Some((due, due_time))) => {
                 state.forms.milestone_edit = None;
+                state.unsay_at(field);
                 out.push(Intent::Reschedule {
                     task: milestone.id,
                     start: milestone.start.filter(|s| *s <= due),
@@ -519,10 +523,11 @@ fn edit_date(
                     due_time: Some(due_time),
                 });
             }
-            Ok(None) => state.message = Some(Message::error(text::t().date_needed)),
-            Err(message) => state.message = Some(Message::error(message)),
+            Ok(None) => state.say_at(field, Message::error(text::t().date_needed)),
+            Err(message) => state.say_at(field, Message::error(message)),
         }
     }
+    super::field_said(ui, state, field);
 }
 
 /// A new milestone: title and date (creating one asks nothing).
@@ -533,6 +538,8 @@ fn new_milestone(
     out: &mut Vec<Intent>,
     today: Date,
 ) {
+    // A date that cannot be read is said under the line.
+    let field = egui::Id::new(("new-milestone-said", project.id));
     ui.horizontal(|ui| {
         let title = ui.add(
             egui::TextEdit::singleline(&mut state.forms.milestone_title)
@@ -553,20 +560,29 @@ fn new_milestone(
         );
         if ui.button(text::t().new_milestone).clicked() {
             match dates::parse_deadline(&state.forms.milestone_date, &state.forms.milestone_time) {
-                Ok(Some(due)) => out.push(Intent::Run {
-                    command: "task.create",
-                    params: json!({
-                        "project": project.id.to_string(),
-                        "title": state.forms.milestone_title.trim(),
-                        "milestone": true,
-                        "due": dates::deadline_param(Some(due)),
-                    }),
-                    then: Then::Nothing,
-                    clear: Some(Clear::Milestone),
-                }),
-                Ok(None) => state.message = Some(Message::error(text::t().date_needed)),
-                Err(message) => state.message = Some(Message::error(message)),
+                Ok(Some(due)) => {
+                    state.unsay_at(field);
+                    out.push(Intent::Run {
+                        command: "task.create",
+                        params: json!({
+                            "project": project.id.to_string(),
+                            "title": state.forms.milestone_title.trim(),
+                            "milestone": true,
+                            "due": dates::deadline_param(Some(due)),
+                        }),
+                        then: Then::Nothing,
+                        clear: Some(Clear::Milestone),
+                    });
+                }
+                Ok(None) => state.say_at(field, Message::error(text::t().date_needed)),
+                Err(message) => state.say_at(field, Message::error(message)),
             }
         }
     });
+    super::field_said(ui, state, field);
+}
+
+/// Where the date typed on a milestone's card says what cannot be read.
+pub(crate) fn edit_said(milestone: TaskId) -> egui::Id {
+    egui::Id::new(("edit-milestone-said", milestone))
 }

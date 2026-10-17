@@ -71,7 +71,10 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 
 ## 3. Ansichten
 
-- **Übersicht:** oben **Heute und überfällig** – alles Überfällige und alles, was heute fällig
+- **Übersicht:** ganz oben **Überholte Meilensteine**, aber nur, wenn es welche gibt. Das
+  sind Meilensteine, die vor einer Aufgabe liegen, auf die sie warten: mit Projekt, dem
+  frühesten möglichen Tag und der Aufgabe, die aufhält. Ein Klick öffnet den Meilenstein. Dann
+  **Heute und überfällig** – alles Überfällige und alles, was heute fällig
   ist; ein Haken erledigt es gleich dort (Meilensteine und Aufgaben mit offenen Unteraufgaben
   fragen nach). Darunter alle Projekte und Vorgänge als Karten mit **Ampel** (erreicht,
   überfällig, gefährdet – mit Grund –, im Plan) und Fortschritt.
@@ -159,11 +162,13 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   Klick daneben oder Esc schließt es wieder. Nur in sehr niedrigen Fenstern startet es
   eingeklappt. Rückgängig und Wiederholen stehen immer oben rechts.
 - **Befehlspalette:** ⌘K / Strg+K – tippen, was man tun will („Zeitplan“, „Erledigt“,
-  „Gehe zu …“). Jeder Treffer nennt seinen Platz im Menüband, z. B. „Start › Neu“.
+  „Gehe zu …“). Jeder Treffer nennt seinen Platz im Menüband, z. B. „Start › Neu“. Wer eine
+  Aufgabe beim Namen wählt, landet mit dem Cursor in ihrem Titel im Detailbereich; mit Tab geht
+  es von dort zu Terminen, „Wartet auf“ und den übrigen Feldern. Tab übernimmt ein Feld.
 - **Sprache und Darstellung:** Reiter **Ansicht** (Deutsch/English, hell/dunkel).
 - **Schützen:** Reiter **Datei → Mit Passphrase schützen** verschlüsselt die Datei. Ohne
   Passphrase ist der Inhalt dann nicht lesbar – sie lässt sich nicht wiederherstellen.
-- **Verschlusssachen:** **Version 0.1.0 ist nicht für echte Verschlusssachen gedacht.**
+- **Verschlusssachen:** **plnwrk ist noch nicht für echte Verschlusssachen gedacht.**
   plnwrk kann Inhalte als VS-NfD kennzeichnen und verlangt dann Verschlüsselung, aber eine
   Freigabe hat es nicht – darüber entscheidet allein die zuständige Geheimschutzstelle, und
   die dafür nötige Härtung ist noch nicht gebaut.
@@ -172,6 +177,14 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   bekommt die KI VS-NfD-Dateien und verschlüsselte Dateien nie zu sehen.
 
 ## 5. Fragen und Fehler
+
+**Wo steht, was nicht geklappt hat?** Dort, wo es passiert ist:
+- Ein Datum, das plnwrk nicht lesen kann, steht rot direkt unter seinem Feld.
+- Eine Ablehnung in einem Dialog steht im Dialog.
+- Alles andere steht in der Leiste unter dem Menüband; das × schließt sie.
+
+Verschwindet ein Feld, bevor du die Meldung gesehen hast (Gruppe zugeklappt, andere Aufgabe
+gewählt), rückt sie in die Leiste.
 
 Auf GitHub unter **Issues** melden – mit kurzer Beschreibung, was du getan hast, was passieren
 sollte und was passiert ist. Bitte nie echte Dienstdaten oder Verschlusssachen anhängen.

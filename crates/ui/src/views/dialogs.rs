@@ -20,6 +20,9 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
     // Built before the dialog is borrowed: the palette offers what fits the current view.
     let mut offered = matches!(state.dialog, Some(Dialog::Palette { .. }))
         .then(|| crate::palette::entries(doc, state));
+    // A refusal while the dialog is open is said in it, not behind it (one message, one
+    // place: the message bar waits while a dialog is open). Only one that came up in it.
+    let refusal = state.said_in_dialog();
     let Some(dialog) = &mut state.dialog else {
         return;
     };
@@ -34,12 +37,6 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
         .unwrap_or_default();
     let today = doc.map_or_else(|| jiff::Zoned::now().date(), |d| d.session.clock().today());
     let mut message = None;
-    // A refusal while the dialog is open is said in it, not behind it (one message, one
-    // place: the message bar waits while a dialog is open).
-    let refusal = state
-        .message
-        .clone()
-        .filter(|m| m.error && Some(m) != state.message_at_open.as_ref());
     let response = Modal::new(Id::new("dialog"))
         .frame(w::dialog_frame(ctx))
         .show(ctx, |ui| {
@@ -397,7 +394,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
         }
     }
     if let Some(error) = message {
-        state.message = Some(Message::error(error));
+        state.say(Message::error(error));
     }
 }
 

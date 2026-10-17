@@ -57,6 +57,13 @@ impl Project {
     pub fn is_case(&self) -> bool {
         is_case(self.kind.as_deref(), self.reference.as_deref())
     }
+
+    /// Whether its deadlines and those of its tasks and milestones still count: not for
+    /// templates, finished or archived projects. The one rule behind every "overdue", "missed"
+    /// and "overtaken" (here in the core so the schedule shares it).
+    pub fn deadlines_count(&self) -> bool {
+        !self.template && !matches!(self.status, ProjectStatus::Done | ProjectStatus::Archived)
+    }
 }
 
 /// [`Project::is_case`] for a kind and reference as typed (a form not stored yet).

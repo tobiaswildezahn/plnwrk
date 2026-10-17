@@ -61,6 +61,7 @@ fn head(
     let now = doc.session.clock().now_local();
     let today = now.date();
     let mut error = None;
+    let mut taken = false;
     let mut cancel = false;
     // An open form follows changes of the stored project (undo, archive) before every frame:
     // `PlnwrkApp::sync_project_form`.
@@ -127,12 +128,15 @@ fn head(
             .clicked()
             {
                 match form.update_params(project.id) {
-                    Ok(params) => out.push(Intent::Run {
-                        command: "project.update",
-                        params,
-                        then: Then::Nothing,
-                        clear: Some(Clear::ProjectEdit),
-                    }),
+                    Ok(params) => {
+                        taken = true;
+                        out.push(Intent::Run {
+                            command: "project.update",
+                            params,
+                            then: Then::Nothing,
+                            clear: Some(Clear::ProjectEdit),
+                        });
+                    }
                     Err(message) => error = Some(message),
                 }
             }
@@ -143,12 +147,19 @@ fn head(
             )
             .clicked();
         });
+        // What cannot be taken is said under the buttons.
+        let field = form_said(project.id);
         if let Some(message) = error {
-            state.message = Some(crate::state::Message::error(message));
+            state.say_at(field, crate::state::Message::error(message));
+        }
+        if taken {
+            state.unsay_at(field);
         }
         if cancel {
             state.forms.project = None;
+            state.unsay_at(field);
         }
+        super::field_said(ui, state, field);
         return;
     }
 
@@ -534,4 +545,9 @@ fn list(
             });
         }
     });
+}
+
+/// Where the form of a project says what it cannot take.
+pub(crate) fn form_said(project: ProjectId) -> egui::Id {
+    egui::Id::new(("project-form-said", project))
 }

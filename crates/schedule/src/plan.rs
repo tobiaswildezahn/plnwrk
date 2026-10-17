@@ -74,6 +74,19 @@ pub enum Warning {
     AfterProjectDue { task: TaskId },
 }
 
+/// A milestone that comes before what it waits for ([`Warning::Milestone`]), with the tasks
+/// that hold it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overtaking {
+    pub milestone: TaskId,
+    /// Its date.
+    pub date: Date,
+    /// The earliest day it could be.
+    pub earliest: Date,
+    /// What it waits for that ends too late for it.
+    pub by: Vec<TaskId>,
+}
+
 /// The critical path and the warnings of a plan.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Analysis {
@@ -421,6 +434,87 @@ impl Plan {
             .collect()
     }
 
+    /// The milestones that come before what they wait for – the warning of
+    /// [`Plan::analyse`] – each with the tasks that hold it back (Phase 9g: the overview block
+    /// "Überholte Meilensteine" and the MCP query). One rule: the same milestones, in the same
+    /// order, as the warnings.
+    pub fn overtaking(&self) -> Vec<Overtaking> {
+        let spans = self.spans(&BTreeMap::new());
+        self.analyse()
+            .warnings
+            .into_iter()
+            .filter_map(|warning| {
+                let Warning::Milestone { task, earliest } = warning else {
+                    return None;
+                };
+                let item = self.items.get(&task)?;
+                let span = *spans.get(&task)?;
+                let length = self.duration(item, span);
+                let by = self
+                    .links
+                    .iter()
+                    .filter(|l| l.to == task)
+                    .filter(|l| {
+                        self.requires(l, item, &spans, length)
+                            .is_some_and(|required| self.too_early(item, span, required))
+                    })
+                    .flat_map(|l| self.holding(l.from, &spans, &mut BTreeSet::new()))
+                    .fold(Vec::new(), |mut by, task| {
+                        if !by.contains(&task) {
+                            by.push(task);
+                        }
+                        by
+                    });
+                Some(Overtaking {
+                    milestone: task,
+                    date: span.0,
+                    earliest,
+                    by,
+                })
+            })
+            .collect()
+    }
+
+    /// What really holds back through `task`: the task itself if it has dates; a task without
+    /// dates takes no time and lies where what it waits for puts it, so then what binds it
+    /// there – down to the late task with dates, which can be moved (review 9g, K3).
+    fn holding(
+        &self,
+        task: TaskId,
+        spans: &BTreeMap<TaskId, (Date, Date)>,
+        seen: &mut BTreeSet<TaskId>,
+    ) -> Vec<TaskId> {
+        let (Some(item), Some(span)) = (self.items.get(&task), spans.get(&task)) else {
+            return vec![task];
+        };
+        if item.span().is_some() {
+            return vec![task];
+        }
+        // Reached again on another path: already followed from there (Nachreview 9g, N2).
+        if !seen.insert(task) {
+            return Vec::new();
+        }
+        let length = self.duration(item, *span);
+        let binding: Vec<TaskId> = self
+            .links
+            .iter()
+            .filter(|l| l.to == task)
+            .filter(|l| {
+                self.requires(l, item, spans, length)
+                    .is_some_and(|required| required >= span.0)
+            })
+            .map(|l| l.from)
+            .collect();
+        // Nothing binds it: then it stands for itself, so `by` is never empty.
+        if binding.is_empty() {
+            return vec![task];
+        }
+        binding
+            .into_iter()
+            .flat_map(|from| self.holding(from, spans, seen))
+            .collect()
+    }
+
     /// The critical path and what cannot hold, for the dates as they are.
     pub fn analyse(&self) -> Analysis {
         let cal = &self.calendar;
@@ -752,6 +846,76 @@ mod tests {
             p.overtaken(&[moved(1, "2026-10-15", "2026-10-19")])
                 .is_empty()
         );
+    }
+
+    /// Phase 9g: an overtaken milestone names what holds it back – the late one of what it waits
+    /// for, not the one in time (ending on its day is in time) – and nothing for one that holds.
+    #[test]
+    fn an_overtaken_milestone_names_what_holds_it_back() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-16"),
+                task(3, "2026-10-14", "2026-10-19"),
+                milestone(2, "2026-10-16"),
+                task(4, "2026-10-12", "2026-10-13"),
+                milestone(5, "2026-10-14"),
+            ],
+            vec![fs(1, 2), fs(3, 2), fs(4, 5)],
+        );
+        assert_eq!(
+            p.overtaking(),
+            vec![Overtaking {
+                milestone: id(2),
+                date: d("2026-10-16"),
+                earliest: d("2026-10-19"),
+                by: vec![id(3)],
+            }]
+        );
+        // Reached: nothing to say.
+        let mut reached = milestone(2, "2026-10-16");
+        reached.done = true;
+        let p = plan(
+            vec![task(3, "2026-10-14", "2026-10-19"), reached],
+            vec![fs(3, 2)],
+        );
+        assert!(p.overtaking().is_empty());
+    }
+
+    /// Review 9g (K3): through a task without dates, the late task with dates is named – the one
+    /// that can be moved back.
+    #[test]
+    fn an_overtaken_milestone_names_the_task_with_dates_behind_one_without() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-20"),
+                open(3),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 3), fs(3, 2)],
+        );
+        let overtaking = p.overtaking();
+        assert_eq!(overtaking.len(), 1, "{overtaking:?}");
+        assert_eq!(overtaking[0].by, vec![id(1)]);
+    }
+
+    /// Nachreview 9g (N2): two paths through tasks without dates that meet again – only the late
+    /// task with dates is named, never a task without dates.
+    #[test]
+    fn a_diamond_of_tasks_without_dates_names_only_the_task_with_dates() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-20"),
+                open(6),
+                open(4),
+                open(5),
+                open(3),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 6), fs(6, 4), fs(6, 5), fs(4, 3), fs(5, 3), fs(3, 2)],
+        );
+        let overtaking = p.overtaking();
+        assert_eq!(overtaking.len(), 1, "{overtaking:?}");
+        assert_eq!(overtaking[0].by, vec![id(1)]);
     }
 
     #[test]
@@ -1432,6 +1596,46 @@ mod tests {
             };
             prop_assert_eq!(slipped(float), before, "float {} of {:?} is too much", float, target.id);
             prop_assert_ne!(slipped(float + 1), before, "float {} of {:?} is too little", float, target.id);
+        }
+
+        /// Phase 9g: `overtaking` says exactly the milestone warnings of `analyse` (one rule), and
+        /// what it names is the cause – without those dependencies the milestone holds.
+        #[test]
+        fn overtaking_is_the_milestone_warning_and_names_its_cause((items, links) in random_plan(), every in any::<bool>()) {
+            let cal = if every { Calendar::every_day() } else { Calendar::hamburg() };
+            let p = Plan::new(cal, items.clone(), links.clone(), None);
+            let warned: Vec<(TaskId, Date)> = p
+                .analyse()
+                .warnings
+                .into_iter()
+                .filter_map(|w| match w {
+                    Warning::Milestone { task, earliest } => Some((task, earliest)),
+                    _ => None,
+                })
+                .collect();
+            let overtaking = p.overtaking();
+            let said: Vec<(TaskId, Date)> = overtaking.iter().map(|o| (o.milestone, o.earliest)).collect();
+            prop_assert_eq!(said, warned);
+            for o in &overtaking {
+                prop_assert!(!o.by.is_empty(), "{:?} names nothing", o.milestone);
+                // Only tasks with dates: those can be moved back (Nachreview 9g, NL3).
+                for task in &o.by {
+                    let dated = items.iter().any(|i| i.id == *task && i.span().is_some());
+                    prop_assert!(dated, "{:?} names {:?}, which has no dates", o.milestone, task);
+                }
+                // What it names holds it back, also through tasks without dates: without what
+                // leads on from those, the milestone holds.
+                let kept: Vec<Link> = links
+                    .iter()
+                    .filter(|l| !o.by.contains(&l.from))
+                    .cloned()
+                    .collect();
+                let without = Plan::new(cal, items.clone(), kept, None).overtaking();
+                prop_assert!(
+                    without.iter().all(|w| w.milestone != o.milestone),
+                    "{:?} still overtaken without {:?}", o.milestone, o.by
+                );
+            }
         }
 
         #[test]

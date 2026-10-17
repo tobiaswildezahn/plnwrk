@@ -1116,3 +1116,95 @@ fn moving_past_a_milestone_is_named_in_the_answer() {
         milestone.due
     );
 }
+
+/// Phase 9g: the overview block "Überholte Meilensteine" is a query too, so Claude can name it
+/// in the morning – empty while every milestone holds, then the milestone with what holds it
+/// back; it takes no parameters.
+#[test]
+fn overtaken_milestones_are_a_query() {
+    let (path, _, _) = sample("overtaken-query");
+    let (answer, error) = tool(
+        "query",
+        json!({"file": s(&path), "name": "overtaken_milestones"}),
+    );
+    assert!(!error, "{answer}");
+    assert_eq!(answer, json!([]), "the sample holds");
+    let ws = open(&path).workspace().clone();
+    let find = |title: &str| ws.tasks().find(|t| t.title == title).unwrap().clone();
+    let (install, milestone) = (find("Einbau Wache 11"), find("Inbetriebnahme"));
+    let (answer, error) = tool(
+        "run_command",
+        json!({"file": s(&path), "command": "dependency.add",
+               "params": {"from": install.id.to_string(), "to": milestone.id.to_string()}}),
+    );
+    assert!(!error, "{answer}");
+    let (answer, error) = tool(
+        "move_task",
+        json!({"file": s(&path), "task": install.id.to_string(), "days": 37}),
+    );
+    assert!(!error, "{answer}");
+    let (answer, error) = tool(
+        "query",
+        json!({"file": s(&path), "name": "overtaken_milestones"}),
+    );
+    assert!(!error, "{answer}");
+    let list = answer.as_array().unwrap();
+    assert_eq!(list.len(), 1, "{answer}");
+    assert_eq!(list[0]["milestone"], json!(milestone.id.to_string()));
+    assert_eq!(list[0]["title"], json!("Inbetriebnahme"));
+    assert_eq!(list[0]["by"][0]["title"], json!("Einbau Wache 11"));
+    assert_eq!(list[0]["date"], json!(milestone.due.unwrap().to_string()));
+    // A second one, made later but earlier in the year: the soonest comes first.
+    let (answer, error) = tool(
+        "run_command",
+        json!({"file": s(&path), "command": "task.create",
+               "params": {"project": milestone.project.to_string(), "title": "Zwischenabnahme",
+                          "milestone": true, "due": "2026-12-01"}}),
+    );
+    assert!(!error, "{answer}");
+    let early = open(&path)
+        .workspace()
+        .tasks()
+        .find(|t| t.title == "Zwischenabnahme")
+        .unwrap()
+        .id;
+    let (answer, error) = tool(
+        "run_command",
+        json!({"file": s(&path), "command": "dependency.add",
+               "params": {"from": install.id.to_string(), "to": early.to_string()}}),
+    );
+    assert!(!error, "{answer}");
+    let (answer, _) = tool(
+        "query",
+        json!({"file": s(&path), "name": "overtaken_milestones"}),
+    );
+    let titles: Vec<&str> = answer
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Zwischenabnahme", "Inbetriebnahme"], "{answer}");
+    let (answer, error) = tool(
+        "query",
+        json!({"file": s(&path), "name": "overtaken_milestones", "params": {"project": "x"}}),
+    );
+    assert!(error, "{answer}");
+    // Listed with the others: offered by name, and described.
+    let listed = crate::tools::list();
+    let query = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "query")
+        .unwrap();
+    let names = query["inputSchema"]["properties"]["name"]["enum"]
+        .as_array()
+        .unwrap();
+    assert!(names.contains(&json!("overtaken_milestones")));
+    let described = query["description"].as_str().unwrap();
+    assert!(
+        described.contains("overtaken_milestones (open milestones that come before"),
+        "{described}"
+    );
+}

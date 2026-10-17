@@ -155,14 +155,10 @@ fn is_live(project: &Project) -> bool {
     !project.template && project.status != ProjectStatus::Archived
 }
 
-/// Whether deadlines of a project and of its tasks and milestones still count: not for
-/// templates, finished or archived projects. The one rule behind every "overdue" and "missed".
+/// Whether deadlines of a project and of its tasks and milestones still count:
+/// [`Project::deadlines_count`], the one rule.
 pub fn deadlines_count(project: &Project) -> bool {
-    !project.template
-        && !matches!(
-            project.status,
-            ProjectStatus::Done | ProjectStatus::Archived
-        )
+    project.deadlines_count()
 }
 
 /// Whether a task is past its deadline and that still counts.

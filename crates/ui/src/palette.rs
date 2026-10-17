@@ -139,9 +139,11 @@ fn places(list: &mut List, doc: &OpenDoc) {
             continue;
         };
         let detail = format!("{} · {}", t.go_to, project.title);
+        // Chosen by keyboard: the cursor goes on in its details (Phase 9g, keyboard paths).
         let go = vec![
             Intent::Go(View::Project(project.id)),
             Intent::Select(Some(task.id)),
+            Intent::FocusDetails,
         ];
         list.add(task.title.clone(), detail, None, &[], go);
     }

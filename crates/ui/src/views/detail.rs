@@ -81,6 +81,9 @@ pub fn panel(
                         .font(egui::TextStyle::Heading)
                         .desired_width(f32::INFINITY),
                 );
+                if std::mem::take(&mut state.focus_details) {
+                    title.request_focus();
+                }
                 if commit_field(&title) && draft.title.trim() != task.title {
                     out.push(update(id, "title", json!(draft.title.trim())));
                 }
@@ -153,6 +156,8 @@ pub fn panel(
                     egui::Grid::new(("task-dates", id))
                         .num_columns(2)
                         .show(ui, |ui| {
+                            // A date that cannot be read is said under its field.
+                            let (start_field, due_field) = (start_said(id), due_said(id));
                             let caption = ui.label(text::t().start);
                             let start = date::date_input(
                                 ui,
@@ -164,6 +169,7 @@ pub fn panel(
                             if start.commit() {
                                 match dates::parse(&draft.start) {
                                     Ok(date) if date != task.start => {
+                                        state.unsay_at(start_field);
                                         out.push(Intent::Reschedule {
                                             task: id,
                                             start: date,
@@ -171,11 +177,15 @@ pub fn panel(
                                             due_time: None,
                                         });
                                     }
-                                    Ok(_) => {}
-                                    Err(message) => state.message = Some(Message::error(message)),
+                                    // Readable again: what it said goes (only then).
+                                    Ok(_) => state.unsay_at(start_field),
+                                    Err(message) => {
+                                        state.say_at(start_field, Message::error(message));
+                                    }
                                 }
                             }
                             ui.end_row();
+                            super::field_said_in_grid(ui, state, start_field);
                             let caption = ui.label(text::t().due);
                             let case = project.is_some_and(plnwrk_core::Project::is_case);
                             let due = date::deadline_input(
@@ -190,6 +200,7 @@ pub fn panel(
                             if due.commit() {
                                 match dates::parse_deadline(&draft.due, &draft.due_time) {
                                     Ok(due) if due != task.due.map(|day| (day, task.due_time)) => {
+                                        state.unsay_at(due_field);
                                         out.push(Intent::Reschedule {
                                             task: id,
                                             start: task.start,
@@ -197,11 +208,14 @@ pub fn panel(
                                             due_time: Some(due.and_then(|(_, time)| time)),
                                         });
                                     }
-                                    Ok(_) => {}
-                                    Err(message) => state.message = Some(Message::error(message)),
+                                    Ok(_) => state.unsay_at(due_field),
+                                    Err(message) => {
+                                        state.say_at(due_field, Message::error(message));
+                                    }
                                 }
                             }
                             ui.end_row();
+                            super::field_said_in_grid(ui, state, due_field);
                             // Only top-level tasks without subtasks can be milestones.
                             ui.label("♦");
                             let has_children =
@@ -559,4 +573,14 @@ fn history(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId) {
                 ui.label(what);
             }
         });
+}
+
+/// Where a task's start says what cannot be read (its own id, see `State::say_at`).
+pub(crate) fn start_said(task: TaskId) -> egui::Id {
+    egui::Id::new(("task-start-said", task))
+}
+
+/// Where a task's deadline says what cannot be read.
+pub(crate) fn due_said(task: TaskId) -> egui::Id {
+    egui::Id::new(("task-due-said", task))
 }

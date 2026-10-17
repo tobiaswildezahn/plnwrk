@@ -3,9 +3,11 @@
 //! See `docs/PLAN.md` §3.5 and `docs/plans/2026-10-14-phase-5.md`.
 
 mod calendar;
+mod overtaken;
 mod plan;
 mod reschedule;
 
 pub use calendar::{Calendar, easter};
-pub use plan::{Analysis, Item, Link, Move, Plan, Warning};
+pub use overtaken::overtaken_milestones;
+pub use plan::{Analysis, Item, Link, Move, Overtaking, Plan, Warning};
 pub use reschedule::{Reschedule, overtaken_by};

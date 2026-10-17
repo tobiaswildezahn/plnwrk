@@ -156,6 +156,8 @@ pub(crate) enum Intent {
     Tab(Tab),
     /// Put the cursor into the field for a new task.
     FocusNewTask,
+    /// Put the cursor into the title of the chosen task's details (gone to by keyboard).
+    FocusDetails,
     /// Open the form to edit this project.
     EditProject(ProjectId),
     /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
@@ -388,13 +390,18 @@ impl PlnwrkApp {
         let mut refused: Vec<String> = Vec::new();
         // A title being renamed in the list counts like any typed text.
         if let Some((id, title)) = self.inline_pending() {
-            self.run(
+            // Refused or not: what `run` says, not what stands in the message (a field's message
+            // stays after a success – Nachreview 9g, N1).
+            let taken = self.run(
                 "task.update",
                 &serde_json::json!({"task": id.to_string(), "title": title}),
                 Then::Nothing,
                 Some(Clear::Inline),
             );
-            if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
+            if !taken
+                && !self.asking_milestone()
+                && let Some(message) = self.state.message().filter(|m| m.error)
+            {
                 refused.push(format!("{} {}", text::t().not_taken, message.text));
             }
         }
@@ -403,13 +410,16 @@ impl PlnwrkApp {
         if let Some((id, form)) = self.project_pending() {
             match form.update_params(id) {
                 Ok(params) => {
-                    self.run(
+                    let taken = self.run(
                         "project.update",
                         &params,
                         Then::Nothing,
                         Some(Clear::ProjectEdit),
                     );
-                    if let Some(message) = self.state.message.as_ref().filter(|m| m.error) {
+                    if taken {
+                        // What the form said about an earlier try goes with it (Nachreview 9g, N1).
+                        self.state.unsay_at(views::project::form_said(id));
+                    } else if let Some(message) = self.state.message().filter(|m| m.error) {
                         refused.push(format!("{} {}", text::t().not_taken, message.text));
                         self.state.forms.project = None;
                     }
@@ -432,6 +442,7 @@ impl PlnwrkApp {
                 .and_then(|t| t.start);
             match dates::parse_deadline(&day, &time) {
                 Ok(Some((due, due_time))) => {
+                    self.state.unsay_at(views::milestones::edit_said(id));
                     self.reschedule(id, start.filter(|s| *s <= due), Some(due), Some(due_time));
                 }
                 Ok(None) => {
@@ -442,7 +453,7 @@ impl PlnwrkApp {
         }
         let project_warning = (!refused.is_empty()).then(|| refused.join(" · "));
         if let Some(text) = &project_warning {
-            self.state.message = Some(Message::error(text.clone()));
+            self.state.say(Message::error(text.clone()));
         }
         let Some(doc) = self.doc.as_ref() else {
             return project_warning;
@@ -474,14 +485,19 @@ impl PlnwrkApp {
                     due.map(|(day, _)| day),
                     Some(due.and_then(|(_, time)| time)),
                 );
+                // Taken: what the date fields said about an earlier try goes (Nachreview 9g).
+                if taken {
+                    self.state.unsay_at(views::detail::start_said(task.id));
+                    self.state.unsay_at(views::detail::due_said(task.id));
+                }
             }
             if taken && !params.is_empty() {
                 // "N moved along" stays in view after the second command.
-                let moved_along = self.state.message.take();
+                let moved_along = self.state.take_message();
                 params.insert("task".to_owned(), Value::String(task.id.to_string()));
                 taken = self.run("task.update", &Value::Object(params), Then::Nothing, None);
                 if taken {
-                    self.state.message = moved_along;
+                    self.state.put_back(moved_along);
                 }
             }
             let stored = self
@@ -496,8 +512,7 @@ impl PlnwrkApp {
                 // Refused (e.g. empty title): back to what is stored, and say so.
                 let reason = self
                     .state
-                    .message
-                    .as_ref()
+                    .message()
                     .map_or_else(String::new, |m| m.text.clone());
                 warnings.push(format!("{} {reason}", text::t().not_taken));
                 self.state.forms.task = stored.as_ref().map(state::TaskDraft::of);
@@ -510,7 +525,7 @@ impl PlnwrkApp {
         }
         let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
         if let Some(text) = &warning {
-            self.state.message = Some(Message::error(text.clone()));
+            self.state.say(Message::error(text.clone()));
         }
         warning
     }
@@ -535,7 +550,7 @@ impl PlnwrkApp {
         if self.state.quitting {
             return true;
         }
-        self.flush_draft();
+        let warning = self.flush_draft();
         // A typed milestone date is asked about first; the window stays open for the answer,
         // then closing goes on.
         if self.asking_milestone() {
@@ -545,8 +560,18 @@ impl PlnwrkApp {
         if !self.has_unsaved_changes() {
             return true;
         }
-        self.state.open_dialog(Dialog::Unsaved(FileAction::Quit));
+        self.open_with(Dialog::Unsaved(FileAction::Quit), warning);
         false
+    }
+
+    /// Opens the question about unsaved changes and says in it what was typed but not taken on
+    /// the way (review 9g, F1: said behind the dialog, it was never seen – and "Gespeichert."
+    /// replaced it). It belongs to that question: it decides what is kept.
+    fn open_with(&mut self, dialog: Dialog, warning: Option<String>) {
+        self.state.open_dialog(dialog);
+        if let Some(warning) = warning {
+            self.state.say(Message::error(warning));
+        }
     }
 
     /// After the answer about a milestone: what waited for it goes on.
@@ -607,7 +632,7 @@ impl PlnwrkApp {
         match self.host.uploaded() {
             Some(Ok(upload)) => self.file(FileAction::Upload(upload)),
             Some(Err(reason)) => {
-                self.state.message = Some(Message::error(format!(
+                self.state.say_in_bar(Message::error(format!(
                     "{} {reason}",
                     text::t().upload_failed
                 )));
@@ -618,6 +643,7 @@ impl PlnwrkApp {
             ui.ctx().set_theme(self.state.theme);
         }
         self.forget_vanished();
+        self.state.frame_begins();
         let mut intents = Vec::new();
         if self.state.dialog.is_none() {
             views::shortcuts(ui.ctx(), self.doc.is_some(), &mut intents);
@@ -629,6 +655,10 @@ impl PlnwrkApp {
             self.apply(intent);
         }
         if self.state.schedule_request.is_some() {
+            ui.ctx().request_repaint();
+        }
+        // A field's message whose field was not drawn: said in the bar from the next frame.
+        if self.state.frame_ends() {
             ui.ctx().request_repaint();
         }
         // egui keeps a closed dialog's backdrop one frame longer: a press in the next frame
@@ -667,9 +697,9 @@ impl PlnwrkApp {
         // Said once when it starts failing, without hiding another error that is shown.
         if after != before
             && let Some(autosave::Written::Failed(reason)) = &after
-            && self.state.message.as_ref().is_none_or(|m| !m.error)
+            && self.state.message().is_none_or(|m| !m.error)
         {
-            self.state.message = Some(Message::error(format!(
+            self.state.say_in_bar(Message::error(format!(
                 "{} {reason}",
                 text::t().recovery_failed
             )));
@@ -720,10 +750,10 @@ impl PlnwrkApp {
                 self.replace(doc);
                 self.browser_copy.adopt(key);
                 self.refresh_stored_copies();
-                self.state.message = Some(Message::info(text::t().recovered_opened));
+                self.state.say(Message::info(text::t().recovered_opened));
             }
-            Ok(_) => self.state.message = Some(Message::error(text::t().vs_blocked)),
-            Err(error) => self.state.message = Some(Message::error(text::store_error(&error))),
+            Ok(_) => self.state.say(Message::error(text::t().vs_blocked)),
+            Err(error) => self.state.say(Message::error(text::store_error(&error))),
         }
     }
 
@@ -770,13 +800,15 @@ impl PlnwrkApp {
             Intent::Go(view) => {
                 // Another view: the last message is about what was left (a refusal on the
                 // way out is said again below).
-                self.state.message = None;
+                self.state.unsay();
                 self.flush_draft();
-                self.state.view = view;
-                self.state.select(None);
-                if matches!(view, View::Project(_)) {
+                // Another project opens at its list; within the same one the tab stays (the
+                // palette going to a task kept throwing Board and Schedule out, review 9g F4).
+                if matches!(view, View::Project(_)) && view != self.state.view {
                     self.state.tab = Tab::List;
                 }
+                self.state.view = view;
+                self.state.select(None);
             }
             Intent::Select(task) => {
                 if task != self.state.selected {
@@ -784,11 +816,26 @@ impl PlnwrkApp {
                 }
                 self.state.select(task);
             }
-            Intent::Open(dialog) => self.state.open_dialog(dialog),
+            Intent::Open(dialog) => {
+                // Typed text is taken first, as before every other step (review 9g, F2): a
+                // milestone asked about on the way comes first, the dialog after the answer –
+                // the question used to replace it, and it never came back.
+                let warning = self.flush_draft();
+                if self.asking_milestone() {
+                    self.after_answer.get_or_insert(Intent::Open(dialog));
+                } else {
+                    self.state.open_dialog(dialog);
+                    // Not taken on the way: said in the bar once the dialog closes – in this
+                    // dialog it would look like its own refusal (Nachreview 9g, NK2).
+                    if let Some(warning) = warning {
+                        self.state.say_in_bar(Message::error(warning));
+                    }
+                }
+            }
             Intent::CloseDialog => self.state.close_dialog(),
             Intent::SayWhenDone(message) => {
                 if self.last_done {
-                    self.state.message = Some(message);
+                    self.state.say(message);
                 }
             }
             Intent::Schedule(project, request) => {
@@ -840,7 +887,7 @@ impl PlnwrkApp {
                     .collect();
                 for key in keys {
                     if let Err(reason) = self.host.store(&key, None) {
-                        self.state.message = Some(Message::error(reason));
+                        self.state.say(Message::error(reason));
                     }
                 }
                 self.refresh_stored_copies();
@@ -848,7 +895,7 @@ impl PlnwrkApp {
             Intent::DeleteStoredCopy(key) => {
                 self.state.close_dialog();
                 if let Err(reason) = self.host.store(&key, None) {
-                    self.state.message = Some(Message::error(reason));
+                    self.state.say(Message::error(reason));
                 }
                 self.refresh_stored_copies();
             }
@@ -882,8 +929,9 @@ impl PlnwrkApp {
             }
             Intent::ExportSchedule(project) => self.export_schedule(project),
             Intent::FocusNewTask => self.state.focus_new_task = true,
-            Intent::DismissMessage => self.state.message = None,
-            Intent::Say(message) => self.state.message = Some(message),
+            Intent::FocusDetails => self.state.focus_details = true,
+            Intent::DismissMessage => self.state.unsay(),
+            Intent::Say(message) => self.state.say(message),
             Intent::EditProject(id) => {
                 let open = self
                     .state
@@ -919,7 +967,7 @@ impl PlnwrkApp {
         // Decided before running: a refused change must not even reach the history (undo
         // would leave it there, and the file would count as VS-NfD).
         if self.state.browser && plnwrk_engine::params::asks_for_classified(params) {
-            self.state.message = Some(Message::error(text::t().vs_blocked));
+            self.state.say(Message::error(text::t().vs_blocked));
             return false;
         }
         // Every change of a milestone is asked first (plan §6.3), whichever view sent it: the
@@ -961,12 +1009,12 @@ impl PlnwrkApp {
                 let _ = doc
                     .session
                     .run("undo", &serde_json::json!({}), Origin::User);
-                self.state.message = Some(Message::error(text::t().vs_blocked));
+                self.state.say(Message::error(text::t().vs_blocked));
                 false
             }
             Ok(outcome) => {
                 self.last_done = true;
-                self.state.message = match news {
+                let said = match news {
                     Some((along, overtaken)) if !overtaken.is_empty() => {
                         let said = if along > 0 {
                             format!("{} ", text::moved_along(along))
@@ -974,13 +1022,17 @@ impl PlnwrkApp {
                             String::new()
                         };
                         Some(Message::error(format!(
-                            "{said}⚠ {}",
+                            "{said}{}",
                             text::overtakes(&overtaken)
                         )))
                     }
                     Some((along, _)) if along > 0 => Some(Message::info(text::moved_along(along))),
                     _ => None,
                 };
+                match said {
+                    Some(message) => self.state.say(message),
+                    None => self.state.done(),
+                }
                 if let (Then::ShowProject, Some(EntityKey::Project(id))) =
                     (then, outcome.created.first())
                 {
@@ -1007,7 +1059,7 @@ impl PlnwrkApp {
                 true
             }
             Err(error) => {
-                self.state.message = Some(Message::error(text::command_error(&error)));
+                self.state.say(Message::error(text::command_error(&error)));
                 false
             }
         }
@@ -1047,7 +1099,7 @@ impl PlnwrkApp {
         let along = reschedule.along();
         if reschedule.moves.len() > plnwrk_engine::params::MOVES_MAX {
             // Said plainly instead of the command's refusal of its parameters.
-            self.state.message = Some(Message::error(text::too_many_moves(along)));
+            self.state.say(Message::error(text::too_many_moves(along)));
             return false;
         }
         let params = reschedule.params(due_time);
@@ -1075,7 +1127,7 @@ impl PlnwrkApp {
         let csv = export::schedule_csv(ws, project, classified);
         let result = if self.state.browser {
             if classified {
-                self.state.message = Some(Message::error(text::t().vs_blocked));
+                self.state.say(Message::error(text::t().vs_blocked));
                 return;
             }
             self.host.download(&name, csv.as_bytes()).map(|()| name)
@@ -1096,12 +1148,13 @@ impl PlnwrkApp {
                 std::path::PathBuf::from(name)
             };
             if doc.path().is_some_and(|open| same_place(open, &path)) {
-                self.state.message = Some(Message::error(text::t().export_over_open_file));
+                self.state
+                    .say(Message::error(text::t().export_over_open_file));
                 return;
             }
             write_export(&path, csv.as_bytes()).map(|()| path.display().to_string())
         };
-        self.state.message = Some(match result {
+        self.state.say(match result {
             Ok(place) => Message::info(format!("{} {place}", text::t().exported)),
             Err(reason) => Message::error(format!("{} {reason}", text::t().export_failed)),
         });
@@ -1119,7 +1172,7 @@ impl PlnwrkApp {
             && plnwrk_store::peek(&upload.bytes)
                 .is_ok_and(|head| head.classification >= Classification::VsNfd)
         {
-            self.state.message = Some(Message::error(text::t().vs_blocked));
+            self.state.say(Message::error(text::t().vs_blocked));
             return;
         }
         let force = std::mem::take(&mut self.state.force);
@@ -1140,12 +1193,12 @@ impl PlnwrkApp {
         if let FileAction::OpenPath(path) = &action
             && self.is_open(path)
         {
-            self.state.message = Some(Message::info(text::t().already_open));
+            self.state.say(Message::info(text::t().already_open));
             return;
         }
         // Typed text counts like any change: stored first, so saving includes it and leaving
         // asks about it. Not when the person chose to discard.
-        let shown = self.state.message.clone();
+        let shown = self.state.message().cloned();
         let warning = if force { None } else { self.flush_draft() };
         // A typed milestone date is asked about first: saving, opening or closing waits for
         // the answer and goes on after it.
@@ -1154,7 +1207,7 @@ impl PlnwrkApp {
             return;
         }
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
-            self.state.open_dialog(Dialog::Unsaved(action));
+            self.open_with(Dialog::Unsaved(action), warning);
             return;
         }
         // A warning from what was just taken (e.g. a milestone overtaken) stays in view after
@@ -1162,15 +1215,15 @@ impl PlnwrkApp {
         let saving = matches!(action, FileAction::Save | FileAction::SaveAs);
         let earlier = self
             .state
-            .message
-            .clone()
+            .message()
+            .cloned()
             .filter(|m| m.error && Some(m) != shown.as_ref());
         match action {
             FileAction::New => self.replace(OpenDoc::new()),
             FileAction::Sample => match OpenDoc::sample() {
                 Ok(doc) => self.replace(doc),
                 Err(error) => {
-                    self.state.message = Some(Message::error(text::command_error(&error)));
+                    self.state.say(Message::error(text::command_error(&error)));
                 }
             },
             FileAction::Open => {}
@@ -1195,13 +1248,14 @@ impl PlnwrkApp {
         }
         // "Gespeichert." must not hide that a typed date was not taken.
         if let Some(warning) = warning {
-            self.state.message = Some(Message::error(warning));
+            self.state.say(Message::error(warning));
         } else if saving
             && let Some(earlier) = earlier
-            && let Some(now) = &self.state.message
+            && let Some(now) = self.state.message()
             && now.text != earlier.text
         {
-            self.state.message = Some(Message::error(format!("{} {}", now.text, earlier.text)));
+            self.state
+                .say(Message::error(format!("{} {}", now.text, earlier.text)));
         }
     }
 
@@ -1228,9 +1282,10 @@ impl PlnwrkApp {
             match std::fs::remove_file(path) {
                 Ok(()) => self.state.recovered.retain(|p| !same_place(p, path)),
                 Err(e) => {
-                    self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
-                        reason: e.to_string(),
-                    })));
+                    self.state
+                        .say(Message::error(text::store_error(&StoreError::Io {
+                            reason: e.to_string(),
+                        })));
                 }
             }
         }
@@ -1247,7 +1302,7 @@ impl PlnwrkApp {
         let old = doc.set_protection(protection);
         if self.save(false) {
             // A typed date that was not taken is the more important news.
-            self.state.message = Some(match warning {
+            self.state.say(match warning {
                 Some(warning) => Message::error(warning),
                 None => Message::info(done),
             });
@@ -1255,15 +1310,17 @@ impl PlnwrkApp {
             if let Some(doc) = &mut self.doc {
                 doc.restore_protection(old);
             }
-            if self.state.message.as_ref().is_none_or(|m| !m.error) {
-                self.state.message = Some(Message::info(text::t().protection_unchanged));
+            if self.state.message().is_none_or(|m| !m.error) {
+                self.state
+                    .say(Message::info(text::t().protection_unchanged));
             }
         }
     }
 
     fn replace(&mut self, doc: OpenDoc) {
         self.drop_copy();
-        self.state.message = doc.upgraded.then(|| Message::info(text::t().upgraded));
+        self.state
+            .say_maybe(doc.upgraded.then(|| Message::info(text::t().upgraded)));
         self.doc = Some(doc);
         self.state.reset_views();
     }
@@ -1298,11 +1355,11 @@ impl PlnwrkApp {
                     source,
                     text: String::new(),
                 });
-                self.state.message = Some(Message::error(text::store_error(
+                self.state.say(Message::error(text::store_error(
                     &StoreError::WrongPassphrase,
                 )));
             }
-            error => self.state.message = Some(Message::error(text::store_error(&error))),
+            error => self.state.say(Message::error(text::store_error(&error))),
         }
     }
 
@@ -1312,13 +1369,13 @@ impl PlnwrkApp {
         let classified = plnwrk_store::peek(&upload.bytes)
             .is_ok_and(|head| head.classification >= Classification::VsNfd);
         if self.state.browser && classified {
-            self.state.message = Some(Message::error(text::t().vs_blocked));
+            self.state.say(Message::error(text::t().vs_blocked));
             return;
         }
         let retry = passphrase.is_some();
         match OpenDoc::from_upload(&upload.name, &upload.bytes, passphrase) {
             Ok(doc) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
-                self.state.message = Some(Message::error(text::t().vs_blocked));
+                self.state.say(Message::error(text::t().vs_blocked));
             }
             Ok(doc) => self.replace(doc),
             Err(error) => self.open_failed(FileSource::Upload(upload), error, retry),
@@ -1348,7 +1405,7 @@ impl PlnwrkApp {
                 if let Some(copy) = copy {
                     self.state.recovered.retain(|p| !same_place(p, &copy));
                     self.autosave.adopt(copy);
-                    self.state.message = Some(Message::info(text::t().recovered_opened));
+                    self.state.say(Message::info(text::t().recovered_opened));
                 }
             }
             Err(error) => self.open_failed(FileSource::Path(path), error, retry),
@@ -1357,9 +1414,10 @@ impl PlnwrkApp {
 
     #[cfg(target_arch = "wasm32")]
     fn open(&mut self, _path: PathBuf, _passphrase: Option<SecretString>) {
-        self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
-            reason: text::t().browser_files_later.to_owned(),
-        })));
+        self.state
+            .say(Message::error(text::store_error(&StoreError::Io {
+                reason: text::t().browser_files_later.to_owned(),
+            })));
     }
 
     /// Saves (asking for a place if needed or wanted; in the browser: downloads). Returns
@@ -1380,7 +1438,7 @@ impl PlnwrkApp {
         };
         // Content and history: nothing that was ever VS-NfD leaves the browser as a file.
         if plnwrk_store::classification_of(&doc.snapshot().0) >= Classification::VsNfd {
-            self.state.message = Some(Message::error(text::t().vs_blocked));
+            self.state.say(Message::error(text::t().vs_blocked));
             return false;
         }
         let name = format!("{}.plnwrk", doc.name());
@@ -1394,12 +1452,12 @@ impl PlnwrkApp {
                 self.autosave.saved();
                 let tab = self.host.tab();
                 self.browser_copy.downloaded(&mut *self.host, &tab, doc);
-                self.state.message =
-                    Some(Message::info(format!("{} {name}", text::t().downloaded)));
+                self.state
+                    .say(Message::info(format!("{} {name}", text::t().downloaded)));
                 true
             }
             Err(reason) => {
-                self.state.message = Some(Message::error(format!(
+                self.state.say(Message::error(format!(
                     "{} {reason}",
                     text::t().download_failed
                 )));
@@ -1428,11 +1486,11 @@ impl PlnwrkApp {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
                 self.autosave.saved();
-                self.state.message = Some(Message::info(text::t().saved));
+                self.state.say(Message::info(text::t().saved));
                 true
             }
             Err(error) => {
-                self.state.message = Some(Message::error(text::store_error(&error)));
+                self.state.say(Message::error(text::store_error(&error)));
                 false
             }
         }
@@ -1440,9 +1498,10 @@ impl PlnwrkApp {
 
     #[cfg(target_arch = "wasm32")]
     fn save_to_file(&mut self, _choose_place: bool) -> bool {
-        self.state.message = Some(Message::error(text::store_error(&StoreError::Io {
-            reason: text::t().browser_files_later.to_owned(),
-        })));
+        self.state
+            .say(Message::error(text::store_error(&StoreError::Io {
+                reason: text::t().browser_files_later.to_owned(),
+            })));
         false
     }
 
