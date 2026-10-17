@@ -3569,8 +3569,9 @@ fn the_schedule_zooms_by_named_levels() {
             width(&harness)
         );
     }
-    // Ctrl/⌘ and the mouse wheel (a pinch) zoom in too: from week to day.
-    let over = bar(&harness, "Ausschreibung").center();
+    // Ctrl/⌘ and the mouse wheel (a pinch) zoom in too, anywhere in the schedule: from week
+    // to day.
+    let over = egui::pos2(1000.0, bar(&harness, "Ausschreibung").center().y);
     harness.hover_at(over);
     harness.run();
     harness.event(egui::Event::Zoom(1.5));
@@ -4533,9 +4534,14 @@ fn chart_view(harness: &Harness<'_, PlnwrkApp>) -> egui::Rect {
         .map(|n| n.rect())
         .find(|r| r.width() > 100.0)
         .unwrap();
+    // The detail panel, when open, covers the right of the window.
+    let right = harness
+        .query_by_label(text::t().delete_task)
+        .map_or(1400.0, |n| n.rect().left() - 8.0);
+    // The row of the table (titles and columns) ends where the chart begins.
     egui::Rect::from_min_max(
         egui::pos2(titles.right(), titles.top() - 200.0),
-        egui::pos2(1400.0, titles.bottom() + 800.0),
+        egui::pos2(right, titles.bottom() + 800.0),
     )
 }
 
@@ -4662,4 +4668,99 @@ fn the_schedule_fits_a_narrow_window() {
             "{name} reaches past the window: {rect:?}"
         );
     }
+    // The table leaves the chart at least half of the room.
+    let row = table_row(&harness, "Einbau Wache 11");
+    let room = 800.0 - row.left();
+    assert!(row.width() <= room / 2.0 + 1.0, "{row:?} of {room}");
+}
+
+/// The row of a task in the schedule's table (wider than a title alone).
+fn table_row(harness: &Harness<'_, PlnwrkApp>, title: &str) -> egui::Rect {
+    harness
+        .get_all_by_label(title)
+        .map(|n| n.rect())
+        .find(|r| r.width() > 100.0)
+        .unwrap()
+}
+
+#[test]
+fn the_schedule_table_shows_and_speaks_dates_and_who() {
+    let mut harness = harness_with_sample();
+    sample_schedule_open(&mut harness);
+    let row = harness
+        .get_all_by_label("Ausschreibung vorbereiten")
+        .find(|n| n.rect().width() > 100.0)
+        .unwrap();
+    let value = row.value().unwrap_or_default();
+    assert!(value.contains(text::t().start), "{value}");
+    assert!(value.contains("Anna Berg"), "{value}");
+    assert!(
+        value.contains(&crate::dates::format(
+            task_named(harness.state(), "Ausschreibung vorbereiten")
+                .unwrap()
+                .due
+                .unwrap()
+        ))
+    );
+    // Rows are 32 high, bars 16.
+    let bar = bar(&harness, "Einbau Wache 11");
+    assert!((bar.height() - 16.0).abs() < 0.5, "{bar:?}");
+}
+
+/// Opens the sample's project "Digitalfunk Umrüstung Wachen" in the schedule tab, the sample
+/// being open already.
+fn sample_schedule_open(harness: &mut Harness<'_, PlnwrkApp>) {
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(harness, text::t().schedule_tab);
+}
+
+#[test]
+fn columns_are_switched_off_in_the_ribbon_and_the_title_column_is_dragged_wider() {
+    let mut harness = wide_schedule(0);
+    let full = table_row(&harness, "Jetzt").width();
+    click(&mut harness, text::t().ribbon.schedule_tools);
+    click(
+        &mut harness,
+        &format!("{}: {}", text::t().columns, text::t().assignee),
+    );
+    let without = table_row(&harness, "Jetzt").width();
+    assert!((full - without - 112.0).abs() < 1.0, "{full} → {without}");
+    // Dragging the edge of the title column.
+    let edge = harness.get_by_label(text::t().title_width).rect().center();
+    harness.hover_at(edge);
+    harness.run();
+    harness.drag_at(edge);
+    harness.run();
+    for step in 1..=5 {
+        harness.hover_at(edge + egui::vec2(16.0 * step as f32, 0.0));
+        harness.run();
+    }
+    harness.drop_at(edge + egui::vec2(80.0, 0.0));
+    harness.run();
+    let wider = table_row(&harness, "Jetzt").width();
+    assert!((wider - without - 80.0).abs() < 2.0, "{without} → {wider}");
+}
+
+#[test]
+fn subtasks_fold_away_in_the_schedule() {
+    let mut harness = harness_with_sample();
+    sample_schedule_open(&mut harness);
+    let in_table = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_all_by_label(title)
+            .any(|n| n.rect().width() > 100.0)
+    };
+    assert!(in_table(&harness, "Leistungsverzeichnis"));
+    click(&mut harness, text::t().fold_subtasks);
+    assert!(!in_table(&harness, "Leistungsverzeichnis"), "folded away");
+    assert!(
+        in_table(&harness, "Ausschreibung vorbereiten"),
+        "the parent stays"
+    );
+    click(&mut harness, text::t().unfold_subtasks);
+    assert!(in_table(&harness, "Leistungsverzeichnis"));
 }

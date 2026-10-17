@@ -12,7 +12,8 @@ use serde_json::json;
 use crate::design::Icon;
 use crate::doc::OpenDoc;
 use crate::state::{
-    Dialog, FileAction, ProjectForm, ScheduleRequest, State, Tab, TemplateForm, View,
+    Dialog, FileAction, ProjectForm, ScheduleColumn, ScheduleRequest, State, Tab, TemplateForm,
+    View,
 };
 use crate::views::keys;
 use crate::{Intent, text};
@@ -75,11 +76,12 @@ pub enum Group {
     TaskEdit,
     Navigate,
     Zoom,
+    Columns,
     Share,
 }
 
 impl Group {
-    pub const ALL: [Group; 16] = [
+    pub const ALL: [Group; 17] = [
         Group::FileNew,
         Group::FileSave,
         Group::FileProtect,
@@ -95,6 +97,7 @@ impl Group {
         Group::TaskEdit,
         Group::Navigate,
         Group::Zoom,
+        Group::Columns,
         Group::Share,
     ];
 
@@ -106,7 +109,7 @@ impl Group {
             Group::New | Group::Undo | Group::Find => RibbonTab::Start,
             Group::Views | Group::Areas | Group::Appearance | Group::Language => RibbonTab::View,
             Group::TaskStatus | Group::TaskEdit => RibbonTab::Task,
-            Group::Navigate | Group::Zoom | Group::Share => RibbonTab::Schedule,
+            Group::Navigate | Group::Zoom | Group::Columns | Group::Share => RibbonTab::Schedule,
         }
     }
 
@@ -129,6 +132,7 @@ impl Group {
             Group::TaskEdit => r.edit,
             Group::Navigate => r.navigate,
             Group::Zoom => r.zoom,
+            Group::Columns => t.columns,
             Group::Share => r.share,
         }
     }
@@ -619,6 +623,18 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
                 )
                 .long(format!("{}: {name}", r.zoom))
                 .chosen(level == n),
+            );
+        }
+        for column in ScheduleColumn::ALL {
+            a.push(
+                act(
+                    Group::Columns,
+                    Icon::List,
+                    column.name(),
+                    vec![Intent::ToggleColumn(column)],
+                )
+                .long(format!("{}: {}", t.columns, column.name()))
+                .chosen(!state.hidden_columns.contains(&column)),
             );
         }
         a.push(

@@ -14,7 +14,7 @@ use plnwrk_schedule::{Analysis, Calendar, Item, Plan, Warning};
 
 use crate::design::Icon;
 use crate::doc::OpenDoc;
-use crate::state::{ScheduleRequest, State};
+use crate::state::{ScheduleColumn, ScheduleRequest, State};
 use crate::{Intent, dates, text};
 
 /// Width of a day at each zoom level, coarse to fine: quarter, month, week, day (names in
@@ -25,9 +25,11 @@ pub const LEVEL_START: usize = 2;
 /// Room before the first and after the last date: the schedule scrolls this far, no further.
 const PAD: i32 = 28;
 /// Height of a row.
-const ROW: f32 = 24.0;
-/// Width of the column with the titles.
-const LABELS: f32 = 220.0;
+const ROW: f32 = 32.0;
+/// Standard width of the column with the titles (the person can drag it between the limits).
+const TITLES: f32 = 220.0;
+const TITLES_MIN: f32 = 120.0;
+const TITLES_MAX: f32 = 480.0;
 /// Height of the time axis on top.
 const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
@@ -179,7 +181,37 @@ pub fn show(
     let (plan, analysis) = (&worked.plan, &worked.analysis);
     let today = doc.session.clock().today();
     let index = TaskIndex::new(ws);
-    let rows = rows(&index, project);
+    let mut rows = rows(&index, project);
+    // Folded tasks keep their subtasks out of the schedule.
+    let mut folded_at: Option<usize> = None;
+    rows.retain(|(task, depth)| {
+        if let Some(at) = folded_at {
+            if *depth > at {
+                return false;
+            }
+            folded_at = None;
+        }
+        if state.folded.contains(&task.id) {
+            folded_at = Some(*depth);
+        }
+        true
+    });
+    // The table left of the chart: titles, then the columns the person did not switch off.
+    let title_width = state
+        .title_width
+        .unwrap_or(TITLES)
+        .clamp(TITLES_MIN, TITLES_MAX);
+    let mut columns: Vec<ScheduleColumn> = ScheduleColumn::ALL
+        .into_iter()
+        .filter(|c| !state.hidden_columns.contains(c))
+        .collect();
+    // The table takes at most half the width: in a narrow window the columns go, from the
+    // right, so the chart keeps its room.
+    let room = ui.clip_rect().right().min(ui.max_rect().right()) - ui.cursor().left();
+    let width_of =
+        |columns: &[ScheduleColumn]| title_width + columns.iter().map(|c| c.width()).sum::<f32>();
+    while width_of(&columns) > room / 2.0 && columns.pop().is_some() {}
+    let table = width_of(&columns);
     let spans: BTreeMap<TaskId, (Date, Date)> = plan
         .items()
         .filter_map(|item| item.span().map(|span| (item.id, span)))
@@ -281,7 +313,7 @@ pub fn show(
     // The whole project: the finest level at which its dates fit into the visible chart.
     // What can be seen, not what the layout offers (it can reach past the window).
     let right = ui.clip_rect().right().min(ui.max_rect().right());
-    let visible = (right - ui.cursor().left() - LABELS - 12.0).max(day_width_of(0));
+    let visible = (right - ui.cursor().left() - table - 12.0).max(day_width_of(0));
     let span = (days - 2 * PAD).max(1) as f32;
     if jump == Some(ScheduleRequest::Whole) {
         level = (0..ZOOM.len())
@@ -322,7 +354,7 @@ pub fn show(
     // stays in place. The buttons keep the first day shown (the title column's edge).
     let anchor = ui
         .data_mut(|d| d.remove_temp::<f32>(anchor_id))
-        .unwrap_or(LABELS);
+        .unwrap_or(table);
     // Today a third into the visible chart; the whole project from its first date.
     let today_offset = |width: f32| {
         let third = (visible / width / 3.0) as i32;
@@ -341,43 +373,47 @@ pub fn show(
             egui::scroll_area::State::load(ui.ctx(), scroll_id),
         )
     {
-        let from_labels = state.offset.x + anchor - LABELS;
-        scroll = scroll.horizontal_scroll_offset(
-            (LABELS + from_labels * day_width / before - anchor).max(0.0),
-        );
+        let from_labels = state.offset.x + anchor - table;
+        scroll = scroll
+            .horizontal_scroll_offset((table + from_labels * day_width / before - anchor).max(0.0));
     }
     // A task chosen elsewhere (list, details, palette) since the last frame: its bar comes into
     // view.
     let chosen_id = egui::Id::new(("schedule-chosen", project.id));
     let newly_chosen = ui.data(|d| d.get_temp::<Option<TaskId>>(chosen_id)) != Some(state.selected);
     ui.data_mut(|d| d.insert_temp(chosen_id, state.selected));
+    // Changes from the table, taken after drawing.
+    let mut fold: Option<TaskId> = None;
+    let mut widen = 0.0_f32;
     let only_direction = ui.style().always_scroll_the_only_direction;
     ui.style_mut().always_scroll_the_only_direction = true;
     scroll.show(ui, |ui| {
-        let width = LABELS + days as f32 * day_width;
-        let height = HEADER + rows.len() as f32 * ROW;
+        let width = table + days as f32 * day_width;
+        // At least as high as the room: days off and today reach down to the bottom.
+        let room = if rows_fit { max_height - 16.0 } else { 0.0 };
+        let height = (HEADER + rows.len() as f32 * ROW).max(room);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
         let palette = crate::design::palette(ui);
         // Dates and markers in the smallest size there is (12.5), never smaller.
         let small = egui::TextStyle::Small.resolve(ui.style());
-        let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * day_width;
+        let x_of = |date: Date| area.left() + table + days_from(first, date) as f32 * day_width;
         let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
         // The column with the titles stays at the left edge while scrolling sideways; what
         // lies under it is hidden and cannot be dragged.
         let left = ui.clip_rect().left().max(area.left());
-        let chart = Rect::from_min_max(pos2(left + LABELS - 6.0, area.top()), area.max);
+        let chart = Rect::from_min_max(pos2(left + table - 6.0, area.top()), area.max);
         let bar_of = |milestone: bool, (start, end): (Date, Date), y: f32| {
             if milestone {
                 let center = pos2(x_of(end) + day_width / 2.0, y + ROW / 2.0);
-                Rect::from_center_size(center, vec2(14.0, 14.0))
+                Rect::from_center_size(center, vec2(16.0, 16.0))
             } else {
                 // At least 4 px, so a short bar can still be seen and grabbed zoomed out.
                 let left = x_of(start) + 1.0;
                 Rect::from_min_max(
-                    pos2(left, y + 5.0),
-                    pos2((x_of(end) + day_width - 1.0).max(left + 4.0), y + ROW - 5.0),
+                    pos2(left, y + 8.0),
+                    pos2((x_of(end) + day_width - 1.0).max(left + 4.0), y + ROW - 8.0),
                 )
             }
         };
@@ -483,8 +519,12 @@ pub fn show(
             let critical = analysis.critical.contains(&task.id);
             let bar = bar_of(task.milestone, (start, end), y);
             boxes.insert(task.id, bar);
+            // Centred in the chart, right of the table that covers the left part of the view:
+            // the table's width is added before the bar, so the middle of both is the middle of
+            // the view and the bar lands right of the table.
             if newly_chosen && state.selected == Some(task.id) {
-                ui.scroll_to_rect(bar, Some(egui::Align::Center));
+                let with_table = Rect::from_min_max(pos2(bar.left() - table, bar.top()), bar.max);
+                ui.scroll_to_rect(with_table, Some(egui::Align::Center));
             }
             let visible = bar.intersect(chart);
             if visible.width() <= 0.0 || visible.height() <= 0.0 {
@@ -607,36 +647,154 @@ pub fn show(
             painter.extend(arrow(start, end, Stroke::new(1.2, color)));
         }
 
-        // Titles last, over the bars; a click chooses the task.
+        // The table last, over the bars: titles and columns. A click chooses the task.
         let column = Rect::from_min_max(
             pos2(left, area.top()),
-            pos2(left + LABELS - 6.0, area.bottom()),
+            pos2(left + table - 6.0, area.bottom()),
         );
         painter.rect_filled(column, 0.0, visuals.panel_fill);
+        // Headings in the row of the time axis.
+        let mut x = left + 4.0 + title_width;
+        painter.text(
+            pos2(left + 4.0, area.top() + HEADER - 3.0),
+            egui::Align2::LEFT_BOTTOM,
+            text::t().ribbon.task,
+            small.clone(),
+            visuals.weak_text_color(),
+        );
+        for column in &columns {
+            painter.text(
+                pos2(x, area.top() + HEADER - 3.0),
+                egui::Align2::LEFT_BOTTOM,
+                column.name(),
+                small.clone(),
+                visuals.weak_text_color(),
+            );
+            x += column.width();
+        }
         for (i, (task, depth)) in rows.iter().enumerate() {
             let y = row_y(i);
-            let cell = Rect::from_min_max(pos2(left, y), pos2(left + LABELS - 6.0, y + ROW));
+            let row = Rect::from_min_max(pos2(left, y), pos2(left + table - 6.0, y + ROW));
             if state.selected == Some(task.id) {
-                painter.rect_filled(cell, 0.0, palette.accent_soft);
+                painter.rect_filled(row, 0.0, palette.accent_soft);
             }
-            let response = ui.interact(cell, ui.id().with(("title", task.id)), Sense::click());
+            let cell = Rect::from_min_max(pos2(left, y), pos2(left + title_width, y + ROW));
+            let response = ui.interact(row, ui.id().with(("title", task.id)), Sense::click());
             let enabled = ui.is_enabled();
+            // The columns: planned start, deadline, who does it.
+            let values: Vec<String> = columns
+                .iter()
+                .map(|column| {
+                    let value = match column {
+                        ScheduleColumn::Start => {
+                            spans.get(&task.id).map(|(start, _)| dates::format(*start))
+                        }
+                        ScheduleColumn::Due => task.due.map(dates::format),
+                        ScheduleColumn::Assignee => task
+                            .assignee
+                            .and_then(|id| ws.person(id))
+                            .map(|p| p.name.clone()),
+                    };
+                    value.unwrap_or_else(|| "–".to_owned())
+                })
+                .collect();
+            // Spoken with the row: "Beginn 12.10.2026, Frist 14.10.2026, Zuständig Anna Berg".
+            let spoken = columns
+                .iter()
+                .zip(&values)
+                .map(|(c, v)| format!("{} {v}", c.name()))
+                .collect::<Vec<_>>()
+                .join(", ");
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &task.title)
+                let mut info =
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &task.title);
+                info.current_text_value = Some(spoken.clone());
+                info
             });
             if response.clicked() {
                 out.push(Intent::Select(Some(task.id)));
             }
-            painter.with_clip_rect(cell).text(
-                pos2(left + 4.0 + *depth as f32 * 14.0, y + ROW / 2.0),
+            // Fold and unfold the subtasks of a task that has some.
+            let indent = left + 4.0 + *depth as f32 * 14.0;
+            if !index.children(task.id).is_empty() {
+                let folded = state.folded.contains(&task.id);
+                let at = crate::design::icons::square(pos2(indent + 8.0, y + ROW / 2.0), 24.0);
+                let name = if folded {
+                    text::t().unfold_subtasks
+                } else {
+                    text::t().fold_subtasks
+                };
+                let toggle = ui.interact(at, ui.id().with(("fold", task.id)), Sense::click());
+                toggle.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name)
+                });
+                let icon = if folded {
+                    Icon::ChevronRight
+                } else {
+                    Icon::ChevronDown
+                };
+                icon.paint(
+                    &painter,
+                    crate::design::icons::square(at.center(), 14.0),
+                    visuals.weak_text_color(),
+                );
+                if toggle.on_hover_text(name).clicked() {
+                    fold = Some(task.id);
+                }
+            }
+            painter.with_clip_rect(cell.shrink2(vec2(2.0, 0.0))).text(
+                pos2(indent + 20.0, y + ROW / 2.0),
                 egui::Align2::LEFT_CENTER,
                 &task.title,
                 egui::TextStyle::Body.resolve(ui.style()),
                 visuals.text_color(),
             );
+            let mut x = left + 4.0 + title_width;
+            for (column, value) in columns.iter().zip(&values) {
+                let cell = Rect::from_min_max(pos2(x, y), pos2(x + column.width() - 6.0, y + ROW));
+                painter.with_clip_rect(cell).text(
+                    pos2(x, y + ROW / 2.0),
+                    egui::Align2::LEFT_CENTER,
+                    value,
+                    small.clone(),
+                    visuals.text_color(),
+                );
+                x += column.width();
+            }
+        }
+        // The edge of the title column can be dragged to make it wider or narrower.
+        let edge = Rect::from_min_max(
+            pos2(left + title_width - 3.0, area.top()),
+            pos2(
+                left + title_width + 3.0,
+                area.top() + HEADER + rows.len() as f32 * ROW,
+            ),
+        );
+        let drag = ui.interact(edge, ui.id().with("title-edge"), Sense::drag());
+        drag.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Other, true, text::t().title_width)
+        });
+        if drag.hovered() || drag.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            painter.vline(
+                edge.center().x,
+                edge.y_range(),
+                Stroke::new(2.0, palette.accent),
+            );
+        }
+        if drag.dragged() {
+            widen = drag.drag_delta().x;
         }
     });
     ui.style_mut().always_scroll_the_only_direction = only_direction;
+    if let Some(task) = fold
+        && !state.folded.remove(&task)
+    {
+        state.folded.insert(task);
+    }
+    if widen != 0.0 {
+        state.title_width = Some((title_width + widen).clamp(TITLES_MIN, TITLES_MAX));
+    }
 
     state.zoom_levels.insert(project.id, level);
 
