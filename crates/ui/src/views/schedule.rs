@@ -281,6 +281,12 @@ pub fn show(
             }
         };
 
+        // Days off set apart from working days: darker in light mode, lighter in dark mode.
+        let days_off = if visuals.dark_mode {
+            visuals.faint_bg_color
+        } else {
+            egui::Color32::from_black_alpha(14)
+        };
         // Days off, weeks, today, the project's deadline.
         for n in 0..days {
             let day = plus(first, n);
@@ -292,7 +298,7 @@ pub fn show(
                         pos2(x + day_width, area.bottom()),
                     ),
                     0.0,
-                    visuals.faint_bg_color,
+                    days_off,
                 );
             }
             // Fine: weeks with their number; coarse: months.
