@@ -35,8 +35,21 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
         ui.add_space(16.0);
         design::widgets::subheading(ui, text::t().projects);
         let cards = query::overview(ws, now);
-        if cards.is_empty() {
-            ui.label(text::t().nothing_yet);
+        // Nothing yet: a symbol, a sentence, the one step that helps (Phase 9f).
+        if cards.is_empty()
+            && design::widgets::empty_state(
+                ui,
+                crate::design::Icon::Case,
+                text::t().nothing_yet,
+                Some(text::t().first_case),
+            )
+        {
+            out.push(Intent::Open(Dialog::NewProject(
+                crate::state::ProjectForm {
+                    kind: text::t().kinds[1].to_owned(),
+                    ..crate::state::ProjectForm::default()
+                },
+            )));
         }
         // In rows of as many as fit (egui does not wrap framed cards by itself).
         for row in cards.chunks(per_row(ui)) {
@@ -231,7 +244,13 @@ pub fn templates(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
         ui.add_space(8.0);
         let cards = query::templates(ws, now);
         if cards.is_empty() {
-            ui.label(text::t().no_templates);
+            // How a template comes about is the step to take (no button can do it here).
+            design::widgets::empty_state(
+                ui,
+                crate::design::Icon::Board,
+                text::t().no_templates,
+                None,
+            );
         }
         for row in cards.chunks(per_row(ui)) {
             ui.horizontal_top(|ui| {

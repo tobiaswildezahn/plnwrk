@@ -7827,3 +7827,68 @@ fn a_date_conflict_is_marked_in_the_details() {
         assert_eq!(harness.query_by_label(&said).is_some(), marked, "{task}");
     }
 }
+
+/// Phase 9f: every empty view says so with a sentence and offers the step that helps – which
+/// puts the cursor where the next thing is typed.
+#[test]
+fn empty_views_offer_the_next_step() {
+    let t = text::t();
+    // The overview: a new case.
+    let mut harness = harness_after_new_file();
+    assert!(harness.query_by_label(t.nothing_yet).is_some());
+    click(&mut harness, t.first_case);
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the dialog for a new case")
+    };
+    assert!(plnwrk_core::is_case(Some(&form.kind), None));
+    // The list: the cursor in the field for a new task.
+    let mut harness = with_project("Leer");
+    assert!(harness.query_by_label(t.no_tasks).is_some());
+    click(&mut harness, t.first_task);
+    type_where_the_focus_is(&mut harness, "Erste");
+    assert!(task_named(harness.state(), "Erste").is_some());
+    assert!(
+        harness.query_by_label(t.no_tasks).is_none(),
+        "not empty any more"
+    );
+    // The milestones: the cursor in the title of a new one.
+    click(&mut harness, t.milestones);
+    assert!(harness.query_by_label(t.milestones_empty).is_some());
+    click(&mut harness, t.first_milestone);
+    harness.event(egui::Event::Text("Abgabe".to_owned()));
+    harness.run();
+    assert_eq!(harness.state().state.forms.milestone_title, "Abgabe");
+    // The people: the cursor in the name of a new person.
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::People));
+    harness.run();
+    assert!(harness.query_by_label(t.people_empty).is_some());
+    click(&mut harness, t.add_person);
+    harness.event(egui::Event::Text("Anna".to_owned()));
+    harness.run();
+    assert_eq!(harness.state().state.forms.person.name, "Anna");
+}
+
+/// Phase 9f: a message stands once, right under the ribbon (not in the status bar), until it
+/// is closed.
+#[test]
+fn a_message_stands_once_under_the_ribbon() {
+    let mut harness = with_project("Umzug");
+    harness.state_mut().state.message = Some(crate::state::Message::error("Etwas ging schief."));
+    harness.run();
+    let shown: Vec<egui::Rect> = harness
+        .query_all_by_label("Etwas ging schief.")
+        .map(|n| n.rect())
+        .collect();
+    assert_eq!(shown.len(), 1, "one place");
+    // Above the content (the project's heading), not at the bottom.
+    let heading = harness
+        .get_all_by_label("Umzug")
+        .map(|n| n.rect())
+        .fold(f32::MAX, |a, r| a.min(r.top()));
+    assert!(shown[0].bottom() <= heading, "{shown:?} above {heading}");
+    click(&mut harness, text::t().dismiss_message);
+    assert!(harness.state().state.message.is_none());
+    assert!(harness.query_by_label("Etwas ging schief.").is_none());
+}

@@ -303,7 +303,15 @@ fn list(
     }
     egui::ScrollArea::vertical().show(ui, |ui| {
         if roots.is_empty() {
-            ui.weak(text::t().no_tasks);
+            // Nothing yet: the step that helps is the field below.
+            if crate::design::widgets::empty_state(
+                ui,
+                Icon::Task,
+                text::t().no_tasks,
+                Some(text::t().first_task),
+            ) {
+                state.focus_new_task = true;
+            }
         } else {
             // The headings of the columns, painted (as in the schedule's table): the fields of
             // the details carry these names for the screen reader.

@@ -83,6 +83,7 @@ pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
 /// The whole window.
 pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
     ribbon::show(ui, doc, state, out);
+    message_bar(ui, state, out);
     status_bar(ui, doc, state);
     match doc {
         None => {
@@ -116,6 +117,7 @@ pub fn themes() -> [(egui::ThemePreference, &'static str); 3] {
     ]
 }
 
+/// The status bar: the file, whether it is saved, its recovery copy, the browser's limits.
 fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
     egui::Panel::bottom("status").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -159,17 +161,44 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     None => {}
                 }
             }
-            if let Some(message) = &state.message {
-                ui.separator();
-                let color = if message.error {
-                    ui.visuals().error_fg_color
-                } else {
-                    ui.visuals().weak_text_color()
-                };
-                ui.label(RichText::new(&message.text).color(color));
-            }
         });
     });
+}
+
+/// The message of the last action (Phase 9f): one place, right under the ribbon, until the
+/// next action or its close button – the status bar is for saving and recovery only.
+fn message_bar(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
+    let Some(message) = &state.message else {
+        return;
+    };
+    let p = design::palette(ui);
+    let (fill, text_color) = if message.error {
+        (p.danger_soft, p.danger)
+    } else {
+        (p.info_soft, p.text)
+    };
+    egui::Panel::top("message")
+        .show_separator_line(false)
+        .frame(
+            egui::Frame::new()
+                .fill(fill)
+                .inner_margin(egui::Margin::symmetric(12, 6)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if message.error {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                    Icon::Warning.paint(ui.painter(), rect, p.danger);
+                }
+                ui.add(egui::Label::new(RichText::new(&message.text).color(text_color)).wrap());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if icon_button(ui, Icon::Close, text::t().dismiss_message).clicked() {
+                        out.push(Intent::DismissMessage);
+                    }
+                });
+            });
+        });
 }
 
 fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
@@ -362,9 +391,6 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                 // Grouped (Phase 9f): cases, then projects – the one rule `is_case` – each
                 // with its symbol; a group without entries is left out.
                 let cards = query::overview(ws, now);
-                if cards.is_empty() {
-                    ui.weak(text::t().nothing_yet);
-                }
                 for (icon, heading, cases) in [
                     (Icon::Case, text::t().cases_heading, true),
                     (Icon::Project, text::t().projects_heading, false),

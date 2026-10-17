@@ -154,7 +154,14 @@ pub fn show(
         .map(|m| light(ws, project, m, &worked.analysis, now))
         .collect();
     if all.is_empty() {
-        ui.weak(text::t().no_milestones);
+        if widgets::empty_state(
+            ui,
+            crate::design::Icon::Milestone,
+            text::t().milestones_empty,
+            Some(text::t().first_milestone),
+        ) {
+            state.focus_new_milestone = true;
+        }
     } else {
         timeline(ui, project, &all, &lights, &worked, state, out, now.date());
         ui.add_space(12.0);
@@ -527,11 +534,14 @@ fn new_milestone(
     today: Date,
 ) {
     ui.horizontal(|ui| {
-        ui.add(
+        let title = ui.add(
             egui::TextEdit::singleline(&mut state.forms.milestone_title)
                 .hint_text(text::t().title)
                 .desired_width(240.0),
         );
+        if std::mem::take(&mut state.focus_new_milestone) {
+            title.request_focus();
+        }
         date::deadline_input(
             ui,
             ("new-milestone", project.id),

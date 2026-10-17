@@ -113,6 +113,8 @@ pub(crate) enum Intent {
     },
     /// Show another view.
     Go(View),
+    /// Close the message bar.
+    DismissMessage,
     /// Show a message once the command just before it was carried out (not when it was
     /// refused: then its reason stays in view).
     SayWhenDone(Message),
@@ -875,6 +877,7 @@ impl PlnwrkApp {
             }
             Intent::ExportSchedule(project) => self.export_schedule(project),
             Intent::FocusNewTask => self.state.focus_new_task = true,
+            Intent::DismissMessage => self.state.message = None,
             Intent::EditProject(id) => {
                 let open = self
                     .state
