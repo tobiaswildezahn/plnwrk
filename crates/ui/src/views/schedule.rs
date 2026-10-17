@@ -33,7 +33,7 @@ const TITLES: f32 = 220.0;
 const TITLES_MIN: f32 = 120.0;
 const TITLES_MAX: f32 = 480.0;
 /// Height of the time axis on top.
-const HEADER: f32 = 40.0;
+pub(crate) const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
 
@@ -382,7 +382,16 @@ pub fn show(
     // The mouse wheel moves the rows while there are more than fit, otherwise through time
     // (with only one direction left, egui turns the wheel sideways). Shift and the wheel, or a
     // trackpad swiped sideways, always move through time.
-    let rows_fit = HEADER + rows.len() as f32 * ROW <= max_height;
+    // The milestones of the project, once more in a row of their own under the time axis that
+    // stays in view while the rows scroll (plan §7.3).
+    let mut pinned: Vec<(&Task, Date)> = ws
+        .tasks_of(project.id)
+        .filter(|t| t.milestone)
+        .filter_map(|t| t.due.map(|due| (t, due)))
+        .collect();
+    pinned.sort_by_key(|(t, due)| (*due, t.title.clone()));
+    let pin = if pinned.is_empty() { 0.0 } else { ROW };
+    let rows_fit = HEADER + pin + rows.len() as f32 * ROW <= max_height;
     // Scroll bars always shown (the way sideways must be visible), beside the rows, never over
     // them; dragging the empty area moves the view (with the mouse too).
     let mut scroll = egui::ScrollArea::new([true, !rows_fit])
@@ -440,7 +449,7 @@ pub fn show(
         let width = table + days as f32 * day_width;
         // At least as high as the room: days off and today reach down to the bottom.
         let room = if rows_fit { max_height - 16.0 } else { 0.0 };
-        let height = (HEADER + rows.len() as f32 * ROW).max(room);
+        let height = (HEADER + pin + rows.len() as f32 * ROW).max(room);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
@@ -448,7 +457,10 @@ pub fn show(
         // Dates and markers in the smallest size there is (12.5), never smaller.
         let small = egui::TextStyle::Small.resolve(ui.style());
         let x_of = |date: Date| area.left() + table + days_from(first, date) as f32 * day_width;
-        let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
+        let row_y = |i: usize| area.top() + HEADER + pin + i as f32 * ROW;
+        // The milestone row: under the time axis, or at the top of the view once the rows
+        // scrolled below it.
+        let pin_y = (area.top() + HEADER).max(ui.clip_rect().top());
         // The column with the titles stays at the left edge while scrolling sideways; what
         // lies under it is hidden and cannot be dragged.
         let left = ui.clip_rect().left().max(area.left());
@@ -944,6 +956,70 @@ pub fn show(
             }
         }
 
+        // The milestone row over the rows scrolled under it; it takes the pointer there.
+        if !pinned.is_empty() {
+            let band =
+                Rect::from_min_max(pos2(chart.left(), pin_y), pos2(area.right(), pin_y + ROW));
+            painter.rect_filled(band, 0.0, visuals.panel_fill);
+            painter.hline(
+                band.x_range(),
+                band.bottom() - 0.5,
+                Stroke::new(1.0, palette.line),
+            );
+            ui.interact(band, ui.id().with("milestone-row"), Sense::click());
+            for (task, due) in &pinned {
+                let c = pos2(x_of(*due) + day_width / 2.0, pin_y + ROW / 2.0);
+                let done = task.status == TaskStatus::Done;
+                let overdue = plnwrk_engine::query::task_overdue(Some(project), task, now);
+                let fill = if done {
+                    palette.control
+                } else {
+                    palette.accent_fill
+                };
+                let ring = if overdue {
+                    Stroke::new(2.0, palette.danger)
+                } else if state.selected == Some(task.id) {
+                    Stroke::new(2.0, palette.text)
+                } else {
+                    Stroke::NONE
+                };
+                let diamond = vec![
+                    pos2(c.x, c.y - 7.0),
+                    pos2(c.x + 7.0, c.y),
+                    pos2(c.x, c.y + 7.0),
+                    pos2(c.x - 7.0, c.y),
+                ];
+                painter.add(Shape::convex_polygon(diamond, fill, ring));
+                painter.text(
+                    pos2(c.x + 11.0, c.y),
+                    egui::Align2::LEFT_CENTER,
+                    &task.title,
+                    small.clone(),
+                    visuals.weak_text_color(),
+                );
+                let hit = Rect::from_center_size(c, vec2(18.0, 18.0)).intersect(band);
+                if hit.width() <= 0.0 {
+                    continue;
+                }
+                let response = ui.interact(hit, ui.id().with(("pinned", task.id)), Sense::click());
+                let mut spoken = format!(
+                    "♦ {}: {}",
+                    task.title,
+                    dates::format_deadline(*due, task.due_time)
+                );
+                if overdue {
+                    spoken.push_str(&format!(", {}", text::t().overdue_short));
+                }
+                let enabled = ui.is_enabled();
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &spoken)
+                });
+                if response.on_hover_text(&spoken).clicked() {
+                    out.push(Intent::Select(Some(task.id)));
+                }
+            }
+        }
+
         // The table last, over the bars: titles and columns. A click chooses the task.
         let column = Rect::from_min_max(
             pos2(left, area.top()),
@@ -1057,12 +1133,30 @@ pub fn show(
                 x += column.width();
             }
         }
+        // The milestone row's name, over the titles scrolled under it.
+        if !pinned.is_empty() {
+            let cell = Rect::from_min_max(pos2(left, pin_y), pos2(left + table - 6.0, pin_y + ROW));
+            painter.rect_filled(cell, 0.0, visuals.panel_fill);
+            painter.hline(
+                cell.x_range(),
+                cell.bottom() - 0.5,
+                Stroke::new(1.0, palette.line),
+            );
+            painter.text(
+                pos2(left + 4.0, pin_y + ROW / 2.0),
+                egui::Align2::LEFT_CENTER,
+                format!("♦ {}", text::t().milestones),
+                small.clone(),
+                visuals.weak_text_color(),
+            );
+            ui.interact(cell, ui.id().with("milestone-row-title"), Sense::click());
+        }
         // The edge of the title column can be dragged to make it wider or narrower.
         let edge = Rect::from_min_max(
             pos2(left + title_width - 3.0, area.top()),
             pos2(
                 left + title_width + 3.0,
-                area.top() + HEADER + rows.len() as f32 * ROW,
+                area.top() + HEADER + pin + rows.len() as f32 * ROW,
             ),
         );
         let drag = ui.interact(edge, ui.id().with("title-edge"), Sense::DRAG);

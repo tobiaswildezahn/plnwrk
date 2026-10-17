@@ -78,6 +78,14 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   nach „Erledigt“, während noch Unteraufgaben offen sind, fragt plnwrk, ob sie mit erledigt
   werden sollen.
 - **Meilensteine:** die festen Termine (♦) eines Projekts.
+  - **Oben ein Zeitstrahl** mit allen Meilensteinen, Heute und der Projektfrist. Eine Raute
+    anklicken wählt den Meilenstein, ziehen gibt ihm einen anderen Termin.
+  - **Darunter je eine Karte:** Termin, was bleibt („in 12 Tagen“, „seit 3 Tagen überfällig“,
+    „erreicht am …“), wer zuständig ist und worauf er noch wartet (aufklappbar). Die **Ampel**
+    rechnet plnwrk aus, man setzt sie nicht von Hand: **erreicht**, **überfällig**,
+    **gefährdet** (eine Aufgabe, auf die er wartet, ist überfällig, oder bis zu ihm bleiben nur
+    noch 2 Tage Spielraum – der Grund steht auf der Karte) oder **im Plan**.
+  - **Erreicht**, **Termin ändern**, **Löschen** stehen auf der Karte.
   - **Jede Änderung eines Meilensteins fragt nach** – Termin, Titel, Status, „kein Meilenstein
     mehr“, Löschen, auch wenn ein Meilenstein nur mitrutschen würde. Der Dialog nennt alt → neu
     und was daraus folgt (Vorgänger, die erst später fertig werden; Termin nach dem
@@ -103,6 +111,8 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   - **Tabelle:** Spalten unter **Zeitplan-Werkzeuge › Anzeigen** ab- und zuschalten; die
     Titelspalte am Rand breiter ziehen; Unteraufgaben mit dem Pfeil zuklappen. In schmalen
     Fenstern fallen Spalten von rechts weg.
+  - **Meilensteine** stehen zusätzlich in einer eigenen Zeile ganz oben; sie bleibt stehen, wenn
+    man durch viele Zeilen scrollt.
   - **Mit der Tastatur:** Termine und Abhängigkeiten ändert man im Detailbereich der Aufgabe
     (Beginn, Frist, **Wartet auf**); Ziehen im Zeitplan ist der Weg mit der Maus.
   - **Als Tabelle exportieren (Excel):** speichert den Zeitplan als Datei, die Excel direkt

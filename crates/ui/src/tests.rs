@@ -5650,3 +5650,51 @@ fn a_click_on_a_diamond_chooses_the_milestone() {
     harness.run();
     assert_eq!(harness.state().state.selected, Some(id));
 }
+
+/// The milestones in their own row at the top of the schedule (plan §7.3): under the time axis,
+/// above the first row, and still in view when the rows scroll; a click chooses one.
+#[test]
+fn the_milestones_stay_in_view_in_their_own_row() {
+    const ROW_HEIGHT: f32 = 32.0;
+    let mut harness = wide_schedule(40);
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let due = day_from_today(&harness, 1);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Ziel", "due": due, "milestone": true}),
+    ));
+    harness.run();
+    let pinned = |h: &Harness<'_, PlnwrkApp>| {
+        h.get_by(|n| n.label().is_some_and(|l| l.starts_with("♦ Ziel: ")))
+            .rect()
+    };
+    // "Jetzt" is the second row (the first, "Früher", lies out of view in time).
+    let first = bar(&harness, "Jetzt").top() - ROW_HEIGHT;
+    let row = pinned(&harness);
+    assert!(row.bottom() <= first, "{row:?} above the rows ({first})");
+    // The rows scroll; the milestone row stays where it is, over them.
+    let at = bar(&harness, "Jetzt").center() + egui::vec2(120.0, 0.0);
+    for _ in 0..3 {
+        wheel(&mut harness, at, Modifiers::NONE);
+    }
+    let moved = bar(&harness, "Jetzt").top();
+    assert!(
+        moved < first - 100.0,
+        "the rows scrolled: {first} → {moved}"
+    );
+    // At most the time axis' height higher: once that scrolled away, the row takes its place
+    // at the top of the view.
+    let after = pinned(&harness);
+    let up = row.top() - after.top();
+    assert!(
+        (0.0..=crate::views::schedule::HEADER + 1.0).contains(&up),
+        "{row:?} → {after:?}"
+    );
+    // A click on it chooses the milestone.
+    let id = task_named(harness.state(), "Ziel").unwrap().id;
+    harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with("♦ Ziel: ")))
+        .click();
+    harness.run();
+    assert_eq!(harness.state().state.selected, Some(id));
+}

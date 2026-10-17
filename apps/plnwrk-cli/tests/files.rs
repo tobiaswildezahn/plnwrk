@@ -493,9 +493,12 @@ mod files {
         let first = milestone_ids(s(&file));
         assert_eq!(first.len(), 3);
         assert_eq!(milestone_ids(s(&file)), first, "stable between calls");
-        // An id from a query can be used to change the file.
+        // An id from a query can be used to change the file (a milestone: confirmed).
         let params = json!({"task": first[0], "title": "Zuschlag (neu)"}).to_string();
-        ok(&["run", s(&file), "task.update", &params], None);
+        ok(
+            &["run", s(&file), "task.update", &params, "--confirmed"],
+            None,
+        );
         assert_eq!(milestone_ids(s(&file)), first, "the same ids after saving");
         let markdown = |f: &Path| {
             String::from_utf8(cli(&["export", s(f), "--format", "json"], None).stdout).unwrap()
@@ -526,6 +529,7 @@ mod files {
             4
         );
     }
+
     /// Phase 9d: a milestone changes only with --confirmed, which the AI sets after asking the
     /// person in the chat; without it nothing is saved and the answer names the milestone.
     #[test]
