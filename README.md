@@ -9,9 +9,11 @@ Gedacht ist plnwrk für Verwaltung und Gefahrenabwehr: Ein **Vorgang** (Aktenzei
 fester Ablauf, z. B. eine Schriftliche Kleine Anfrage) und ein **Projekt** sind dasselbe
 Datenmodell.
 
-> **Stand (Oktober 2026):** benutzbar, aber jung – Version 0.0.0, noch ohne Installationspaket
-> (kommt mit Phase 8). Fahrplan und Entscheidungsprotokoll: [docs/PLAN.md](docs/PLAN.md),
-> aktueller Stand: [docs/STATUS.md](docs/STATUS.md).
+> **Stand (Oktober 2026): Version 0.1.0** – jung, aber benutzbar.
+> **Herunterladen:** [Releases](https://github.com/tobiaswildezahn/plnwrk/releases) (macOS,
+> Windows, Linux) · **Im Browser:** [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) ·
+> **Anleitung:** [docs/handbuch.md](docs/handbuch.md). Fahrplan und Entscheidungsprotokoll:
+> [docs/PLAN.md](docs/PLAN.md), aktueller Stand: [docs/STATUS.md](docs/STATUS.md).
 
 ## Was es kann
 
