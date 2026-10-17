@@ -9,6 +9,7 @@
 )]
 
 pub mod icons;
+pub mod ribbon;
 pub mod tokens;
 pub mod widgets;
 
@@ -41,16 +42,62 @@ pub fn subheading() -> TextStyle {
     TextStyle::Name("subheading".into())
 }
 
-/// Puts the font and both themes in place, once per context.
+/// Puts the font and both themes in place before the first frame (the desktop and web apps,
+/// at start): egui loads the fonts at the beginning of the first pass, so the very first
+/// frame already shows Fira Sans and the theme.
+pub fn install_at_start(ctx: &egui::Context) {
+    ctx.set_fonts(fonts());
+    ctx.data_mut(|d| d.insert_temp(fonts_id(), 0_u64));
+    themes(ctx);
+}
+
+/// Puts the font and both themes in place from inside a frame (tests, or an app that missed
+/// the start), once per context. egui takes new fonts only from the next pass on, and a style
+/// naming the semibold family before then would stop the app: so the fonts first, the themes
+/// one pass later.
 pub fn install(ctx: &egui::Context) {
-    let done = egui::Id::new("plnwrk-design-installed");
-    if ctx.data(|d| d.get_temp::<bool>(done)).unwrap_or(false) {
+    if ready(ctx) {
         return;
     }
-    ctx.data_mut(|d| d.insert_temp(done, true));
-    ctx.set_fonts(fonts());
+    let pass = ctx.cumulative_pass_nr();
+    match ctx.data(|d| d.get_temp::<u64>(fonts_id())) {
+        None => {
+            ctx.set_fonts(fonts());
+            ctx.data_mut(|d| d.insert_temp(fonts_id(), pass + 1));
+            ctx.request_repaint();
+        }
+        Some(from) if pass >= from => themes(ctx),
+        Some(_) => {}
+    }
+}
+
+fn fonts_id() -> egui::Id {
+    egui::Id::new("plnwrk-design-fonts-from-pass")
+}
+
+fn themes_id() -> egui::Id {
+    egui::Id::new("plnwrk-design-themes")
+}
+
+/// Whether the fonts and themes are in place (so the semibold family can be used).
+fn ready(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(themes_id()))
+        .unwrap_or(false)
+}
+
+fn themes(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(themes_id(), true));
     for theme in [Theme::Light, Theme::Dark] {
         ctx.style_mut_of(theme, |style| apply(style, theme == Theme::Dark));
+    }
+}
+
+/// Semibold in this size, or the regular font while the fonts are not in place yet.
+pub fn strong_font(ctx: &egui::Context, size: f32) -> FontId {
+    if ready(ctx) {
+        FontId::new(size, semibold())
+    } else {
+        FontId::proportional(size)
     }
 }
 

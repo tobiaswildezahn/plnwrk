@@ -86,16 +86,25 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
     einem Schritt zurück.
   - **Rot** ist der kritische Pfad: Verzögert sich eine dieser Aufgaben, verschiebt sich das
     Ende. Warnungen unter dem Zeitplan nennen, was nicht hält.
-  - **Zoom:** − und + oder Strg/⌘ + Mausrad; grob zeigt Monate.
+  - **Zoom:** Lupen-Knöpfe, Reiter **Zeitplan**, Strg/⌘ + Mausrad oder mit zwei Fingern auf dem
+    Trackpad – überall im Zeitplan; der Tag unter dem Zeiger bleibt stehen.
+  - **Mausrad:** bewegt die Zeilen, wenn es mehr gibt als Platz, sonst die Zeit;
+    Shift + Mausrad bewegt immer die Zeit.
   - **Als Tabelle exportieren (Excel):** speichert den Zeitplan als Datei, die Excel direkt
     öffnet.
 
 ## 4. Nützlich zu wissen
 
+- **Menüband (Ribbon):** Oben stehen die Reiter **Datei**, **Start** und **Ansicht**, darunter die
+  Befehle in Gruppen. Ist eine Aufgabe gewählt, kommt der Reiter **Aufgabe** dazu (Status,
+  Löschen); im Zeitplan der Reiter **Zeitplan** (Zoom, Export). Doppelklick auf einen Reiter
+  oder ⌘F1 / Strg+F1 klappt das Menüband ein und aus. Eingeklappt öffnet ein Klick auf einen
+  Reiter es kurz. Im Browser und in niedrigen Fenstern ist es anfangs eingeklappt.
+  Rückgängig und Wiederholen stehen immer oben rechts.
 - **Befehlspalette:** ⌘K / Strg+K – tippen, was man tun will („Zeitplan“, „Erledigt“,
-  „Gehe zu …“).
-- **Sprache und Darstellung:** Menü **Ansicht** (Deutsch/English, hell/dunkel).
-- **Schützen:** Menü **Datei → Mit Passphrase schützen** verschlüsselt die Datei. Ohne
+  „Gehe zu …“). Jeder Treffer nennt seinen Platz im Menüband, z. B. „Start › Neu“.
+- **Sprache und Darstellung:** Reiter **Ansicht** (Deutsch/English, hell/dunkel).
+- **Schützen:** Reiter **Datei → Mit Passphrase schützen** verschlüsselt die Datei. Ohne
   Passphrase ist der Inhalt dann nicht lesbar – sie lässt sich nicht wiederherstellen.
 - **Verschlusssachen:** **Version 0.1.0 ist nicht für echte Verschlusssachen gedacht.**
   plnwrk kann Inhalte als VS-NfD kennzeichnen und verlangt dann Verschlüsselung, aber eine

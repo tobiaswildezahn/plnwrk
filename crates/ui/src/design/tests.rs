@@ -39,6 +39,7 @@ fn pairs(p: &Palette) -> Vec<(String, Color32, Color32, f64)> {
             ("danger", p.danger),
             ("warning", p.warning),
             ("success", p.success),
+            ("context", p.context),
         ] {
             all.push((format!("{text} on {name}"), fore, back, 4.5));
         }
@@ -120,7 +121,7 @@ fn nothing_is_smaller_than_readable_and_clickable() {
         assert!(size::CONTROL >= size::TARGET);
     }
     let ctx = egui::Context::default();
-    super::install(&ctx);
+    super::install_at_start(&ctx);
     for theme in [egui::Theme::Light, egui::Theme::Dark] {
         let style = ctx.style_of(theme);
         for (name, font) in &style.text_styles {

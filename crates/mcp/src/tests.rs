@@ -974,3 +974,26 @@ fn serve_answers_line_by_line_and_skips_overlong_messages() {
     assert_eq!(lines[2]["error"]["code"], PARSE_ERROR);
     assert_eq!(lines[3]["id"], 2);
 }
+
+#[test]
+fn search_commands_says_where_a_command_is_in_the_app() {
+    let (found, error) = tool("search_commands", json!({"words": "task.delete"}));
+    assert!(!error, "{found}");
+    let delete = found
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "task.delete")
+        .unwrap();
+    assert_eq!(delete["in_the_app"]["de"], "Aufgabe › Aufgabe");
+    assert_eq!(delete["in_the_app"]["en"], "Task › Task");
+    // Without a button in the ribbon, no place.
+    let (found, _) = tool("search_commands", json!({"words": "comment.add"}));
+    let comment = found
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "comment.add")
+        .unwrap();
+    assert!(comment.get("in_the_app").is_none());
+}

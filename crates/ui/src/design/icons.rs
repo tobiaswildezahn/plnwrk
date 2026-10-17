@@ -17,6 +17,7 @@ pub enum Icon {
     ChevronLeft,
     ChevronRight,
     ChevronDown,
+    ChevronUp,
     /// Done, ticked.
     Check,
     /// A case (Vorgang): a sheet with a folded corner.
@@ -64,13 +65,14 @@ pub enum Icon {
 
 impl Icon {
     /// Every symbol, for tests and the overview.
-    pub const ALL: [Icon; 36] = [
+    pub const ALL: [Icon; 37] = [
         Icon::Plus,
         Icon::Minus,
         Icon::Close,
         Icon::ChevronLeft,
         Icon::ChevronRight,
         Icon::ChevronDown,
+        Icon::ChevronUp,
         Icon::Check,
         Icon::Case,
         Icon::Project,
@@ -124,6 +126,7 @@ impl Icon {
             Icon::ChevronLeft => pen.line(&[(15.0, 6.0), (9.0, 12.0), (15.0, 18.0)]),
             Icon::ChevronRight => pen.line(&[(9.0, 6.0), (15.0, 12.0), (9.0, 18.0)]),
             Icon::ChevronDown => pen.line(&[(6.0, 9.0), (12.0, 15.0), (18.0, 9.0)]),
+            Icon::ChevronUp => pen.line(&[(6.0, 15.0), (12.0, 9.0), (18.0, 15.0)]),
             Icon::Check => pen.line(&[(5.0, 12.5), (10.0, 17.5), (19.0, 7.0)]),
             Icon::Case => {
                 pen.closed(&[

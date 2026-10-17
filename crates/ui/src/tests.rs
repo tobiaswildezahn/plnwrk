@@ -22,7 +22,10 @@ fn harness(app: PlnwrkApp) -> Harness<'static, PlnwrkApp> {
     harness
 }
 
+/// Clicks what carries this label, scrolled into view first (like a person would).
 fn click(harness: &mut Harness<'_, PlnwrkApp>, label: &str) {
+    harness.get_by_label(label).scroll_to_me();
+    harness.run();
     harness.get_by_label(label).click();
     harness.run();
 }
@@ -228,14 +231,14 @@ fn undo_and_redo_buttons_change_the_data_but_typing_keeps_its_own_undo() {
     harness.run();
     assert!(task_named(harness.state(), "Kisten").is_some());
 
-    click(&mut harness, &format!("⟲ {}", text::t().undo));
+    click(&mut harness, text::t().undo);
     assert!(task_named(harness.state(), "Kisten").is_none());
-    click(&mut harness, &format!("⟳ {}", text::t().redo));
+    click(&mut harness, text::t().redo);
     assert!(task_named(harness.state(), "Kisten").is_some());
 
     // Undo everything: the project disappears and the view falls back to the overview.
     while harness.state().doc().is_some_and(|d| d.session.can_undo()) {
-        click(&mut harness, &format!("⟲ {}", text::t().undo));
+        click(&mut harness, text::t().undo);
     }
     assert!(projects(harness.state()).is_empty());
     assert_eq!(harness.state().state.view, View::Overview);
@@ -839,7 +842,7 @@ fn undo_with_the_detail_panel_open_shows_the_old_value() {
         harness.get_by_label(text::t().due).value().as_deref(),
         Some("01.12.2026")
     );
-    click(&mut harness, &format!("⟲ {}", text::t().undo));
+    click(&mut harness, text::t().undo);
     let task = task_named(harness.state(), "Kisten").unwrap();
     assert_eq!(task.due, None);
     assert_eq!(
@@ -1758,20 +1761,13 @@ fn assert_english(harness: &Harness<'_, PlnwrkApp>, place: &str) {
     assert!(german.is_empty(), "German on {place}: {german:?}");
 }
 
-/// Opens a submenu (its button carries an arrow after the name).
-fn submenu(harness: &mut Harness<'_, PlnwrkApp>, name: &str) {
-    harness
-        .get_by(|n| n.label().is_some_and(|l| l.starts_with(name)))
-        .click();
-    harness.run();
-}
-
-/// Switches the interface to English through the menu, like a person.
+/// Switches the interface to English through the ribbon, like a person.
 fn to_english(harness: &mut Harness<'_, PlnwrkApp>) {
     click(harness, text::DE.view_menu);
-    submenu(harness, text::DE.language_menu);
     click(harness, text::Language::English.name());
     assert_eq!(harness.state().state.language, text::Language::English);
+    // Back to the tab Home, so names of the tab View are not there twice.
+    click(harness, text::EN.ribbon.start);
 }
 
 #[test]
@@ -1907,7 +1903,6 @@ fn language_and_theme_are_remembered() {
         (text::EN.theme_light, egui::ThemePreference::Light, false),
     ] {
         click(&mut first, text::EN.view_menu);
-        submenu(&mut first, text::EN.appearance);
         click(&mut first, name);
         assert_eq!(first.ctx.options(|o| o.theme_preference), theme);
         assert_eq!(first.ctx.global_style().visuals.dark_mode, dark, "{name}");
@@ -4150,4 +4145,222 @@ fn a_pinch_over_a_dialog_does_not_zoom_the_schedule() {
         (after.width() - before.width()).abs() < 0.5,
         "{before:?} → {after:?}"
     );
+}
+
+// ---- Ribbon (Phase 9b) ----
+
+/// Whether the body of the ribbon is shown (its button "Befehl suchen" in the tab Start).
+fn ribbon_open(harness: &Harness<'_, PlnwrkApp>) -> bool {
+    harness
+        .query_by_label(text::t().ribbon.find_action)
+        .is_some()
+}
+
+/// Clicks the topmost element with this label: the one in the ribbon, where a view carries
+/// the same name (tab "Zeitplan", status "In Arbeit").
+fn click_in_ribbon(harness: &mut Harness<'_, PlnwrkApp>, label: &str) {
+    let at = harness
+        .get_all_by_label(label)
+        .map(|n| n.rect())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap()
+        .center();
+    tap(harness, at);
+}
+
+#[test]
+fn the_ribbon_collapses_and_opens_for_a_moment() {
+    let mut harness = harness_with_sample();
+    assert!(
+        ribbon_open(&harness),
+        "open by default on a large desktop window"
+    );
+    // A double click on a tab collapses it.
+    double_click(&mut harness, text::t().ribbon.start);
+    assert!(!ribbon_open(&harness), "collapsed by a double click");
+    assert_eq!(harness.state().state.ribbon_collapsed, Some(true));
+    // A click on a tab opens it for a moment; a click elsewhere closes it again.
+    harness.run_steps(30);
+    click(&mut harness, text::t().ribbon.start);
+    assert!(ribbon_open(&harness), "peek");
+    let sidebar = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .rect()
+        .center();
+    tap(&mut harness, sidebar);
+    assert!(!ribbon_open(&harness), "a click elsewhere closes the peek");
+    assert!(
+        matches!(harness.state().state.view, View::Project(_)),
+        "and still does what it was for"
+    );
+    // Ctrl/Cmd+F1 expands it for good.
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::F1);
+    harness.run();
+    assert!(ribbon_open(&harness));
+    assert_eq!(harness.state().state.ribbon_collapsed, Some(false));
+}
+
+#[test]
+fn the_ribbon_starts_collapsed_in_the_browser_and_in_low_windows() {
+    let (browser, _) = in_browser();
+    assert!(!ribbon_open(&browser), "browser");
+    let mut low = Harness::builder()
+        .with_size(egui::vec2(1400.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut PlnwrkApp| app.show(ui), PlnwrkApp::default());
+    low.run();
+    assert!(!ribbon_open(&low), "low window");
+    // The person's choice wins and is remembered.
+    low.state_mut().state.ribbon_collapsed = Some(false);
+    low.run();
+    assert!(ribbon_open(&low));
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(low.state_mut(), &mut storage);
+    let mut app = PlnwrkApp::default();
+    app.load_settings(&storage);
+    assert_eq!(app.state.ribbon_collapsed, Some(false));
+}
+
+#[test]
+fn contextual_tabs_come_with_their_context() {
+    let mut harness = harness_with_sample();
+    let task_tab = text::t().ribbon.task;
+    assert!(harness.query_by_label(task_tab).is_none());
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, "Einbau Wache 11");
+    assert!(
+        harness.query_by_label(task_tab).is_some(),
+        "a task is chosen"
+    );
+    click(&mut harness, task_tab);
+    let id = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
+    // The tab offers the status; "In Arbeit" sets it.
+    click_in_ribbon(&mut harness, text::task_status(TaskStatus::InProgress));
+    assert_eq!(
+        harness
+            .state()
+            .doc()
+            .unwrap()
+            .session
+            .workspace()
+            .task(id)
+            .unwrap()
+            .status,
+        TaskStatus::InProgress
+    );
+    // Without a task chosen the tab goes, and the ribbon falls back to Start.
+    harness.state_mut().state.select(None);
+    harness.run();
+    assert!(harness.query_by_label(task_tab).is_none());
+    assert_eq!(
+        harness.state().state.ribbon_tab,
+        crate::actions::RibbonTab::Start
+    );
+}
+
+#[test]
+fn the_schedule_tab_of_the_ribbon_zooms() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt").width();
+    // The project tab "Zeitplan" and the ribbon tab "Zeitplan" carry the same name.
+    click_in_ribbon(&mut harness, text::t().schedule_tab);
+    assert_eq!(
+        harness.state().state.ribbon_tab,
+        crate::actions::RibbonTab::Schedule
+    );
+    click_in_ribbon(&mut harness, text::t().zoom_in);
+    let after = bar(&harness, "Jetzt").width();
+    assert!(after > before * 1.3, "{before} → {after}");
+}
+
+#[test]
+fn the_palette_names_where_an_action_lives() {
+    let harness = harness_with_sample();
+    let app = harness.state();
+    let entries = crate::palette::entries(app.doc(), &app.state);
+    let new_case = entries
+        .iter()
+        .find(|e| e.label == text::t().ribbon.new_case_long)
+        .unwrap();
+    assert_eq!(
+        new_case.detail,
+        format!("{} › {}", text::t().ribbon.start, text::t().ribbon.new)
+    );
+}
+
+#[test]
+fn every_action_can_be_found_in_its_tab() {
+    let mut harness = harness_with_sample();
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, "Einbau Wache 11");
+    let tabs = {
+        let app = harness.state();
+        crate::actions::tabs(app.doc(), &app.state)
+    };
+    for tab in tabs {
+        harness.state_mut().state.ribbon_tab = tab;
+        harness.run();
+        let app = harness.state();
+        let names: Vec<String> = crate::actions::all(app.doc(), &app.state)
+            .iter()
+            .filter(|a| a.group.tab() == tab)
+            .map(|a| a.full_name().to_owned())
+            .collect();
+        for name in names {
+            assert!(
+                harness.query_all_by_label(&name).next().is_some(),
+                "{tab:?}: {name}"
+            );
+        }
+    }
+}
+
+/// The engine's table of places (which the AI reads over MCP) names the same tab and group as
+/// the ribbon, in both languages, and lists every command that has a button there.
+#[test]
+fn the_engine_knows_where_each_command_lives() {
+    let mut harness = harness_with_sample();
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    click(&mut harness, "Einbau Wache 11");
+    let mut seen = std::collections::BTreeSet::new();
+    for language in text::Language::ALL {
+        text::set_language(language);
+        let app = harness.state();
+        for action in crate::actions::all(app.doc(), &app.state) {
+            for command in action.commands {
+                let place = plnwrk_engine::places::place(command)
+                    .unwrap_or_else(|| panic!("{command} has no place in the engine"));
+                let expected = match language {
+                    text::Language::German => place.de,
+                    text::Language::English => place.en,
+                };
+                assert_eq!(action.group.place(), expected, "{command} ({language:?})");
+                seen.insert(*command);
+            }
+        }
+    }
+    text::set_language(text::Language::German);
+    for (command, _) in plnwrk_engine::places::PLACES {
+        assert!(
+            seen.contains(command),
+            "{command} has no button in the ribbon"
+        );
+    }
 }
