@@ -143,12 +143,16 @@ fn head(
             )
             .clicked();
         });
+        // What cannot be taken is said under the buttons.
+        let field = egui::Id::new(("project-form-said", project.id));
         if let Some(message) = error {
-            state.message = Some(crate::state::Message::error(message));
+            state.say_at(field, crate::state::Message::error(message));
         }
         if cancel {
             state.forms.project = None;
+            state.unsay_at(field);
         }
+        super::field_said(ui, state, field);
         return;
     }
 

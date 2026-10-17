@@ -165,11 +165,29 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
     });
 }
 
+/// The message of a field, right under it (Phase 9g). Drawing it counts as shown (see
+/// `State::frame_ends`).
+pub(crate) fn field_said(ui: &mut egui::Ui, state: &mut State, field: egui::Id) {
+    if let Some(said) = state.said_at(field) {
+        design::widgets::field_error(ui, &said.text);
+    }
+}
+
+/// The same in a grid of two columns: a row of its own, beside an empty caption.
+pub(crate) fn field_said_in_grid(ui: &mut egui::Ui, state: &mut State, field: egui::Id) {
+    if let Some(said) = state.said_at(field) {
+        ui.label("");
+        design::widgets::field_error(ui, &said.text);
+        ui.end_row();
+    }
+}
+
 /// The message of the last action (Phase 9f): one place, right under the ribbon, until the
 /// next action or its close button – the status bar is for saving and recovery only.
 fn message_bar(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
-    // While a dialog is open, its refusals are said in it (see `dialogs::show`).
-    let Some(message) = state.message.as_ref().filter(|_| state.dialog.is_none()) else {
+    // While a dialog is open, its refusals are said in it (see `dialogs::show`); a field's
+    // under it (`State::said_at`).
+    let Some(message) = state.said_in_bar() else {
         return;
     };
     let p = design::palette(ui);

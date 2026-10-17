@@ -174,11 +174,13 @@ pub enum Dialog {
     Palette { query: String, selected: usize },
 }
 
-/// A line in the status bar.
+/// What the last action has to say: a refusal or a note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub text: String,
     pub error: bool,
+    /// Where it came from, and so where it is said (set by [`State::say`]).
+    pub source: Source,
 }
 
 impl Message {
@@ -186,6 +188,7 @@ impl Message {
         Self {
             text: text.into(),
             error: true,
+            source: Source::View,
         }
     }
 
@@ -193,8 +196,33 @@ impl Message {
         Self {
             text: text.into(),
             error: false,
+            source: Source::View,
         }
     }
+}
+
+/// The last message and where it stands; its fields are reached only through `State`.
+#[derive(Debug, Default)]
+pub struct Said {
+    message: Option<Message>,
+    /// The message was shown in its dialog (so it goes with it).
+    seen: bool,
+    /// The field of a [`Source::Field`] message was drawn this frame.
+    field_drawn: bool,
+}
+
+/// Where a message came from (Phase 9g, STATUS 4.16): one message, one place. It is said
+/// where it came from and nowhere else – and never lost on the way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// The view: said in the message bar under the ribbon.
+    View,
+    /// The open dialog: said in it (refusals). Once seen there it goes with the dialog; what it
+    /// could not show any more comes to the bar – so none outlives its dialog.
+    Dialog,
+    /// A field, by an id of its own: said under it while it is drawn; when it is not (another
+    /// task was chosen), in the bar.
+    Field(egui::Id),
 }
 
 /// The fields of a project or case while they are typed.
@@ -535,7 +563,8 @@ pub struct State {
     pub view: View,
     pub tab: Tab,
     pub selected: Option<TaskId>,
-    pub message: Option<Message>,
+    /// The last message: only through [`State::say`] and its kin, which know where it is said.
+    pub said: Said,
     pub dialog: Option<Dialog>,
     pub recent: Vec<PathBuf>,
     /// Recovery copies written when the app ended without asking.
@@ -547,8 +576,6 @@ pub struct State {
     pub quitting: bool,
     /// Counts opened dialogs, so each one can focus its first field once.
     pub dialog_serial: u64,
-    /// The message standing when the dialog opened – not said again in it.
-    pub message_at_open: Option<Message>,
     /// How the recovery copy stands, for the status bar.
     pub recovery: Option<crate::autosave::Written>,
     /// The language of the interface.
@@ -656,8 +683,6 @@ impl State {
         self.close_dialog();
         self.dialog = Some(dialog);
         self.dialog_serial = self.dialog_serial.wrapping_add(1);
-        // What was said before belongs to before: the dialog says only what comes up in it.
-        self.message_at_open = self.message.clone();
     }
 
     /// Closes the dialog; a typed passphrase is wiped from memory.
@@ -670,7 +695,133 @@ impl State {
             }
             _ => {}
         }
+        // What the dialog said goes with it once seen there; what it could not show any more
+        // (said as it closed) is said in the bar instead.
+        if let Some(message) = &mut self.said.message
+            && message.source == Source::Dialog
+        {
+            if self.said.seen {
+                self.said.message = None;
+            } else {
+                message.source = Source::View;
+            }
+        }
         self.dialog = None;
+    }
+
+    /// Says a message where it came from: in the open dialog, otherwise in the message bar.
+    pub fn say(&mut self, mut message: Message) {
+        message.source = match self.dialog {
+            Some(_) => Source::Dialog,
+            None => Source::View,
+        };
+        self.put(Some(message));
+    }
+
+    /// Says a message under a field (`field` names it, see [`Source::Field`]); the field shows
+    /// it with [`State::said_at`].
+    pub fn say_at(&mut self, field: egui::Id, mut message: Message) {
+        message.source = Source::Field(field);
+        self.put(Some(message));
+    }
+
+    /// Says the message, if any, where it came from – or nothing (the last one is gone).
+    pub fn say_maybe(&mut self, message: Option<Message>) {
+        match message {
+            Some(message) => self.say(message),
+            None => self.put(None),
+        }
+    }
+
+    /// The last message is gone (closed, or about what was left).
+    pub fn unsay(&mut self) {
+        self.put(None);
+    }
+
+    /// The field was left on purpose ("Abbrechen"): what it said goes with it.
+    pub fn unsay_at(&mut self, field: egui::Id) {
+        if self
+            .said
+            .message
+            .as_ref()
+            .is_some_and(|m| m.source == Source::Field(field))
+        {
+            self.put(None);
+        }
+    }
+
+    /// Takes the message away to put it back later with [`State::put_back`].
+    pub fn take_message(&mut self) -> Option<Message> {
+        self.said.seen = false;
+        self.said.message.take()
+    }
+
+    /// Puts a taken message back, from where it came.
+    pub fn put_back(&mut self, message: Option<Message>) {
+        self.put(message);
+    }
+
+    fn put(&mut self, message: Option<Message>) {
+        self.said.message = message;
+        self.said.seen = false;
+    }
+
+    /// The last message, wherever it is said.
+    pub fn message(&self) -> Option<&Message> {
+        self.said.message.as_ref()
+    }
+
+    /// The refusal the open dialog says: one that came up in it, never one from before.
+    pub fn said_in_dialog(&mut self) -> Option<Message> {
+        let message = self
+            .said
+            .message
+            .clone()
+            .filter(|m| m.error && self.dialog.is_some() && m.source == Source::Dialog);
+        if message.is_some() {
+            self.said.seen = true;
+        }
+        message
+    }
+
+    /// The message for the bar under the ribbon: one from a view, while no dialog is open.
+    pub fn said_in_bar(&self) -> Option<&Message> {
+        self.said
+            .message
+            .as_ref()
+            .filter(|m| m.source == Source::View && self.dialog.is_none())
+    }
+
+    /// The message said under the field `field`; drawing it counts as shown.
+    pub fn said_at(&mut self, field: egui::Id) -> Option<Message> {
+        let message = self
+            .said
+            .message
+            .clone()
+            .filter(|m| m.source == Source::Field(field));
+        if message.is_some() {
+            self.said.field_drawn = true;
+        }
+        message
+    }
+
+    /// At the start of a frame: no field has shown its message yet.
+    pub fn frame_begins(&mut self) {
+        self.said.field_drawn = false;
+    }
+
+    /// At the end of a frame: a field message whose field was not drawn (another task chosen,
+    /// the form closed) goes to the bar – never lost. Whether the bar must be drawn again.
+    pub fn frame_ends(&mut self) -> bool {
+        match &mut self.said.message {
+            Some(message)
+                if matches!(message.source, Source::Field(_)) && !self.said.field_drawn =>
+            {
+                message.source = Source::View;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Selects a task (or none). Input meant for the previous task is dropped, so it never

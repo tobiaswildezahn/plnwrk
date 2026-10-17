@@ -153,6 +153,9 @@ pub fn panel(
                     egui::Grid::new(("task-dates", id))
                         .num_columns(2)
                         .show(ui, |ui| {
+                            // A date that cannot be read is said under its field.
+                            let start_field = egui::Id::new(("task-start-said", id));
+                            let due_field = egui::Id::new(("task-due-said", id));
                             let caption = ui.label(text::t().start);
                             let start = date::date_input(
                                 ui,
@@ -172,10 +175,13 @@ pub fn panel(
                                         });
                                     }
                                     Ok(_) => {}
-                                    Err(message) => state.message = Some(Message::error(message)),
+                                    Err(message) => {
+                                        state.say_at(start_field, Message::error(message));
+                                    }
                                 }
                             }
                             ui.end_row();
+                            super::field_said_in_grid(ui, state, start_field);
                             let caption = ui.label(text::t().due);
                             let case = project.is_some_and(plnwrk_core::Project::is_case);
                             let due = date::deadline_input(
@@ -198,10 +204,13 @@ pub fn panel(
                                         });
                                     }
                                     Ok(_) => {}
-                                    Err(message) => state.message = Some(Message::error(message)),
+                                    Err(message) => {
+                                        state.say_at(due_field, Message::error(message));
+                                    }
                                 }
                             }
                             ui.end_row();
+                            super::field_said_in_grid(ui, state, due_field);
                             // Only top-level tasks without subtasks can be milestones.
                             ui.label("♦");
                             let has_children =

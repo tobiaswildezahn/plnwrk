@@ -505,8 +505,11 @@ fn edit_date(
         apply |= widgets::button(ui, Kind::Primary, text::t().apply).clicked();
         cancel = widgets::button(ui, Kind::Quiet, text::t().cancel).clicked();
     });
+    // A date that cannot be read is said under the field.
+    let field = egui::Id::new(("edit-milestone-said", milestone.id));
     if cancel {
         state.forms.milestone_edit = None;
+        state.unsay_at(field);
     } else if apply {
         let (day, time) = (day.clone(), time.clone());
         match dates::parse_deadline(&day, &time) {
@@ -519,10 +522,11 @@ fn edit_date(
                     due_time: Some(due_time),
                 });
             }
-            Ok(None) => state.message = Some(Message::error(text::t().date_needed)),
-            Err(message) => state.message = Some(Message::error(message)),
+            Ok(None) => state.say_at(field, Message::error(text::t().date_needed)),
+            Err(message) => state.say_at(field, Message::error(message)),
         }
     }
+    super::field_said(ui, state, field);
 }
 
 /// A new milestone: title and date (creating one asks nothing).
@@ -533,6 +537,8 @@ fn new_milestone(
     out: &mut Vec<Intent>,
     today: Date,
 ) {
+    // A date that cannot be read is said under the line.
+    let field = egui::Id::new(("new-milestone-said", project.id));
     ui.horizontal(|ui| {
         let title = ui.add(
             egui::TextEdit::singleline(&mut state.forms.milestone_title)
@@ -564,9 +570,10 @@ fn new_milestone(
                     then: Then::Nothing,
                     clear: Some(Clear::Milestone),
                 }),
-                Ok(None) => state.message = Some(Message::error(text::t().date_needed)),
-                Err(message) => state.message = Some(Message::error(message)),
+                Ok(None) => state.say_at(field, Message::error(text::t().date_needed)),
+                Err(message) => state.say_at(field, Message::error(message)),
             }
         }
     });
+    super::field_said(ui, state, field);
 }

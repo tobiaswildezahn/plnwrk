@@ -148,7 +148,11 @@ fn a_wrong_date_keeps_the_dialog_open_and_says_why() {
     let app = harness.state();
     assert!(projects(app).is_empty());
     assert!(app.state.dialog.is_some(), "input stays");
-    assert!(app.state.message.is_none(), "{:?}", app.state.message);
+    assert!(
+        app.state.message().is_none(),
+        "{:?}",
+        app.state.message().cloned()
+    );
 }
 
 #[test]
@@ -195,14 +199,7 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     click(&mut harness, text::t().new_milestone);
     let milestones = |app: &PlnwrkApp| tasks(app).into_iter().filter(|t| t.milestone).count();
     assert_eq!(milestones(harness.state()), 0);
-    assert!(
-        harness
-            .state()
-            .state
-            .message
-            .as_ref()
-            .is_some_and(|m| m.error)
-    );
+    assert!(harness.state().state.message().is_some_and(|m| m.error));
     assert_eq!(
         harness.state().state.forms.milestone_title,
         "Übungstag",
@@ -629,7 +626,7 @@ fn a_wrong_typed_date_never_blocks_saving_or_closing() {
     harness.run();
     let app = harness.state();
     assert!(!app.has_unsaved_changes(), "saved anyway");
-    let message = app.state.message.clone().unwrap();
+    let message = app.state.message().cloned().unwrap();
     assert!(
         message.error && message.text.contains("31.02.2026"),
         "{message:?}"
@@ -780,7 +777,7 @@ fn a_recovery_copy_opens_as_unsaved_work_and_goes_once_saved() {
     click(&mut harness, &name);
     let app = harness.state();
     assert_eq!(
-        app.state.message.clone().unwrap().text,
+        app.state.message().cloned().unwrap().text,
         text::t().recovered_opened
     );
     assert!(app.has_unsaved_changes());
@@ -925,7 +922,7 @@ fn shortcuts_wait_while_a_dialog_is_open() {
     );
     click(&mut harness, text::t().delete);
     assert!(task_named(harness.state(), "Kisten").is_none());
-    assert!(harness.state().state.message.is_none());
+    assert!(harness.state().state.message().is_none());
 }
 
 #[test]
@@ -1006,14 +1003,7 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
     harness.run();
     click(&mut harness, "Öffnen");
     assert!(harness.state().doc().is_none());
-    assert!(
-        harness
-            .state()
-            .state
-            .message
-            .as_ref()
-            .is_some_and(|m| m.error)
-    );
+    assert!(harness.state().state.message().is_some_and(|m| m.error));
     assert!(
         harness
             .query_by_label(text::t().passphrase_question)
@@ -1041,14 +1031,14 @@ fn save_as_onto_the_open_file_and_opening_it_again_are_harmless() {
     click(&mut harness, text::t().save_as);
     let app = harness.state();
     assert!(
-        app.state.message.as_ref().is_some_and(|m| !m.error),
+        app.state.message().is_some_and(|m| !m.error),
         "{:?}",
-        app.state.message
+        app.state.message().cloned()
     );
     // Opening the very file that is open says so instead of a lock error.
     harness.state_mut().open_path(path);
     harness.run();
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert_eq!(message.text, text::t().already_open);
 }
 
@@ -1092,7 +1082,7 @@ fn opening_the_open_file_again_does_not_ask_or_drop_anything() {
     harness.run();
     assert!(harness.state().state.dialog.is_none(), "no question");
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::t().already_open
     );
     assert!(task_named(harness.state(), "Neu").is_some());
@@ -1105,14 +1095,7 @@ fn a_refused_typed_title_is_put_back_and_does_not_block_closing() {
     harness.state_mut().state.forms.task.as_mut().unwrap().title = "   ".to_owned();
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
-    assert!(
-        harness
-            .state()
-            .state
-            .message
-            .as_ref()
-            .is_some_and(|m| m.error)
-    );
+    assert!(harness.state().state.message().is_some_and(|m| m.error));
     let draft = harness.state().state.forms.task.clone().unwrap();
     assert_eq!(draft.title, "Einbau Wache 11", "put back");
     assert!(task_named(harness.state(), "Einbau Wache 11").is_some());
@@ -1262,7 +1245,10 @@ fn a_version_1_file_opens_upgraded_and_counts_as_changed() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::O);
     harness.run();
     let app = harness.state();
-    assert_eq!(app.state.message.clone().unwrap().text, text::t().upgraded);
+    assert_eq!(
+        app.state.message().cloned().unwrap().text,
+        text::t().upgraded
+    );
     assert!(app.has_unsaved_changes(), "save to keep the new format");
     let ws = app.doc().unwrap().session.workspace();
     assert_eq!(ws.milestones().count(), 0);
@@ -1306,7 +1292,7 @@ fn clearing_a_deadline_in_the_calendar_clears_its_time_too() {
     let task = task_named(harness.state(), "Antwort").unwrap();
     assert_eq!((task.due, task.due_time), (None, None));
     assert!(
-        harness.state().state.message.is_none(),
+        harness.state().state.message().is_none(),
         "no complaint about a lone time"
     );
 }
@@ -1468,7 +1454,7 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     type_password(&mut harness, 1, "kurz");
     click(&mut harness, text::t().protect_button);
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::t().passphrase_too_short
     );
     assert!(
@@ -1483,7 +1469,7 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     type_password(&mut harness, 1, "richtig-lange-passphrasE");
     click(&mut harness, text::t().protect_button);
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::t().passphrases_differ
     );
     harness.state_mut().state.close_dialog();
@@ -1494,7 +1480,10 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     type_password(&mut harness, 1, "richtig-lange-passphrase");
     click(&mut harness, text::t().protect_button);
     let app = harness.state();
-    assert_eq!(app.state.message.clone().unwrap().text, text::t().protected);
+    assert_eq!(
+        app.state.message().cloned().unwrap().text,
+        text::t().protected
+    );
     assert!(app.doc().unwrap().encrypted() && !app.has_unsaved_changes());
     assert!(
         plnwrk_store::peek(&std::fs::read(&path).unwrap())
@@ -1506,7 +1495,7 @@ fn a_file_is_protected_and_unprotected_from_the_menu() {
     click(&mut harness, text::t().unprotect);
     click(&mut harness, text::t().unprotect_button);
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::t().unprotected
     );
     assert!(
@@ -1542,7 +1531,7 @@ fn classified_files_keep_their_protection() {
     open_file_menu(&mut harness);
     click(&mut harness, text::t().unprotect);
     click(&mut harness, text::t().unprotect_button);
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(message.error, "{message:?}");
     assert!(harness.state().doc().unwrap().encrypted());
     assert!(
@@ -1563,7 +1552,7 @@ fn protecting_an_unsaved_workspace_needs_a_place_or_changes_nothing() {
     // No dialogs in this test: the save dialog is cancelled.
     let app = harness.state();
     assert_eq!(
-        app.state.message.clone().unwrap().text,
+        app.state.message().cloned().unwrap().text,
         text::t().protection_unchanged
     );
     assert!(!app.doc().unwrap().encrypted());
@@ -1972,7 +1961,7 @@ fn a_failing_autosave_is_reported_in_the_language_of_the_window() {
     let mut message = None;
     for _ in 0..200 {
         harness.run();
-        message = harness.state().state.message.clone();
+        message = harness.state().state.message().cloned();
         if message.as_ref().is_some_and(|m| m.error) {
             break;
         }
@@ -2372,7 +2361,7 @@ fn a_project_form_with_a_wrong_date_never_blocks_closing() {
     assert!(harness.state().has_unsaved_changes());
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Q);
     harness.run();
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(
         message.error && message.text.starts_with(text::t().not_taken),
         "{message:?}"
@@ -2478,7 +2467,7 @@ fn a_refused_rename_is_named_even_when_more_is_taken_after_it() {
     // A title the data rules refuse (control character), typed in the list, still in its field.
     harness.state_mut().state.forms.inline = Some((task, "Be\u{7}richt".to_owned()));
     harness.state_mut().close_requested();
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(message.error, "{message:?}");
     assert!(message.text.starts_with(text::t().not_taken), "{message:?}");
     assert!(
@@ -2584,7 +2573,7 @@ fn a_failed_download_is_not_saved() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
     harness.run();
     assert!(harness.state().has_unsaved_changes());
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(message.error && message.text.starts_with(text::t().download_failed));
     assert!(browser.0.borrow().downloads.is_empty());
 }
@@ -2635,7 +2624,7 @@ fn an_encrypted_upload_asks_for_its_passphrase() {
     field.type_text("falsch-und-lang");
     harness.run();
     click(&mut harness, text::t().open);
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(message.error, "wrong passphrase: said, and asked again");
     let field = harness.get_by(|n| n.role() == egui::accesskit::Role::PasswordInput);
     field.type_text("richtig-lang-genug");
@@ -2695,7 +2684,7 @@ fn the_browser_refuses_vs_nfd_before_asking_for_a_passphrase() {
     let app = harness.state();
     assert!(app.doc().is_none());
     assert!(app.state.dialog.is_none(), "no passphrase asked");
-    let message = app.state.message.clone().unwrap();
+    let message = app.state.message().cloned().unwrap();
     assert!(message.error);
     assert_eq!(message.text, text::t().vs_blocked);
 }
@@ -2724,7 +2713,7 @@ fn the_browser_refuses_vs_nfd_before_it_reaches_the_history() {
             .state_mut()
             .apply(crate::Intent::run(command, params));
         assert_eq!(
-            harness.state().state.message.clone().unwrap().text,
+            harness.state().state.message().cloned().unwrap().text,
             text::t().vs_blocked
         );
         assert_eq!(log(&harness), before, "{command}: not even in the history");
@@ -2765,7 +2754,7 @@ fn a_file_that_ever_held_vs_nfd_never_leaves_the_browser() {
         "not even encrypted"
     );
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::t().vs_blocked
     );
 }
@@ -2851,7 +2840,7 @@ fn work_in_the_browser_survives_a_reload_until_it_is_downloaded() {
     assert!(app.has_unsaved_changes(), "recovered work is unsaved");
     assert!(projects(app).iter().any(|p| p.title == "Lage"));
     assert_eq!(
-        app.state.message.clone().unwrap().text,
+        app.state.message().cloned().unwrap().text,
         text::t().recovered_opened
     );
     // More work goes into the same copy, not a second one.
@@ -2962,7 +2951,7 @@ fn a_full_storage_is_reported_and_tried_again_later() {
     let (mut harness, browser) = in_browser();
     browser.0.borrow_mut().store_fails = Some("Speicher voll".to_owned());
     click(&mut harness, text::t().open_sample);
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(
         message.error && message.text.contains("Speicher voll"),
         "{message:?}"
@@ -3004,7 +2993,7 @@ fn rubbish_in_the_browser_storage_is_ignored() {
     assert_eq!(offered, 1, "only what decodes is offered");
     open_copy(&mut harness, "müll");
     assert!(harness.state().doc().is_none());
-    assert!(harness.state().state.message.clone().unwrap().error);
+    assert!(harness.state().state.message().cloned().unwrap().error);
 }
 
 /// A copy of the sample, written by another tab.
@@ -3045,7 +3034,7 @@ fn a_file_that_cannot_be_read_is_said() {
     let (mut harness, browser) = in_browser();
     browser.0.borrow_mut().upload = Some(Err("NotReadableError".to_owned()));
     harness.run();
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(message.error && message.text.starts_with(text::t().upload_failed));
 }
 
@@ -3059,7 +3048,7 @@ fn a_vs_nfd_upload_over_unsaved_work_is_refused_without_asking() {
         "no question about unsaved work"
     );
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::t().vs_blocked
     );
     assert!(
@@ -3231,7 +3220,7 @@ fn a_later_deadline_moves_what_waits_in_one_step() {
         ("2026-10-17".into(), "2026-10-18".into())
     );
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::moved_along(1)
     );
     // One undo takes both back.
@@ -3453,7 +3442,7 @@ fn a_push_too_big_for_one_step_is_refused_plainly() {
         due: Some("2026-10-13".parse().unwrap()),
         due_time: None,
     });
-    let message = harness.state().state.message.clone().unwrap();
+    let message = harness.state().state.message().cloned().unwrap();
     assert!(message.error);
     assert_eq!(message.text, text::too_many_moves(count - 1));
     let ws = harness.state().doc().unwrap().session.workspace().clone();
@@ -3541,7 +3530,7 @@ fn saving_a_date_and_a_text_together_keeps_the_moved_along_message() {
     let ws = harness.state().doc().unwrap().session.workspace().clone();
     assert_eq!(ws.task(first).unwrap().description, "Angebote");
     assert_eq!(
-        harness.state().state.message.clone().unwrap().text,
+        harness.state().state.message().cloned().unwrap().text,
         text::moved_along(1)
     );
 }
@@ -3675,14 +3664,13 @@ fn the_schedule_is_exported_as_a_table_for_excel() {
         harness
             .state()
             .state
-            .message
-            .as_ref()
+            .message()
             .is_some_and(|m| !m.error && m.text.contains("zeitplan.csv"))
     );
     // Cancelled dialog: nothing written, no message about it.
-    let before = harness.state().state.message.clone();
+    let before = harness.state().state.message().cloned();
     click(&mut harness, text::t().export_schedule);
-    assert_eq!(harness.state().state.message, before);
+    assert_eq!(harness.state().state.message().cloned(), before);
 }
 
 #[test]
@@ -4966,14 +4954,7 @@ fn a_dependency_is_drawn_from_the_handle_onto_another_bar() {
     let target = bar(&harness, "Ausschreibung").center();
     drag(&mut harness, handle, target - handle);
     assert!(!waits_for(&harness, second, first));
-    assert!(
-        harness
-            .state()
-            .state
-            .message
-            .as_ref()
-            .is_none_or(|m| !m.error)
-    );
+    assert!(harness.state().state.message().is_none_or(|m| !m.error));
 }
 
 #[test]
@@ -5771,7 +5752,7 @@ fn closing_the_window_asks_about_a_typed_milestone_date_first() {
         .unwrap_or_default();
     assert_eq!(shown, "20.12.2026");
     // Nothing refused: no "Nicht übernommen" (K1).
-    let message = harness.state().state.message.clone();
+    let message = harness.state().state.message().cloned();
     assert!(
         message
             .as_ref()
@@ -5790,7 +5771,7 @@ fn choosing_elsewhere_with_a_typed_milestone_date_asks_without_an_error() {
     harness.state_mut().apply(crate::Intent::Select(None));
     harness.run();
     assert!(asking(&harness));
-    let message = harness.state().state.message.clone();
+    let message = harness.state().state.message().cloned();
     assert!(
         message
             .as_ref()
@@ -5926,7 +5907,7 @@ fn the_milestone_question_names_what_moves_along() {
     assert!(asking(&harness));
     assert!(harness.query_by_label(&text::moves_along(1)).is_some());
     click(&mut harness, text::t().change_button);
-    let message = harness.state().state.message.clone().map(|m| m.text);
+    let message = harness.state().state.message().cloned().map(|m| m.text);
     assert_eq!(message, Some(text::moved_along(1)));
 }
 
@@ -6012,7 +5993,7 @@ fn milestone_waiting_for_vor() -> (Harness<'static, PlnwrkApp>, TaskId) {
 fn moving_past_a_milestone_says_so() {
     let (mut harness, vor) = milestone_waiting_for_vor();
     let overtaken = text::overtakes(&["Abnahme".to_owned()]);
-    let message = |h: &Harness<'_, PlnwrkApp>| h.state().state.message.clone().map(|m| m.text);
+    let message = |h: &Harness<'_, PlnwrkApp>| h.state().state.message().cloned().map(|m| m.text);
     let to = |h: &Harness<'_, PlnwrkApp>, days| {
         day_from_today(h, days)
             .parse::<jiff::civil::Date>()
@@ -6045,14 +6026,7 @@ fn moving_past_a_milestone_says_so() {
     assert_eq!(task_named(harness.state(), "Vor").unwrap().due, Some(past));
     let said = message(&harness).unwrap_or_default();
     assert!(said.contains(&overtaken), "{said}");
-    assert!(
-        harness
-            .state()
-            .state
-            .message
-            .as_ref()
-            .is_some_and(|m| m.error)
-    );
+    assert!(harness.state().state.message().is_some_and(|m| m.error));
 }
 
 /// The same while dragging in the schedule: the bar's spoken name (and the preview) say it.
@@ -6388,8 +6362,8 @@ fn a_warning_from_saving_stays_after_saved() {
     let said = harness
         .state()
         .state
-        .message
-        .clone()
+        .message()
+        .cloned()
         .map(|m| m.text)
         .unwrap_or_default();
     assert!(said.contains(text::t().saved), "{said}");
@@ -7041,7 +7015,7 @@ fn a_new_card_hidden_by_the_filter_is_said() {
     click(&mut harness, &text::new_in_column(TaskStatus::Todo));
     type_where_the_focus_is(&mut harness, "Neu");
     assert!(task_named(harness.state(), "Neu").is_some());
-    let said = harness.state().state.message.clone().map(|m| m.text);
+    let said = harness.state().state.message().cloned().map(|m| m.text);
     assert_eq!(said, Some(text::created_but_filtered("Neu")));
 }
 
@@ -7072,7 +7046,7 @@ fn a_refused_new_card_is_not_said_as_created() {
     let long = "x".repeat(201);
     type_where_the_focus_is(&mut harness, &long);
     assert!(task_named(harness.state(), &long).is_none());
-    let said = harness.state().state.message.clone();
+    let said = harness.state().state.message().cloned();
     assert!(said.as_ref().is_some_and(|m| m.error), "{said:?}");
 }
 
@@ -7084,7 +7058,7 @@ fn a_new_card_in_view_is_not_said_to_be_hidden() {
     type_where_the_focus_is(&mut harness, "Sichtbar");
     assert!(task_named(harness.state(), "Sichtbar").is_some());
     assert_ne!(
-        harness.state().state.message.clone().map(|m| m.text),
+        harness.state().state.message().cloned().map(|m| m.text),
         Some(text::created_but_filtered("Sichtbar"))
     );
 }
@@ -7299,9 +7273,9 @@ fn the_new_dialog_creates_with_enter_and_waits_for_a_title() {
     assert!(harness.query_by_label(text::t().title_needed).is_some());
     // Said in the dialog only – not as a refusal in the status line too.
     assert!(
-        harness.state().state.message.is_none(),
+        harness.state().state.message().is_none(),
         "{:?}",
-        harness.state().state.message
+        harness.state().state.message().cloned()
     );
     type_into(&mut harness, text::t().title, "SKA 23/999", true);
     let created = projects(harness.state());
@@ -7875,7 +7849,10 @@ fn empty_views_offer_the_next_step() {
 #[test]
 fn a_message_stands_once_under_the_ribbon() {
     let mut harness = with_project("Umzug");
-    harness.state_mut().state.message = Some(crate::state::Message::error("Etwas ging schief."));
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::error("Etwas ging schief."));
     harness.run();
     let shown: Vec<egui::Rect> = harness
         .query_all_by_label("Etwas ging schief.")
@@ -7889,7 +7866,7 @@ fn a_message_stands_once_under_the_ribbon() {
         .fold(f32::MAX, |a, r| a.min(r.top()));
     assert!(shown[0].bottom() <= heading, "{shown:?} above {heading}");
     click(&mut harness, text::t().dismiss_message);
-    assert!(harness.state().state.message.is_none());
+    assert!(harness.state().state.message().is_none());
     assert!(harness.query_by_label("Etwas ging schief.").is_none());
 }
 
@@ -7988,7 +7965,10 @@ fn refusals_are_said_in_the_dialog() {
     assert!(harness.query_by_label(&said).is_some());
     let create = harness.get_by_label(text::t().create);
     assert!(egui_kittest::kittest::NodeT::accesskit_node(&create).is_disabled());
-    harness.state_mut().state.message = Some(crate::state::Message::error("Abgelehnt."));
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::error("Abgelehnt."));
     harness.run();
     assert_eq!(harness.query_all_by_label("Abgelehnt.").count(), 1);
     // In the dialog: above its buttons' bottom, not in the bar under the ribbon.
@@ -8036,12 +8016,15 @@ fn a_wrong_date_greys_create() {
 #[test]
 fn messages_go_with_the_view_and_cards_fit_the_window() {
     let mut harness = harness_with_sample();
-    harness.state_mut().state.message = Some(crate::state::Message::error("Alt."));
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::error("Alt."));
     harness
         .state_mut()
         .apply(crate::Intent::Go(crate::state::View::People));
     harness.run();
-    assert!(harness.state().state.message.is_none());
+    assert!(harness.state().state.message().is_none());
     harness
         .state_mut()
         .apply(crate::Intent::Go(crate::state::View::Overview));
@@ -8136,12 +8119,18 @@ fn a_typed_person_is_not_lost_by_enter() {
 #[test]
 fn an_old_refusal_does_not_show_in_a_new_dialog() {
     let mut harness = harness_after_new_file();
-    harness.state_mut().state.message = Some(crate::state::Message::error("Früher abgelehnt."));
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::error("Früher abgelehnt."));
     harness.run();
     click(&mut harness, text::t().new_project);
     assert!(harness.query_by_label("Früher abgelehnt.").is_none());
     // One that comes up while it is open is said in it.
-    harness.state_mut().state.message = Some(crate::state::Message::error("Jetzt abgelehnt."));
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::error("Jetzt abgelehnt."));
     harness.run();
     assert_eq!(harness.query_all_by_label("Jetzt abgelehnt.").count(), 1);
 }
@@ -8241,9 +8230,178 @@ fn a_refusal_on_the_way_out_stays_said() {
     let said = harness
         .state()
         .state
-        .message
-        .clone()
+        .message()
+        .cloned()
         .map(|m| m.text)
         .unwrap_or_default();
     assert!(said.contains(text::t().not_taken), "{said}");
+}
+
+/// Whether the message bar under the ribbon is shown (its close button is there).
+fn bar_shown(harness: &Harness<'_, PlnwrkApp>) -> bool {
+    harness.query_by_label(text::t().dismiss_message).is_some()
+}
+
+/// Phase 9g (STATUS 4.16): a date that cannot be read is said under its field, not in the bar.
+#[test]
+fn a_wrong_date_in_the_details_is_said_under_its_field() {
+    let (mut harness, _) = saved_sample_with_task("said-at-field", "Einbau Wache 11");
+    type_into(&mut harness, text::t().start, "31.02.2026", true);
+    let said = harness.state().state.message().cloned().unwrap();
+    assert!(said.error && said.text.contains("31.02.2026"), "{said:?}");
+    let field = harness.get_by_label(text::t().start).rect();
+    let shown = harness.get_by_label(&said.text).rect();
+    assert!(
+        shown.top() >= field.bottom() - 1.0 && shown.top() < field.bottom() + 40.0,
+        "under the field: {field:?} {shown:?}"
+    );
+    assert!(!bar_shown(&harness), "not in the bar as well");
+}
+
+/// Phase 9g (STATUS 4.16): when the field goes (another task chosen), its message is said in
+/// the bar – never lost on the way.
+#[test]
+fn a_field_message_goes_to_the_bar_when_its_field_goes() {
+    let (mut harness, _) = saved_sample_with_task("said-field-gone", "Einbau Wache 11");
+    type_into(&mut harness, text::t().start, "31.02.2026", true);
+    assert!(!bar_shown(&harness));
+    let other = tasks(harness.state())
+        .into_iter()
+        .find(|t| t.title != "Einbau Wache 11" && t.parent.is_none())
+        .unwrap();
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(other.id)));
+    harness.run();
+    let said = harness.state().state.message().cloned().unwrap();
+    assert!(said.text.contains("31.02.2026"), "{said:?}");
+    assert!(bar_shown(&harness), "said in the bar");
+    assert_eq!(harness.query_all_by_label(&said.text).count(), 1);
+}
+
+/// Phase 9g (STATUS 4.16): a refusal seen in a dialog goes with it – cancelled, it is not said
+/// again in the bar – and the same refusal in the next dialog is said there again (before,
+/// the dialog compared texts with what stood at its opening and kept silent).
+#[test]
+fn a_refusal_goes_with_its_dialog_and_comes_again_in_the_next() {
+    let mut harness = harness_after_new_file();
+    for round in 0..2 {
+        click(&mut harness, text::t().new_project);
+        harness
+            .state_mut()
+            .state
+            .say(crate::state::Message::error("Abgelehnt."));
+        harness.run();
+        assert_eq!(
+            harness.query_all_by_label("Abgelehnt.").count(),
+            1,
+            "round {round}"
+        );
+        click(&mut harness, text::t().cancel);
+        assert!(harness.state().state.dialog.is_none());
+        assert!(
+            harness.query_by_label("Abgelehnt.").is_none(),
+            "round {round}"
+        );
+        assert!(!bar_shown(&harness), "round {round}");
+    }
+}
+
+/// Phase 9g (STATUS 4.16): what a dialog could not show any more (said as it closed) is said in
+/// the bar – also when it replaced a refusal the dialog had shown.
+#[test]
+fn what_a_dialog_could_not_show_is_said_in_the_bar() {
+    let mut harness = harness_after_new_file();
+    click(&mut harness, text::t().new_project);
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::error("Gesehen."));
+    harness.run();
+    assert!(harness.query_by_label("Gesehen.").is_some());
+    let app = harness.state_mut();
+    app.state.say(crate::state::Message::error("Ungesehen."));
+    app.apply(crate::Intent::CloseDialog);
+    harness.run();
+    assert!(harness.query_by_label("Ungesehen.").is_some());
+    assert!(bar_shown(&harness));
+}
+
+/// Phase 9g (STATUS 4.16): on a milestone card, a date that cannot be read is said under the
+/// field; "Abbrechen" takes it away with the field.
+#[test]
+fn a_wrong_date_on_a_milestone_card_is_said_there_and_goes_with_cancel() {
+    let mut harness = one_milestone();
+    click(&mut harness, text::t().change_date);
+    type_into(&mut harness, text::t().milestone_date, "31.02.2026", true);
+    let said = harness.state().state.message().cloned().unwrap();
+    assert!(said.text.contains("31.02.2026"), "{said:?}");
+    let field = harness.get_by_label(text::t().milestone_date).rect();
+    assert!(harness.get_by_label(&said.text).rect().top() > field.bottom());
+    assert!(!bar_shown(&harness));
+    click(&mut harness, text::t().cancel);
+    assert!(harness.state().state.message().is_none());
+    assert!(!bar_shown(&harness));
+}
+
+/// Phase 9g (STATUS 4.16): what the project form cannot take is said under it; "Abbrechen"
+/// takes it away with the form.
+#[test]
+fn a_wrong_date_in_the_project_form_is_said_there_and_goes_with_cancel() {
+    let mut harness = with_project("Umzug");
+    open_project_form(&mut harness);
+    type_into(&mut harness, text::t().due, "31.02.2026", false);
+    click(&mut harness, text::t().apply);
+    let said = harness.state().state.message().cloned().unwrap();
+    assert!(said.text.contains("31.02.2026"), "{said:?}");
+    assert_eq!(harness.query_all_by_label(&said.text).count(), 1);
+    assert!(!bar_shown(&harness));
+    click(&mut harness, text::t().cancel);
+    assert!(harness.state().state.message().is_none());
+    assert!(!bar_shown(&harness));
+    // "Abbrechen" takes only what the form said: a message from elsewhere stays.
+    open_project_form(&mut harness);
+    harness
+        .state_mut()
+        .state
+        .say(crate::state::Message::info("Anderes."));
+    click(&mut harness, text::t().cancel);
+    assert!(harness.query_by_label("Anderes.").is_some());
+}
+
+/// Phase 9g (STATUS 4.16): a field folded away with its group says its message in the bar
+/// (nothing else passes it on: no other task was chosen).
+#[test]
+fn a_field_message_goes_to_the_bar_when_its_group_folds() {
+    let (mut harness, _) = saved_sample_with_task("said-group-folded", "Einbau Wache 11");
+    type_into(&mut harness, text::t().start, "31.02.2026", true);
+    let said = harness.state().state.message().cloned().unwrap();
+    assert!(!bar_shown(&harness));
+    click(&mut harness, text::t().group_dates);
+    assert!(harness.query_by_label(text::t().start).is_none(), "folded");
+    assert_eq!(
+        harness.state().state.message(),
+        Some(&crate::state::Message::error(said.text.clone()))
+    );
+    assert!(bar_shown(&harness), "said in the bar");
+    assert_eq!(harness.query_all_by_label(&said.text).count(), 1);
+}
+
+/// Phase 9g (STATUS 4.16): a field message moved to the bar is drawn there at once – a new
+/// frame is asked for, not left for the next move of the mouse.
+#[test]
+fn a_field_message_moved_to_the_bar_asks_for_a_frame() {
+    let mut harness = harness_with_sample();
+    harness.step();
+    harness.step();
+    assert!(!harness.ctx.has_requested_repaint(), "idle to begin with");
+    harness.state_mut().state.say_at(
+        egui::Id::new("a field not drawn"),
+        crate::state::Message::error("Nirgends gezeichnet."),
+    );
+    harness.step();
+    assert!(harness.ctx.has_requested_repaint());
+    harness.step();
+    assert!(harness.query_by_label("Nirgends gezeichnet.").is_some());
+    assert!(bar_shown(&harness));
 }

@@ -452,6 +452,45 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
    - **Klickpfade auch nur mit Tastatur:** jeder Pfad aus Punkt 1 zusätzlich ohne Maus
      (Tab, Enter, Escape, Pfeiltasten) – in 9f lagen die meisten Fehler genau dort.
 
+### 9.1 Ablauf von 9g (Agent, 2026-10-17)
+
+1. **Meldung mit Ursprung** (4.16). `Message` trägt `Source`: Ansicht (Leiste unter der
+   Ribbon), Dialog (in ihm) oder Feld (darunter). Gesetzt wird nur über `State::say`,
+   `say_at`, `say_maybe`, `unsay`, `unsay_at`, `take_message`/`put_back`. Das Feld ist privat,
+   die Regel hält also der Compiler, nicht die Sorgfalt. Regeln:
+   - Was ein Dialog gezeigt hat, geht mit ihm. Was er nicht mehr zeigen konnte, weil es beim
+     Schließen kam, steht in der Leiste. Keine Meldung überlebt ihren Dialog.
+   - Eine Feldmeldung steht unter dem Feld, solange es gezeichnet wird. Verschwindet das
+     Feld (Gruppe zugeklappt, Form geschlossen), steht sie im nächsten Bild in der Leiste.
+   - „Abbrechen“ am Feld nimmt nur dessen Meldung mit.
+
+   Ersetzt `message_at_open`, das nach Text verglich: Dieselbe Ablehnung zweimal hintereinander
+   blieb im zweiten Dialog unsichtbar. Feldmeldungen gibt es bei Datumsfehlern im
+   Detailbereich, auf der Meilensteinkarte und im Projektformular.
+2. **Klickpfade** aus Punkt 1 als Erstnutzer-Szenarien mit Klickschranke, **jeder zusätzlich
+   nur mit Tastatur** (4.17): Befehlspalette ⌘K, Tab, Enter, Escape, Pfeiltasten.
+3. **Überholte Meilensteine** (Punkt 5): eine Engine-Abfrage aus `Plan::analyse`, in der
+   Übersicht und über MCP.
+4. **Durchgang von Hand** im Browser (1280×800 und 1920×1080, hell und dunkel), Screenshots
+   neben die Ausgangslage in `docs/ux/`.
+5. **Version 0.2.0** vorbereiten. Veröffentlicht wird erst auf Tobis „veröffentlichen“.
+
+Danach folgt der Wiederholungstest mit dem Sachbearbeiter (Tobi), dabei STATUS 4.14 und 4.15.
+
+**Review-Fokus 9g** (Eingaben, die kein Test des Plans ausdrücklich nennt):
+- Dieselbe Ablehnung in zwei Dialogen nacheinander: Sie steht beide Male im Dialog.
+- Eine Ablehnung, während der Dialog sich gerade schließt: Sie steht in der Leiste und geht
+  nicht verloren.
+- Ein Datumsfehler im Detailbereich, dann sofort eine andere Aufgabe, eine andere Ansicht
+  oder die Gruppe zuklappen: Die Meldung ist sichtbar (in der Leiste) oder bewusst weg
+  (andere Ansicht).
+- Klickpfade nur mit Tastatur: Fokus nach dem Schließen eines Dialogs, Escape in Feldern,
+  Enter auf Knöpfen.
+- Überholte Meilensteine: genau die Meilenstein-Warnungen des Zeitplans, nicht eigens
+  nachgebaut. Erledigte Meilensteine, Meilensteine ohne Termin, Vorlagen sowie erledigte und
+  archivierte Projekte erscheinen nicht. Ein erledigter Vorgänger hält wie im Zeitplan mit
+  seinen geplanten Terminen auf (STATUS 4.12).
+
 ## 10. Reihenfolge und Lieferung
 
 Je Teilphase gilt: eigener Branch und PR, Review und Nachreview durch unabhängige Agenten,
