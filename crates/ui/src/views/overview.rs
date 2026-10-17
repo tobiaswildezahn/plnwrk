@@ -6,7 +6,7 @@ use plnwrk_engine::query::{self, ProjectCard};
 
 use crate::doc::OpenDoc;
 use crate::state::{Dialog, TemplateForm, View};
-use crate::{Intent, dates, text};
+use crate::{Intent, dates, design, text};
 
 const CARD_WIDTH: f32 = 270.0;
 
@@ -65,7 +65,7 @@ fn project_card(
     out: &mut Vec<Intent>,
     action: Option<(&str, Intent)>,
 ) {
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    design::widgets::card(ui, |ui| {
         ui.set_width(CARD_WIDTH);
         ui.vertical(|ui| {
             let mut line = Vec::new();
@@ -105,13 +105,13 @@ fn project_card(
                     ui.label(line);
                 }
             }
-            ui.add(
-                egui::ProgressBar::new(f32::from(card.progress.percent) / 100.0).text(
-                    text::progress(
-                        card.progress.percent,
-                        card.progress.done,
-                        card.progress.tasks,
-                    ),
+            design::widgets::progress(
+                ui,
+                f32::from(card.progress.percent) / 100.0,
+                &text::progress(
+                    card.progress.percent,
+                    card.progress.done,
+                    card.progress.tasks,
                 ),
             );
             let mut facts = vec![text::open_tasks(card.open_tasks)];

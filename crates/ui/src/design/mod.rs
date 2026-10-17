@@ -2,6 +2,12 @@
 //! The only source of colours, spacing, radii, type and symbols; views use what is here.
 //! docs/plans/2026-10-17-phase-9-gestaltung.md §5.
 
+// The building blocks and symbols are taken up view by view in phases 9b–9f.
+#![allow(
+    dead_code,
+    reason = "the design system is adopted view by view in phases 9b–9f"
+)]
+
 pub mod icons;
 pub mod tokens;
 pub mod widgets;
@@ -17,7 +23,7 @@ use egui::{
 };
 
 pub use icons::Icon;
-pub use tokens::{Palette, palette};
+pub use tokens::palette;
 use tokens::{radius, size, space};
 
 /// Fira Sans (SIL Open Font License 1.1), subset to Latin, punctuation, arrows and symbols,
@@ -143,8 +149,10 @@ fn apply(style: &mut egui::Style, dark: bool) {
     v.indent_has_left_vline = false;
     v.collapsing_header_frame = false;
 
+    // egui's own controls (also check boxes, which must stay square): the small radius. The
+    // buttons of `widgets` draw their own, medium one.
     let small = CornerRadius::same(radius::SMALL);
-    let medium = CornerRadius::same(radius::MEDIUM);
+    let medium = small;
     let w = &mut v.widgets;
     // Labels, separators, frames.
     w.noninteractive.bg_fill = p.surface;

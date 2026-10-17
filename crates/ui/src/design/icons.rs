@@ -3,7 +3,7 @@
 //! the widget that shows it (`widgets::icon_button`), never on its own.
 
 use egui::epaint::{CornerRadius, PathShape, PathStroke, StrokeKind};
-use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
+use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, vec2};
 
 /// The symbols of plnwrk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -394,6 +394,8 @@ pub fn square(center: Pos2, side: f32) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use egui::pos2;
+
     use super::*;
 
     /// Every symbol draws something inside its square, nothing outside.

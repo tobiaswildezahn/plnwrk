@@ -71,9 +71,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   als Nächstes **9a** – zuerst die Bedienfehler (verlorener Klick nach Dialogen, Mausrad im
-   Zeitplan), dann das Gestaltungssystem (Tokens, Fira Sans, Knöpfe, Symbole, Kontrasttest).
-   Erster Start von 0.1.0 am Mac und Realitätstest 4.10 sind erledigt (2026-10-17). Aufräumen
+   **9a gebaut** auf Branch `phase-9a` (Bedienfehler Klick und Mausrad behoben, Gestaltungssystem
+   in `crates/ui/src/design/`, Vorher/Nachher in `docs/ux/2026-10-17-9a/`) – Review und
+   Nachreview, dann Tobis Merge. Danach **9b** (Ribbon). Bekannt für 9f: Mit offenem
+   Detailbereich rutschen „Bearbeiten/Archivieren“ über den Projekttitel; Eingabefelder noch
+   flach (egui-Rand). Erster Start von 0.1.0 am Mac und Realitätstest 4.10 sind erledigt
+   (2026-10-17). Aufräumen
    am Rechner: `git branch -D board-zoom-export phase-6a-plus phase-8 readme-und-feinschliff
    docs-0.1.0`.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.

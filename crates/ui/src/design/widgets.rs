@@ -81,8 +81,23 @@ pub fn button(ui: &mut Ui, kind: Kind, text: &str) -> Response {
     button_with(ui, kind, None, text)
 }
 
+/// A button at least `width` wide (a column of equal buttons).
+pub fn wide_button(ui: &mut Ui, kind: Kind, text: &str, width: f32) -> Response {
+    draw_button(ui, kind, None, text, width)
+}
+
 /// A button with a symbol before its text.
 pub fn button_with(ui: &mut Ui, kind: Kind, icon: Option<Icon>, text: &str) -> Response {
+    draw_button(ui, kind, icon, text, size::CONTROL)
+}
+
+fn draw_button(
+    ui: &mut Ui,
+    kind: Kind,
+    icon: Option<Icon>,
+    text: &str,
+    min_width: f32,
+) -> Response {
     let enabled = ui.is_enabled();
     let galley = WidgetText::from(text).into_galley(
         ui,
@@ -96,10 +111,8 @@ pub fn button_with(ui: &mut Ui, kind: Kind, icon: Option<Icon>, text: &str) -> R
         0.0
     };
     let width = galley.size().x + icon_width + 2.0 * space::M;
-    let (rect, response) = ui.allocate_exact_size(
-        vec2(width.max(size::CONTROL), size::CONTROL),
-        Sense::click(),
-    );
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(width.max(min_width), size::CONTROL), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, text));
     if ui.is_rect_visible(rect) {
         let p = palette(ui);
@@ -208,6 +221,18 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> 
         .corner_radius(CornerRadius::same(radius::LARGE))
         .inner_margin(Margin::same(12))
         .show(ui, add)
+}
+
+/// The frame of a dialog: surface, large corners, room inside, a soft shadow.
+pub fn dialog_frame(ctx: &egui::Context) -> Frame {
+    let style = ctx.global_style();
+    let p = super::tokens::of(style.visuals.dark_mode);
+    Frame::new()
+        .fill(p.surface)
+        .stroke(Stroke::new(1.0, p.line))
+        .corner_radius(CornerRadius::same(radius::LARGE))
+        .inner_margin(Margin::same(24))
+        .shadow(style.visuals.window_shadow)
 }
 
 /// A progress bar with its text next to it (never on top, where it cannot be read); one

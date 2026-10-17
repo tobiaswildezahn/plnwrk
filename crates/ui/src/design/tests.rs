@@ -100,10 +100,12 @@ fn the_contrast_formula_is_right() {
 
 #[test]
 fn nothing_is_smaller_than_readable_and_clickable() {
-    assert!(size::SMALL >= 12.5);
-    assert!(size::BODY >= 14.0);
-    assert!(size::TARGET >= 24.0, "WCAG 2.2, 2.5.8");
-    assert!(size::CONTROL >= size::TARGET);
+    const {
+        assert!(size::SMALL >= 12.5);
+        assert!(size::BODY >= 14.0);
+        assert!(size::TARGET >= 24.0, "WCAG 2.2, 2.5.8");
+        assert!(size::CONTROL >= size::TARGET);
+    }
     let ctx = egui::Context::default();
     super::install(&ctx);
     for theme in [egui::Theme::Light, egui::Theme::Dark] {

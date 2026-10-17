@@ -61,10 +61,6 @@ pub struct Palette {
 
 const fn hex(rgb: u32) -> Color32 {
     // The masks keep each value in 0..=255, so the casts never cut anything off.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "masked to 8 bits before the cast"
-    )]
     Color32::from_rgb(
         ((rgb >> 16) & 0xFF) as u8,
         ((rgb >> 8) & 0xFF) as u8,

@@ -12,6 +12,7 @@ use plnwrk_core::{Project, Task, TaskId, TaskStatus};
 use plnwrk_engine::query::TaskIndex;
 use plnwrk_schedule::{Analysis, Calendar, Item, Plan, Warning};
 
+use crate::design::Icon;
 use crate::doc::OpenDoc;
 use crate::state::State;
 use crate::{Intent, dates, text};
@@ -184,10 +185,10 @@ pub fn show(
         .unwrap_or(ZOOM_START)
         .min(ZOOM.len() - 1);
     ui.horizontal(|ui| {
-        if super::icon_button(ui, "−", text::t().zoom_out).clicked() {
+        if super::icon_button(ui, Icon::ZoomOut, text::t().zoom_out).clicked() {
             level = level.saturating_sub(1);
         }
-        if super::icon_button(ui, "+", text::t().zoom_in).clicked() {
+        if super::icon_button(ui, Icon::ZoomIn, text::t().zoom_in).clicked() {
             level = (level + 1).min(ZOOM.len() - 1);
         }
         if ui.button(text::t().export_schedule).clicked() {
@@ -284,6 +285,7 @@ pub fn show(
         }
         let painter = ui.painter_at(area);
         let visuals = ui.visuals().clone();
+        let palette = crate::design::palette(ui);
         let x_of = |date: Date| area.left() + LABELS + days_from(first, date) as f32 * day_width;
         let row_y = |i: usize| area.top() + HEADER + i as f32 * ROW;
         // The column with the titles stays at the left edge while scrolling sideways; what
@@ -305,7 +307,7 @@ pub fn show(
         };
 
         // Days off set apart from working days.
-        let days_off = crate::design::palette(ui).shade;
+        let days_off = palette.shade;
         // Days off, weeks, today, the project's deadline.
         for n in 0..days {
             let day = plus(first, n);
@@ -393,7 +395,7 @@ pub fn show(
                 painter.rect_filled(
                     Rect::from_min_max(pos2(area.left(), y), pos2(area.right(), y + ROW)),
                     0.0,
-                    visuals.selection.bg_fill.gamma_multiply(0.25),
+                    palette.accent_soft,
                 );
             }
 
@@ -449,11 +451,11 @@ pub fn show(
                 });
             let shown = landing.map_or(bar, |span| bar_of(task.milestone, span, y));
             let fill = if task.status == TaskStatus::Done {
-                visuals.widgets.inactive.bg_fill
+                palette.control
             } else if critical {
-                visuals.error_fg_color
+                palette.danger_fill
             } else {
-                visuals.selection.bg_fill
+                palette.accent_fill
             };
             if task.milestone {
                 let c = shown.center();
@@ -534,7 +536,7 @@ pub fn show(
             let y = row_y(i);
             let cell = Rect::from_min_max(pos2(left, y), pos2(left + LABELS - 6.0, y + ROW));
             if state.selected == Some(task.id) {
-                painter.rect_filled(cell, 0.0, visuals.selection.bg_fill.gamma_multiply(0.25));
+                painter.rect_filled(cell, 0.0, palette.accent_soft);
             }
             let response = ui.interact(cell, ui.id().with(("title", task.id)), Sense::click());
             let enabled = ui.is_enabled();

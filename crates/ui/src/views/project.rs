@@ -5,6 +5,7 @@ use plnwrk_core::{Classification, Project, ProjectId, ProjectStatus, Task, TaskS
 use plnwrk_engine::query::{self, TaskIndex};
 use serde_json::json;
 
+use crate::design::Icon;
 use crate::doc::OpenDoc;
 use crate::state::{ProjectForm, State, Tab};
 use crate::views::{board, date, due_label, enter_field, icon_button, status_tag};
@@ -107,7 +108,13 @@ fn head(
                 ui.end_row();
             });
         ui.horizontal(|ui| {
-            if ui.button(text::t().apply).clicked() {
+            if crate::design::widgets::button(
+                ui,
+                crate::design::widgets::Kind::Primary,
+                text::t().apply,
+            )
+            .clicked()
+            {
                 match form.update_params(project.id) {
                     Ok(params) => out.push(Intent::Run {
                         command: "project.update",
@@ -181,14 +188,10 @@ fn head(
         }
     });
     if let Some(progress) = query::progress(ws, project.id) {
-        ui.add(
-            egui::ProgressBar::new(f32::from(progress.percent) / 100.0)
-                .desired_width(320.0)
-                .text(text::progress(
-                    progress.percent,
-                    progress.done,
-                    progress.tasks,
-                )),
+        crate::design::widgets::progress(
+            ui,
+            f32::from(progress.percent) / 100.0,
+            &text::progress(progress.percent, progress.done, progress.tasks),
         );
     }
 }
@@ -323,7 +326,7 @@ fn list(
                 }
                 due_label(ui, task.due, task.due_time, overdue);
                 status_tag(ui, task.status);
-                if icon_button(ui, "+", text::t().add_subtask).clicked() {
+                if icon_button(ui, Icon::Plus, text::t().add_subtask).clicked() {
                     state.forms.new_subtask = Some((task.id, String::new()));
                 }
             });
@@ -345,7 +348,7 @@ fn list(
                             clear: Some(Clear::NewSubtask),
                         });
                     }
-                    cancel = icon_button(ui, "🗙", text::t().cancel).clicked();
+                    cancel = icon_button(ui, Icon::Close, text::t().cancel).clicked();
                 });
             }
             if cancel {
@@ -435,7 +438,7 @@ fn milestones(
                 {
                     out.push(Intent::Select(Some(milestone.id)));
                 }
-                if icon_button(ui, "🗑", text::t().delete_milestone).clicked() {
+                if icon_button(ui, Icon::Delete, text::t().delete_milestone).clicked() {
                     out.push(Intent::Open(crate::state::Dialog::DeleteTask(milestone.id)));
                 }
                 ui.end_row();
