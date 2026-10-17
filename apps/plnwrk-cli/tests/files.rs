@@ -526,4 +526,40 @@ mod files {
             4
         );
     }
+    /// Phase 9d: a milestone changes only with --confirmed, which the AI sets after asking the
+    /// person in the chat; without it nothing is saved and the answer names the milestone.
+    #[test]
+    fn a_milestone_changes_only_when_confirmed() {
+        let dir = Dir::new("milestone");
+        let file = dir.file();
+        ok(&["new", s(&file), "--sample"], None);
+        let project = project_id(s(&file), None);
+        // Creating a milestone asks nothing.
+        let params = json!({"project": project, "title": "Abnahme", "milestone": true,
+                            "due": "2026-11-20"})
+        .to_string();
+        let created = ok(&["run", s(&file), "task.create", &params], None);
+        let task = created["outcome"]["created"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let before = std::fs::read(&file).unwrap();
+        let change = json!({"task": task, "due": "2026-11-27"}).to_string();
+        let refused = fails(&["run", s(&file), "task.update", &change], None);
+        assert_eq!(refused["error"], "milestone_not_confirmed");
+        assert_eq!(refused["milestones"][0]["title"], "Abnahme");
+        assert_eq!(std::fs::read(&file).unwrap(), before, "nothing may be saved");
+        let done = ok(
+            &["run", s(&file), "task.update", &change, "--confirmed"],
+            None,
+        );
+        assert_eq!(done["saved"], true);
+        assert_ne!(std::fs::read(&file).unwrap(), before);
+        // A normal task needs no confirmation.
+        let params = json!({"project": project, "title": "Funk prüfen"}).to_string();
+        let normal = ok(&["run", s(&file), "task.create", &params], None);
+        let normal = normal["outcome"]["created"][0]["id"].as_str().unwrap();
+        let change = json!({"task": normal, "due": "2026-11-27"}).to_string();
+        ok(&["run", s(&file), "task.update", &change], None);
+    }
 }

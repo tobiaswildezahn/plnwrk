@@ -20,6 +20,12 @@ lesen und ändern, etwa so:
   genau wie in der App. Jeder Tag zählt, auch Wochenende und Feiertag; eine Woche sind 7 Tage.
   Nur Termine: ein Rückgängig-Schritt. Termine zusammen mit anderen Feldern (z. B. Titel): zwei
   Schritte, erst die Änderung, dann der Schub. Termine, die gleich bleiben, schieben nichts.
+- **Meilensteine nur nach Rückfrage:** Ändert ein Aufruf einen Meilenstein (Termin, Titel,
+  Status, kein Meilenstein mehr, Löschen – auch über mitrutschende Nachfolger), lehnt plnwrk ihn
+  ab und nennt, was sich ändern würde. Claude fragt dich dann im Chat und wiederholt den Aufruf
+  erst nach deinem Ja mit `"confirmed": true`; die Antwort nennt dann unter
+  `milestone_changes`, was sich geändert hat. Einen Meilenstein anlegen fragt nicht nach,
+  Rückgängig auch nicht. In der App fragt dieselbe Regel mit einem Dialog nach.
 - **Verschieben um Tage:** Das Werkzeug `move_task` schiebt eine Aufgabe um N Tage („um eine
   Woche“ = 7), Uhrzeit der Frist bleibt.
 - **Antworten** nennen, was sich geändert hat (Aufgabe, neue Termine, mitgerutschte
@@ -97,6 +103,11 @@ steht „durch KI“.
   „Start › Neu“, damit Claude sagen kann, wo man klickt – Tabelle `plnwrk_engine::places`,
   ein Test hält sie gleich mit dem Menüband), `run_command` (alle Befehle) und `move_task`
   (um N Tage). Jedes Werkzeug außer `search_commands` nennt seine Datei.
+- **Meilenstein-Wächter:** `Session::milestone_changes` führt den Befehl auf einer Kopie aus und
+  vergleicht (`plnwrk_engine::milestones`); eine Regel für App, MCP und CLI. Ohne
+  `confirmed` antwortet der Server mit einem Fehler, der Claude anweist, erst zu fragen;
+  `plnwrk-cli run … --confirmed` entspricht dem, ohne das Flag Fehler
+  `milestone_not_confirmed` mit der Liste `milestones`.
 - **Sitzungen:** Der Server hält je Datei die Sitzung, solange die Datei auf der Platte
   unverändert ist, für höchstens 16 Dateien. Darum reichen `undo`/`redo` über mehrere Aufrufe.
 - **Eingaben:** Nachrichten bis 4 MiB je Zeile. Gelesen werden nur gewöhnliche Dateien, keine

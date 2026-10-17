@@ -997,3 +997,68 @@ fn search_commands_says_where_a_command_is_in_the_app() {
         .unwrap();
     assert!(comment.get("in_the_app").is_none());
 }
+
+#[test]
+fn a_milestone_changes_only_after_the_person_said_yes() {
+    let (path, _, _) = sample("milestone");
+    let milestone = open(&path)
+        .workspace()
+        .tasks()
+        .find(|t| t.milestone && t.due.is_some())
+        .cloned()
+        .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    // Moved by days, and done: both refused without the person's yes, the file untouched.
+    for (name, arguments) in [
+        (
+            "move_task",
+            json!({"file": s(&path), "task": milestone.id.to_string(), "days": 7}),
+        ),
+        (
+            "run_command",
+            json!({"file": s(&path), "command": "task.set_status",
+                   "params": {"task": milestone.id.to_string(), "status": "done"}}),
+        ),
+        (
+            "run_command",
+            json!({"file": s(&path), "command": "task.update",
+                   "params": {"task": milestone.id.to_string(), "title": "Neu"}, "confirmed": false}),
+        ),
+    ] {
+        let (answer, error) = tool(name, arguments);
+        assert!(error, "{name}: {answer}");
+        let text = answer.to_string();
+        assert!(text.contains("confirmed") && text.contains("Ask the person"), "{text}");
+        assert!(text.contains(&milestone.title), "names the milestone: {text}");
+        assert_eq!(std::fs::read(&path).unwrap(), before, "{name}: nothing saved");
+    }
+    // After the yes: done, and the answer names what changed.
+    let (answer, error) = tool(
+        "move_task",
+        json!({"file": s(&path), "task": milestone.id.to_string(), "days": 7, "confirmed": true}),
+    );
+    assert!(!error, "{answer}");
+    assert!(answer.to_string().contains("milestone_changes"), "{answer}");
+    let moved = open(&path).workspace().task(milestone.id).cloned().unwrap();
+    assert_eq!(
+        moved.due,
+        milestone.due.map(|d| d + jiff::Span::new().days(7))
+    );
+    // Not a boolean: said plainly.
+    let (answer, error) = tool(
+        "move_task",
+        json!({"file": s(&path), "task": milestone.id.to_string(), "days": 1, "confirmed": "ja"}),
+    );
+    assert!(error && answer.to_string().contains("confirmed must be"), "{answer}");
+}
+
+#[test]
+fn other_tasks_need_no_confirmation() {
+    let (path, first, _) = sample("ordinary");
+    let (answer, error) = tool(
+        "move_task",
+        json!({"file": s(&path), "task": first.to_string(), "days": 2}),
+    );
+    assert!(!error, "{answer}");
+    assert!(!answer.to_string().contains("milestone_changes"));
+}

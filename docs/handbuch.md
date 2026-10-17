@@ -78,6 +78,10 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   nach „Erledigt“, während noch Unteraufgaben offen sind, fragt plnwrk, ob sie mit erledigt
   werden sollen.
 - **Meilensteine:** die festen Termine (♦) eines Projekts.
+  - **Jede Änderung eines Meilensteins fragt nach** – Termin, Titel, Status, „kein Meilenstein
+    mehr“, Löschen, auch wenn ein Meilenstein nur mitrutschen würde. Der Dialog nennt alt → neu
+    und was daraus folgt (Vorgänger, die erst später fertig werden; Termin nach dem
+    Projektende). **Abbrechen** lässt alles wie es war. Neu anlegen und Rückgängig fragen nicht.
 - **Zeitplan:** links eine Tabelle (Aufgabe, Beginn, Frist, Zuständig), rechts Balken von Beginn
   bis Frist.
   - **Navigation:** **Heute** springt zum heutigen Tag, **Ganzes Projekt** zeigt alles auf einen
