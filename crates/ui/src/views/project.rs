@@ -76,7 +76,7 @@ fn head(
                 date::date_input(ui, "project-start", &mut form.start, today, Some(label.id));
                 ui.end_row();
                 let label = ui.label(text::t().due);
-                let case = !form.reference.trim().is_empty();
+                let case = form.is_case();
                 date::deadline_input(
                     ui,
                     "project-due",
@@ -146,7 +146,7 @@ fn head(
         line.push(text::t().template.to_owned());
     }
     if let Some(kind) = &project.kind {
-        line.push(kind.clone());
+        line.push(text::kind_shown(kind));
     }
     if let Some(reference) = &project.reference {
         line.push(format!("{} {reference}", text::t().reference));

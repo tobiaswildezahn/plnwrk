@@ -148,6 +148,10 @@ pub struct Texts {
     pub milestone_unmarked: &'static str,
     pub milestone_marked: &'static str,
     pub after_project_due_then: &'static str,
+    pub case_explained: &'static str,
+    pub project_explained: &'static str,
+    pub add_person: &'static str,
+    pub title_needed: &'static str,
     pub board_filter_everyone: &'static str,
     pub board_filter_overdue: &'static str,
     pub board_search: &'static str,
@@ -238,7 +242,6 @@ pub struct Texts {
     pub upgraded: &'static str,
     pub part_of: &'static str,
     pub new_project_title: &'static str,
-    pub new_project_hint: &'static str,
     pub from_template_title: &'static str,
     pub from_template_hint: &'static str,
     pub please_choose: &'static str,
@@ -416,6 +419,10 @@ pub static DE: Texts = Texts {
     milestone_unmarked: "ist danach kein Meilenstein mehr",
     milestone_marked: "wird ein Meilenstein",
     after_project_due_then: "Er liegt dann nach der Frist des Projekts.",
+    case_explained: "Ein Auftrag mit Frist, oft mit Aktenzeichen – z. B. eine Schriftliche Kleine Anfrage.",
+    project_explained: "Ein Vorhaben mit vielen Schritten und Meilensteinen – z. B. die Umrüstung der Wachen auf Digitalfunk.",
+    add_person: "Person anlegen…",
+    title_needed: "Bitte einen Titel eingeben.",
     board_filter_everyone: "Alle",
     board_filter_overdue: "Nur Überfälliges",
     board_search: "Im Titel suchen",
@@ -505,7 +512,6 @@ pub static DE: Texts = Texts {
     upgraded: "Datei auf das neue Format umgestellt: Meilensteine sind jetzt Aufgaben. Bitte speichern.",
     part_of: "Teil von:",
     new_project_title: "Neues Projekt oder neuer Vorgang",
-    new_project_hint: "Ein Vorgang ist ein Projekt mit Aktenzeichen und Frist.",
     from_template_title: "Aus Vorlage anlegen",
     from_template_hint: "Aufgaben und Meilensteine der Vorlage werden übernommen und auf den Beginn verschoben.",
     please_choose: "Bitte wählen",
@@ -683,6 +689,10 @@ pub static EN: Texts = Texts {
     milestone_unmarked: "is no longer a milestone afterwards",
     milestone_marked: "becomes a milestone",
     after_project_due_then: "It then lies after the project's deadline.",
+    case_explained: "A request with a deadline, often with a reference – e.g. a written question from parliament.",
+    project_explained: "An undertaking with many steps and milestones – e.g. moving the stations to digital radio.",
+    add_person: "Add a person…",
+    title_needed: "Please enter a title.",
     board_filter_everyone: "Everyone",
     board_filter_overdue: "Only overdue",
     board_search: "Search titles",
@@ -772,7 +782,6 @@ pub static EN: Texts = Texts {
     upgraded: "File converted to the new format: milestones are now tasks. Please save.",
     part_of: "Part of:",
     new_project_title: "New project or case",
-    new_project_hint: "A case is a project with a reference and a deadline.",
     from_template_title: "Create from template",
     from_template_hint: "The tasks and milestones of the template are copied and moved to the start.",
     please_choose: "Please choose",
@@ -1181,6 +1190,18 @@ pub fn overtakes(titles: &[String]) -> String {
             "The milestones {} then lie before tasks they wait for.",
             quoted("“", "”")
         ),
+    }
+}
+
+/// The kind of a project as shown: the two base words ("Vorgang"/"Case", "Projekt"/"Project")
+/// in the language of the interface, any other kind ("SKA") as typed.
+pub fn kind_shown(kind: &str) -> String {
+    let base = kind.trim().to_lowercase();
+    let [project, case] = t().kinds;
+    match base.as_str() {
+        "projekt" | "project" => project.to_owned(),
+        "vorgang" | "case" => case.to_owned(),
+        _ => kind.to_owned(),
     }
 }
 

@@ -304,9 +304,16 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                 }
                 ui.horizontal(|ui| {
                     if ui.button(text::t().new_project).clicked() {
-                        out.push(Intent::Open(Dialog::NewProject(ProjectForm::default())));
+                        out.push(Intent::Open(Dialog::NewProject(ProjectForm {
+                            kind: text::t().kinds[1].to_owned(),
+                            ..ProjectForm::default()
+                        })));
                     }
-                    if ui.button(text::t().from_template).clicked() {
+                    let templates = ws.projects().any(|p| p.template);
+                    let from = ui
+                        .add_enabled(templates, egui::Button::new(text::t().from_template))
+                        .on_disabled_hover_text(text::t().no_templates);
+                    if from.clicked() {
                         out.push(Intent::Open(Dialog::FromTemplate(TemplateForm {
                             start: crate::dates::format(today),
                             ..TemplateForm::default()

@@ -309,6 +309,11 @@ fn button(ui: &mut egui::Ui, action: &Action, size: Size) -> bool {
             action.chosen,
         ),
     };
+    // Greyed: why, when there is something to say.
+    let response = match action.why_not {
+        Some(why) if !action.enabled => response.on_hover_text(why),
+        _ => response,
+    };
     response.clicked() && action.enabled
 }
 

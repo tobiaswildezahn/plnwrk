@@ -143,7 +143,7 @@ pub fn panel(
                         ui.end_row();
 
                         let caption = ui.label(text::t().due);
-                        let case = project.is_some_and(|p| p.reference.is_some());
+                        let case = project.is_some_and(plnwrk_core::Project::is_case);
                         let due = date::deadline_input(
                             ui,
                             ("task-due", id),

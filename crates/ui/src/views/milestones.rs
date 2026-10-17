@@ -444,7 +444,7 @@ fn edit_date(
                 day,
                 time,
                 today,
-                project.reference.is_some(),
+                project.is_case(),
                 Some(caption.id),
             )
         })
@@ -496,7 +496,7 @@ fn new_milestone(
             &mut state.forms.milestone_date,
             &mut state.forms.milestone_time,
             today,
-            project.reference.is_some(),
+            project.is_case(),
             None,
         );
         if ui.button(text::t().new_milestone).clicked() {

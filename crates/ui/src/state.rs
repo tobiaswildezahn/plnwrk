@@ -209,6 +209,8 @@ pub struct ProjectForm {
     pub owner: Option<PersonId>,
     pub status: ProjectStatus,
     pub template: bool,
+    /// A person being added right in the form ("Person anlegen…"): the name as typed.
+    pub new_person: Option<String>,
 }
 
 fn optional(text: &str) -> Value {
@@ -233,6 +235,7 @@ impl ProjectForm {
             owner: project.owner,
             status: project.status,
             template: project.template,
+            new_person: None,
         }
     }
 
@@ -253,6 +256,11 @@ impl ProjectForm {
         );
         map.insert("template".to_owned(), json!(self.template));
         Ok(map)
+    }
+
+    /// Whether the form describes a case (Vorgang): the one rule, [`plnwrk_core::is_case`].
+    pub fn is_case(&self) -> bool {
+        plnwrk_core::is_case(Some(&self.kind), Some(&self.reference))
     }
 
     /// Parameters of `project.create` (empty fields left out).

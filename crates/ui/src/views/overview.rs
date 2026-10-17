@@ -70,7 +70,7 @@ fn project_card(
         ui.vertical(|ui| {
             let mut line = Vec::new();
             if let Some(kind) = &card.kind {
-                line.push(kind.clone());
+                line.push(text::kind_shown(kind));
             }
             if let Some(reference) = &card.reference {
                 line.push(reference.clone());

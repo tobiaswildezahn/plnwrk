@@ -135,11 +135,16 @@ fn a_wrong_date_keeps_the_dialog_open_and_says_why() {
     click(&mut harness, text::t().new_project);
     type_into(&mut harness, text::t().title, "Umzug", false);
     type_into(&mut harness, text::t().due, "31.02.2026", false);
-    click(&mut harness, text::t().create);
+    // Left: the mistake is said at the field, and "Anlegen" waits (one message, one place).
+    type_into(&mut harness, text::t().title, "Umzug", false);
+    let said = crate::dates::parse("31.02.2026").unwrap_err();
+    assert!(harness.query_by_label(&said).is_some(), "{said}");
+    harness.get_by_label(text::t().create).click();
+    harness.run();
     let app = harness.state();
     assert!(projects(app).is_empty());
     assert!(app.state.dialog.is_some(), "input stays");
-    assert!(app.state.message.as_ref().is_some_and(|m| m.error));
+    assert!(app.state.message.is_none(), "{:?}", app.state.message);
 }
 
 #[test]
@@ -1123,6 +1128,14 @@ fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
     let mut harness = harness(PlnwrkApp::default());
     click(&mut harness, text::t().new_file);
     click(&mut harness, text::t().new_project);
+    // A case has the time field open at once (the one rule, `is_case`).
+    assert!(
+        harness
+            .query_by(|n| n.placeholder() == Some(text::t().time_hint))
+            .is_some()
+    );
+    // A project: the time field opens on request.
+    click(&mut harness, text::t().kinds[0]);
     type_into(&mut harness, text::t().title, "Übung", false);
     // Start and deadline each have a calendar button; the deadline's is the second.
     harness
@@ -7242,4 +7255,136 @@ fn a_bar_under_the_time_axis_cannot_be_dragged_through_it() {
         .fold(f32::MIN, f32::max);
     drag(&mut harness, egui::pos2(x, y), egui::vec2(66.0, 0.0));
     assert_eq!(dates_of(&harness, id), before);
+}
+
+/// A new file with the new-project dialog open ("+ Neu": a case is preselected).
+fn new_project_dialog() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    harness
+}
+
+/// Phase 9f: Enter creates; without a title nothing is created, and it says why.
+#[test]
+fn the_new_dialog_creates_with_enter_and_waits_for_a_title() {
+    let mut harness = new_project_dialog();
+    harness.get_by_label(text::t().create).click();
+    harness.run();
+    assert!(
+        projects(harness.state()).is_empty(),
+        "no title, nothing created"
+    );
+    assert!(harness.query_by_label(text::t().title_needed).is_some());
+    // Said in the dialog only – not as a refusal in the status line too.
+    assert!(
+        harness.state().state.message.is_none(),
+        "{:?}",
+        harness.state().state.message
+    );
+    type_into(&mut harness, text::t().title, "SKA 23/999", true);
+    let created = projects(harness.state());
+    assert_eq!(created.len(), 1);
+    // Preselected: a case.
+    assert!(created[0].is_case(), "{:?}", created[0].kind);
+}
+
+/// Phase 9f: the choice writes the kind; a reference only for a case – typed and then
+/// switched to a project, it is kept in the form but not given to the project.
+#[test]
+fn a_project_from_the_dialog_is_no_case_even_with_a_reference_typed() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().reference, "23/1234", false);
+    click(&mut harness, text::t().kinds[0]);
+    assert!(
+        harness.query_by_label(text::t().reference).is_none(),
+        "no reference for a project"
+    );
+    type_into(&mut harness, text::t().title, "Umbau Wache", true);
+    let created = projects(harness.state());
+    assert_eq!(created.len(), 1);
+    assert!(!created[0].is_case());
+    assert_eq!(created[0].reference, None);
+    assert_eq!(created[0].kind.as_deref(), Some(text::t().kinds[0]));
+}
+
+/// Phase 9f: "Person anlegen…" right in the choice: Enter adds the person and puts them in
+/// charge – the project is not created by that Enter.
+#[test]
+fn a_person_is_added_right_in_the_new_dialog() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, "Übung", false);
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    type_where_the_focus_is(&mut harness, "Anna Berg");
+    assert!(
+        projects(harness.state()).is_empty(),
+        "Enter added the person only"
+    );
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .find(|p| p.name == "Anna Berg")
+        .map(|p| p.id);
+    assert!(anna.is_some());
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the dialog stays open")
+    };
+    assert_eq!(form.owner, anna);
+    assert!(form.new_person.is_none());
+}
+
+/// Phase 9f: "Aus Vorlage" is greyed while there is no template – and possible once there is.
+#[test]
+fn from_template_waits_for_a_template() {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::t().new_file);
+    // In the sidebar and in the ribbon (each has its own wording).
+    let disabled = |h: &Harness<'_, PlnwrkApp>| {
+        let all: Vec<bool> = [text::t().from_template, text::t().from_template_title]
+            .iter()
+            .flat_map(|label| h.query_all_by_label(label).collect::<Vec<_>>())
+            .map(|n| egui_kittest::kittest::NodeT::accesskit_node(&n).is_disabled())
+            .collect();
+        assert!(all.len() >= 2, "{all:?}");
+        all.iter().all(|d| *d)
+    };
+    assert!(disabled(&harness));
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Muster", "template": true}),
+    ));
+    harness.run();
+    assert!(!disabled(&harness));
+}
+
+/// Phase 9f: the base kinds are shown in the language of the interface; others as typed.
+#[test]
+fn base_kinds_are_shown_in_the_language_of_the_interface() {
+    assert_eq!(text::kind_shown("Vorgang"), text::t().kinds[1]);
+    assert_eq!(text::kind_shown("case"), text::t().kinds[1]);
+    assert_eq!(text::kind_shown("Project"), text::t().kinds[0]);
+    assert_eq!(text::kind_shown("SKA"), "SKA");
+}
+
+/// Phase 9f (known since the real test): a case without a reference gets a time at its
+/// deadlines too – the one rule `is_case`, here on a milestone's card.
+#[test]
+fn a_case_without_a_reference_offers_a_time_at_its_deadlines() {
+    let mut harness = one_milestone();
+    assert!(projects(harness.state())[0].reference.is_none());
+    let times = |h: &Harness<'_, PlnwrkApp>| {
+        h.query_all_by(|n| n.placeholder() == Some(text::t().time_hint))
+            .count()
+    };
+    // The form for a new milestone has one already; the card's date gets its own.
+    let before = times(&harness);
+    assert!(before >= 1);
+    click(&mut harness, text::t().change_date);
+    assert_eq!(times(&harness), before + 1);
 }

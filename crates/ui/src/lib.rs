@@ -82,6 +82,8 @@ pub(crate) enum Then {
     Nothing,
     /// Show the project it created.
     ShowProject,
+    /// The person it created is in charge in the open new-project dialog.
+    OwnerOfNew,
 }
 
 /// Which form to empty after a command succeeded (on failure the input stays).
@@ -976,6 +978,13 @@ impl PlnwrkApp {
                     self.state.view = View::Project(*id);
                     self.state.tab = Tab::List;
                     self.state.select(None);
+                }
+                if let (Then::OwnerOfNew, Some(EntityKey::Person(id))) =
+                    (then, outcome.created.first())
+                    && let Some(Dialog::NewProject(form)) = &mut self.state.dialog
+                {
+                    form.owner = Some(*id);
+                    form.new_person = None;
                 }
                 if let Some(clear) = clear {
                     self.state.clear(clear);

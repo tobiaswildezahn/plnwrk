@@ -50,76 +50,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     );
                 }
                 Dialog::NewProject(form) => {
-                    ui.heading(text::t().new_project_title);
-                    ui.weak(text::t().new_project_hint);
-                    ui.add_space(space::S);
-                    egui::Grid::new("new-project")
-                        .num_columns(2)
-                        .show(ui, |ui| {
-                            let label = ui.label(text::t().title);
-                            let field = ui
-                                .text_edit_singleline(&mut form.title)
-                                .labelled_by(label.id);
-                            focus_once(&field, serial);
-                            ui.end_row();
-                            ui.label(text::t().kind);
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut form.kind).desired_width(140.0),
-                                );
-                                for kind in text::t().kinds {
-                                    if ui.small_button(kind).clicked() {
-                                        form.kind = kind.to_owned();
-                                    }
-                                }
-                            });
-                            ui.end_row();
-                            let label = ui.label(text::t().reference);
-                            ui.text_edit_singleline(&mut form.reference)
-                                .labelled_by(label.id);
-                            ui.end_row();
-                            let label = ui.label(text::t().start);
-                            date::date_input(
-                                ui,
-                                "new-start",
-                                &mut form.start,
-                                today,
-                                Some(label.id),
-                            );
-                            ui.end_row();
-                            let label = ui.label(text::t().due);
-                            let case = !form.reference.trim().is_empty();
-                            date::deadline_input(
-                                ui,
-                                "new-due",
-                                &mut form.due,
-                                &mut form.due_time,
-                                today,
-                                case,
-                                Some(label.id),
-                            );
-                            ui.end_row();
-                            ui.label(text::t().owner);
-                            person_choice(ui, "new-owner", &mut form.owner, &people);
-                            ui.end_row();
-                        });
-                    ui.add_space(space::S);
-                    ui.horizontal(|ui| {
-                        if w::button(ui, Kind::Primary, text::t().create).clicked() {
-                            match form.create_params() {
-                                Ok(params) => out.push(Intent::Run {
-                                    command: "project.create",
-                                    params,
-                                    then: Then::ShowProject,
-                                    clear: Some(Clear::Dialog),
-                                }),
-                                Err(error) => message = Some(error),
-                            }
-                        }
-                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
-                            out.push(Intent::CloseDialog);
-                        }
-                    });
+                    new_project(ui, form, &people, today, serial, out);
                 }
                 Dialog::FromTemplate(form) => {
                     ui.heading(text::t().from_template_title);
@@ -581,4 +512,162 @@ fn milestone_lines(change: &plnwrk_engine::milestones::MilestoneChange) -> Vec<S
             Field::Marked => t.milestone_marked.to_owned(),
         })
         .collect()
+}
+
+/// The dialog for a new case or project (Phase 9f): the choice first, each with a sentence
+/// and an example; the reference only for a case; mistakes said at their field; "Anlegen"
+/// (or Enter) only once a title stands; a person added right in the choice.
+fn new_project(
+    ui: &mut egui::Ui,
+    form: &mut crate::state::ProjectForm,
+    people: &[(PersonId, String)],
+    today: jiff::civil::Date,
+    serial: u64,
+    out: &mut Vec<Intent>,
+) {
+    let t = text::t();
+    let [project_kind, case_kind] = t.kinds;
+    ui.heading(t.new_project_title);
+    ui.add_space(space::S);
+    // The choice writes the kind; a refined kind ("SKA") counts as a case (one rule).
+    let mut case = plnwrk_core::is_case(Some(&form.kind), None);
+    if w::segmented(ui, &mut case, &[(true, case_kind), (false, project_kind)]) {
+        form.kind = if case { case_kind } else { project_kind }.to_owned();
+    }
+    ui.weak(if case {
+        t.case_explained
+    } else {
+        t.project_explained
+    });
+    ui.add_space(space::S);
+    // A date is wrong only once its field is left (not while it is typed).
+    let mut wrong_dates = false;
+    let mut adding_person = false;
+    egui::Grid::new("new-project")
+        .num_columns(2)
+        .show(ui, |ui| {
+            let label = ui.label(t.title);
+            let field = ui
+                .text_edit_singleline(&mut form.title)
+                .labelled_by(label.id);
+            focus_once(&field, serial);
+            ui.end_row();
+            // A project keeps what was typed here, but does not get it.
+            if case {
+                let label = ui.label(t.reference);
+                ui.text_edit_singleline(&mut form.reference)
+                    .labelled_by(label.id);
+                ui.end_row();
+            }
+            let label = ui.label(t.start);
+            ui.vertical(|ui| {
+                let input =
+                    date::date_input(ui, "new-start", &mut form.start, today, Some(label.id));
+                if let Err(error) = crate::dates::parse(&form.start) {
+                    wrong_dates = true;
+                    if !input.response.has_focus() {
+                        w::field_error(ui, &error);
+                    }
+                }
+            });
+            ui.end_row();
+            let label = ui.label(t.due);
+            ui.vertical(|ui| {
+                let input = date::deadline_input(
+                    ui,
+                    "new-due",
+                    &mut form.due,
+                    &mut form.due_time,
+                    today,
+                    case,
+                    Some(label.id),
+                );
+                if let Err(error) = crate::dates::parse_deadline(&form.due, &form.due_time) {
+                    wrong_dates = true;
+                    if !input.response.has_focus() {
+                        w::field_error(ui, &error);
+                    }
+                }
+            });
+            ui.end_row();
+            let label = ui.label(t.owner);
+            ui.vertical(|ui| {
+                let current = form
+                    .owner
+                    .and_then(|id| people.iter().find(|(p, _)| *p == id))
+                    .map_or(t.nobody, |(_, name)| name.as_str());
+                egui::ComboBox::from_id_salt("new-owner")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut form.owner, None, t.nobody);
+                        for (person, name) in people {
+                            ui.selectable_value(&mut form.owner, Some(*person), name);
+                        }
+                        if ui.selectable_label(false, t.add_person).clicked() {
+                            form.new_person = Some(String::new());
+                        }
+                    })
+                    .response
+                    .labelled_by(label.id);
+                // A new person, named here: Enter (or the button) adds them and puts them in
+                // charge; Escape or leaving the field empty drops it.
+                if let Some(name) = &mut form.new_person {
+                    adding_person = true;
+                    ui.horizontal(|ui| {
+                        let field = ui.add(
+                            egui::TextEdit::singleline(name)
+                                .hint_text(t.name)
+                                .desired_width(160.0),
+                        );
+                        let field = field.labelled_by(label.id);
+                        if !field.has_focus() && name.is_empty() && !field.lost_focus() {
+                            field.request_focus();
+                        }
+                        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        let add = w::button(ui, Kind::Secondary, t.create).clicked();
+                        if (entered || add) && !name.trim().is_empty() {
+                            out.push(Intent::Run {
+                                command: "person.create",
+                                params: json!({"name": name.trim()}),
+                                then: Then::OwnerOfNew,
+                                clear: None,
+                            });
+                        }
+                    });
+                }
+            });
+            ui.end_row();
+        });
+    ui.add_space(space::S);
+    let titled = !form.title.trim().is_empty();
+    let ready = titled && !wrong_dates;
+    // Enter anywhere in the form creates it – not while a person is being added there.
+    let entered = !adding_person && ui.input(|i| i.key_pressed(Key::Enter));
+    ui.horizontal(|ui| {
+        let create = ui
+            .add_enabled_ui(ready, |ui| w::button(ui, Kind::Primary, t.create))
+            .inner
+            .on_disabled_hover_text(if titled { "" } else { t.title_needed });
+        if (create.clicked() || entered) && ready {
+            let mut form = form.clone();
+            // The reference only for a case: a project with one would count as a case.
+            if !case {
+                form.reference.clear();
+            }
+            if let Ok(params) = form.create_params() {
+                out.push(Intent::Run {
+                    command: "project.create",
+                    params,
+                    then: Then::ShowProject,
+                    clear: Some(Clear::Dialog),
+                });
+            }
+        }
+        if w::button(ui, Kind::Secondary, t.cancel).clicked() {
+            out.push(Intent::CloseDialog);
+        }
+    });
+    if !titled {
+        ui.weak(t.title_needed);
+    }
 }
