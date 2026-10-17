@@ -146,7 +146,7 @@ Meilenstein wird unhaltbar.
 | 4.15 | ~~Eingabefelder „flach“?~~ **entschieden (Tobi, 2026-10-17):** Tobi urteilt am echten Bildschirm im Wiederholungstest, danach ggf. Rahmen/Höhe nachschärfen | – | Wiederholungstest |
 | 4.16 | ~~Meldungen an ihren Ursprung binden~~ **entschieden (Tobi, 2026-10-17):** ja, als erster Schritt von 9g, vor den Klickpfaden | – | 9g, Schritt 1 |
 | 4.17 | ~~Klickpfade auch nur mit Tastatur~~ **entschieden (Tobi, 2026-10-17):** ja, eigene Tastatur-Variante je Pfad | – | 9g |
-| 4.18 | **Enter im Detailbereich** (Befund der Klickpfade 9g): Enter übernimmt ein Feld, aber der Cursor verlässt es; wer mit der Tastatur weiterarbeitet, fängt oben im Fenster an (Tab übernimmt und springt weiter, das geht). Soll Enter den Cursor im Feld lassen, wie in Office? Berührt jeden Datumsfluss samt Meilenstein-Rückfrage. | Ja, als eigener Schritt mit Tests der Rückfrage | 9g oder danach |
+| 4.18 | **Enter und Escape im Detailbereich** (Befunde 9g: Klickpfade und Review F3): Enter übernimmt ein Feld, aber der Cursor verlässt es; wer mit der Tastatur weiterarbeitet, fängt oben im Fenster an (Tab übernimmt und springt weiter, das geht). **Escape übernimmt das Getippte**, statt es zu verwerfen – beim Umbenennen in der Liste verwirft Escape, in Office auch. Soll Enter den Cursor im Feld lassen und Escape verwerfen? Berührt jeden Datumsfluss samt Meilenstein-Rückfrage; zwei Nachstell-Tests des Prüfers liegen bereit. | Ja, beides zusammen als eigener Schritt | 9g oder danach |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte

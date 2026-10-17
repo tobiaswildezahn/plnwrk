@@ -721,6 +721,14 @@ impl State {
         self.put(Some(message));
     }
 
+    /// Says what concerns the whole app, not the open dialog (a recovery copy failing, an
+    /// upload): in the bar, once no dialog covers it (review 9g, K1: said in a dialog as its
+    /// refusal, it went with "Abbrechen").
+    pub fn say_in_bar(&mut self, mut message: Message) {
+        message.source = Source::View;
+        self.put(Some(message));
+    }
+
     /// Says a message under a field (`field` names it, see [`Source::Field`]); the field shows
     /// it with [`State::said_at`].
     pub fn say_at(&mut self, field: egui::Id, mut message: Message) {
@@ -733,6 +741,20 @@ impl State {
         match message {
             Some(message) => self.say(message),
             None => self.put(None),
+        }
+    }
+
+    /// A command was done with nothing to say: the last message goes – except a field's,
+    /// which stands while its field still shows what could not be read (review 9g, K2); the
+    /// field takes it back itself once it reads.
+    pub fn done(&mut self) {
+        if !self
+            .said
+            .message
+            .as_ref()
+            .is_some_and(|m| matches!(m.source, Source::Field(_)))
+        {
+            self.put(None);
         }
     }
 

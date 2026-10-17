@@ -170,6 +170,7 @@ pub fn panel(
                             if start.commit() {
                                 match dates::parse(&draft.start) {
                                     Ok(date) if date != task.start => {
+                                        state.unsay_at(start_field);
                                         out.push(Intent::Reschedule {
                                             task: id,
                                             start: date,
@@ -177,7 +178,8 @@ pub fn panel(
                                             due_time: None,
                                         });
                                     }
-                                    Ok(_) => {}
+                                    // Readable again: what it said goes (only then).
+                                    Ok(_) => state.unsay_at(start_field),
                                     Err(message) => {
                                         state.say_at(start_field, Message::error(message));
                                     }
@@ -199,6 +201,7 @@ pub fn panel(
                             if due.commit() {
                                 match dates::parse_deadline(&draft.due, &draft.due_time) {
                                     Ok(due) if due != task.due.map(|day| (day, task.due_time)) => {
+                                        state.unsay_at(due_field);
                                         out.push(Intent::Reschedule {
                                             task: id,
                                             start: task.start,
@@ -206,7 +209,7 @@ pub fn panel(
                                             due_time: Some(due.and_then(|(_, time)| time)),
                                         });
                                     }
-                                    Ok(_) => {}
+                                    Ok(_) => state.unsay_at(due_field),
                                     Err(message) => {
                                         state.say_at(due_field, Message::error(message));
                                     }

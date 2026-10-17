@@ -118,6 +118,15 @@ impl Walk {
 
     /// The path held its bound.
     fn at_most(self, bound: usize, path: &str) -> Harness<'static, PlnwrkApp> {
+        // What the app has to say at the end is in view, once – never only stored (review 9g,
+        // L4: a message can stand in the state and nowhere on the screen).
+        if let Some(message) = self.harness.state().state.message() {
+            assert_eq!(
+                self.harness.query_all_by_label(&message.text).count(),
+                1,
+                "{path}: {message:?} is not in view once"
+            );
+        }
         assert!(
             self.steps <= bound,
             "{path}: {} steps, at most {bound}",
@@ -316,11 +325,9 @@ fn path_a_bar_a_week_later_with_the_keyboard() {
     walk.shortcut(Modifiers::COMMAND, Key::A);
     walk.text("19.10.2026");
     walk.key(Key::Tab);
-    a_week_later(
-        &walk.at_most(24, "a bar a week later with the keyboard"),
-        first,
-        second,
-    );
+    let h = walk.at_most(24, "a bar a week later with the keyboard");
+    assert_eq!(h.state().state.tab, Tab::Schedule, "still in the schedule");
+    a_week_later(&h, first, second);
 }
 
 /// Path 6: a milestone moved, with the question, in at most 4 clicks.
@@ -399,6 +406,7 @@ fn path_a_card_done_with_the_keyboard() {
     walk.palette("Ausschreibung");
     walk.palette(text::task_status(TaskStatus::Done));
     let h = walk.at_most(4, "a card done with the keyboard");
+    assert_eq!(h.state().state.tab, Tab::Board, "still on the board");
     assert_eq!(
         h.state()
             .doc()
@@ -441,5 +449,6 @@ fn path_a_dependency_with_the_keyboard() {
     walk.tab_to("Ausschreibung");
     walk.key(Key::Enter);
     let h = walk.at_most(24, "a dependency with the keyboard");
+    assert_eq!(h.state().state.tab, Tab::Schedule, "still in the schedule");
     assert!(waits_for(&h, first, second));
 }

@@ -111,6 +111,8 @@ fn overtaken(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
             if ui.link(label).clicked() {
                 out.push(Intent::Go(View::Project(*project)));
                 out.push(Intent::Select(Some(overtaking.milestone)));
+                // By keyboard, too, it goes on there (review 9g, K4).
+                out.push(Intent::FocusDetails);
             }
             let by: Vec<String> = overtaking.by.iter().map(|t| title(*t).to_owned()).collect();
             ui.label(text::overtaken_by(&dates::format(overtaking.date), &by));
@@ -173,6 +175,7 @@ fn due_row(
             out.push(Intent::Go(View::Project(item.project)));
             if let EntityKey::Task(task) = item.entity {
                 out.push(Intent::Select(Some(task)));
+                out.push(Intent::FocusDetails);
             }
         }
     });

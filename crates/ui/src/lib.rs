@@ -536,7 +536,7 @@ impl PlnwrkApp {
         if self.state.quitting {
             return true;
         }
-        self.flush_draft();
+        let warning = self.flush_draft();
         // A typed milestone date is asked about first; the window stays open for the answer,
         // then closing goes on.
         if self.asking_milestone() {
@@ -546,8 +546,17 @@ impl PlnwrkApp {
         if !self.has_unsaved_changes() {
             return true;
         }
-        self.state.open_dialog(Dialog::Unsaved(FileAction::Quit));
+        self.open_with(Dialog::Unsaved(FileAction::Quit), warning);
         false
+    }
+
+    /// Opens a dialog and says in it what was typed but not taken on the way (review 9g, F1:
+    /// said behind the dialog, it was never seen – and "Gespeichert." replaced it).
+    fn open_with(&mut self, dialog: Dialog, warning: Option<String>) {
+        self.state.open_dialog(dialog);
+        if let Some(warning) = warning {
+            self.state.say(Message::error(warning));
+        }
     }
 
     /// After the answer about a milestone: what waited for it goes on.
@@ -608,7 +617,7 @@ impl PlnwrkApp {
         match self.host.uploaded() {
             Some(Ok(upload)) => self.file(FileAction::Upload(upload)),
             Some(Err(reason)) => {
-                self.state.say(Message::error(format!(
+                self.state.say_in_bar(Message::error(format!(
                     "{} {reason}",
                     text::t().upload_failed
                 )));
@@ -675,7 +684,7 @@ impl PlnwrkApp {
             && let Some(autosave::Written::Failed(reason)) = &after
             && self.state.message().is_none_or(|m| !m.error)
         {
-            self.state.say(Message::error(format!(
+            self.state.say_in_bar(Message::error(format!(
                 "{} {reason}",
                 text::t().recovery_failed
             )));
@@ -778,11 +787,13 @@ impl PlnwrkApp {
                 // way out is said again below).
                 self.state.unsay();
                 self.flush_draft();
-                self.state.view = view;
-                self.state.select(None);
-                if matches!(view, View::Project(_)) {
+                // Another project opens at its list; within the same one the tab stays (the
+                // palette going to a task kept throwing Board and Schedule out, review 9g F4).
+                if matches!(view, View::Project(_)) && view != self.state.view {
                     self.state.tab = Tab::List;
                 }
+                self.state.view = view;
+                self.state.select(None);
             }
             Intent::Select(task) => {
                 if task != self.state.selected {
@@ -790,7 +801,17 @@ impl PlnwrkApp {
                 }
                 self.state.select(task);
             }
-            Intent::Open(dialog) => self.state.open_dialog(dialog),
+            Intent::Open(dialog) => {
+                // Typed text is taken first, as before every other step (review 9g, F2): a
+                // milestone asked about on the way comes first, the dialog after the answer –
+                // the question used to replace it, and it never came back.
+                let warning = self.flush_draft();
+                if self.asking_milestone() {
+                    self.after_answer.get_or_insert(Intent::Open(dialog));
+                } else {
+                    self.open_with(dialog, warning);
+                }
+            }
             Intent::CloseDialog => self.state.close_dialog(),
             Intent::SayWhenDone(message) => {
                 if self.last_done {
@@ -973,7 +994,7 @@ impl PlnwrkApp {
             }
             Ok(outcome) => {
                 self.last_done = true;
-                self.state.say_maybe(match news {
+                let said = match news {
                     Some((along, overtaken)) if !overtaken.is_empty() => {
                         let said = if along > 0 {
                             format!("{} ", text::moved_along(along))
@@ -987,7 +1008,11 @@ impl PlnwrkApp {
                     }
                     Some((along, _)) if along > 0 => Some(Message::info(text::moved_along(along))),
                     _ => None,
-                });
+                };
+                match said {
+                    Some(message) => self.state.say(message),
+                    None => self.state.done(),
+                }
                 if let (Then::ShowProject, Some(EntityKey::Project(id))) =
                     (then, outcome.created.first())
                 {
@@ -1162,7 +1187,7 @@ impl PlnwrkApp {
             return;
         }
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
-            self.state.open_dialog(Dialog::Unsaved(action));
+            self.open_with(Dialog::Unsaved(action), warning);
             return;
         }
         // A warning from what was just taken (e.g. a milestone overtaken) stays in view after

@@ -13,6 +13,7 @@ use crate::state::{Tab, View};
 use crate::{PlnwrkApp, text};
 
 mod paths;
+mod review9g;
 
 fn harness(app: PlnwrkApp) -> Harness<'static, PlnwrkApp> {
     // Short steps, like real frames: two clicks a few steps apart count as a double click.
@@ -210,6 +211,14 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
 
     harness.state_mut().state.forms.milestone_date = "30.11.2026".to_owned();
     click(&mut harness, text::t().new_milestone);
+    // Readable now: what the line said goes (review 9g, K2).
+    assert!(
+        harness
+            .state()
+            .state
+            .message()
+            .is_none_or(|m| !m.text.contains("30.13.2026"))
+    );
     let milestone = tasks(harness.state())
         .into_iter()
         .find(|t| t.milestone)

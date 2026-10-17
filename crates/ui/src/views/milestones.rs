@@ -515,6 +515,7 @@ fn edit_date(
         match dates::parse_deadline(&day, &time) {
             Ok(Some((due, due_time))) => {
                 state.forms.milestone_edit = None;
+                state.unsay_at(field);
                 out.push(Intent::Reschedule {
                     task: milestone.id,
                     start: milestone.start.filter(|s| *s <= due),
@@ -559,17 +560,20 @@ fn new_milestone(
         );
         if ui.button(text::t().new_milestone).clicked() {
             match dates::parse_deadline(&state.forms.milestone_date, &state.forms.milestone_time) {
-                Ok(Some(due)) => out.push(Intent::Run {
-                    command: "task.create",
-                    params: json!({
-                        "project": project.id.to_string(),
-                        "title": state.forms.milestone_title.trim(),
-                        "milestone": true,
-                        "due": dates::deadline_param(Some(due)),
-                    }),
-                    then: Then::Nothing,
-                    clear: Some(Clear::Milestone),
-                }),
+                Ok(Some(due)) => {
+                    state.unsay_at(field);
+                    out.push(Intent::Run {
+                        command: "task.create",
+                        params: json!({
+                            "project": project.id.to_string(),
+                            "title": state.forms.milestone_title.trim(),
+                            "milestone": true,
+                            "due": dates::deadline_param(Some(due)),
+                        }),
+                        then: Then::Nothing,
+                        clear: Some(Clear::Milestone),
+                    });
+                }
                 Ok(None) => state.say_at(field, Message::error(text::t().date_needed)),
                 Err(message) => state.say_at(field, Message::error(message)),
             }
