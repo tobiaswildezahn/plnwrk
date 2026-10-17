@@ -12,6 +12,7 @@ use crate::host::Scripted;
 use crate::state::{Tab, View};
 use crate::{PlnwrkApp, text};
 
+mod nachreview;
 mod paths;
 mod review9g;
 

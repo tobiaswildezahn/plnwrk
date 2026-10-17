@@ -487,11 +487,15 @@ impl Plan {
         let (Some(item), Some(span)) = (self.items.get(&task), spans.get(&task)) else {
             return vec![task];
         };
-        if item.span().is_some() || !seen.insert(task) {
+        if item.span().is_some() {
             return vec![task];
         }
+        // Reached again on another path: already followed from there (Nachreview 9g, N2).
+        if !seen.insert(task) {
+            return Vec::new();
+        }
         let length = self.duration(item, *span);
-        let behind: Vec<TaskId> = self
+        let binding: Vec<TaskId> = self
             .links
             .iter()
             .filter(|l| l.to == task)
@@ -499,13 +503,16 @@ impl Plan {
                 self.requires(l, item, spans, length)
                     .is_some_and(|required| required >= span.0)
             })
-            .flat_map(|l| self.holding(l.from, spans, seen))
+            .map(|l| l.from)
             .collect();
-        if behind.is_empty() {
-            vec![task]
-        } else {
-            behind
+        // Nothing binds it: then it stands for itself, so `by` is never empty.
+        if binding.is_empty() {
+            return vec![task];
         }
+        binding
+            .into_iter()
+            .flat_map(|from| self.holding(from, spans, seen))
+            .collect()
     }
 
     /// The critical path and what cannot hold, for the dates as they are.
@@ -885,6 +892,26 @@ mod tests {
                 milestone(2, "2026-10-16"),
             ],
             vec![fs(1, 3), fs(3, 2)],
+        );
+        let overtaking = p.overtaking();
+        assert_eq!(overtaking.len(), 1, "{overtaking:?}");
+        assert_eq!(overtaking[0].by, vec![id(1)]);
+    }
+
+    /// Nachreview 9g (N2): two paths through tasks without dates that meet again – only the late
+    /// task with dates is named, never a task without dates.
+    #[test]
+    fn a_diamond_of_tasks_without_dates_names_only_the_task_with_dates() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-20"),
+                open(6),
+                open(4),
+                open(5),
+                open(3),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 6), fs(6, 4), fs(6, 5), fs(4, 3), fs(5, 3), fs(3, 2)],
         );
         let overtaking = p.overtaking();
         assert_eq!(overtaking.len(), 1, "{overtaking:?}");
@@ -1591,6 +1618,11 @@ mod tests {
             prop_assert_eq!(said, warned);
             for o in &overtaking {
                 prop_assert!(!o.by.is_empty(), "{:?} names nothing", o.milestone);
+                // Only tasks with dates: those can be moved back (Nachreview 9g, NL3).
+                for task in &o.by {
+                    let dated = items.iter().any(|i| i.id == *task && i.span().is_some());
+                    prop_assert!(dated, "{:?} names {:?}, which has no dates", o.milestone, task);
+                }
                 // What it names holds it back, also through tasks without dates: without what
                 // leads on from those, the milestone holds.
                 let kept: Vec<Link> = links

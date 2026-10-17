@@ -2,7 +2,7 @@
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17 abends:
 > plnwrk 0.1.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); **Phase 9
-> (Gestaltung) läuft:** 9a–9f gemergt (#16–#21), 9g begonnen.
+> (Gestaltung) läuft:** 9a–9f gemergt (#16–#21), 9g fertig geprüft (PR #22), wartet auf Merge.
 > 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
@@ -80,10 +80,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    **9a–9f gemergt** (#16–#21; 9f: Anlegen-Dialog Vorgang | Projekt mit einer Regel
    `Project::is_case`, Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten,
    Detailbereich in Gruppen, Leerzustände, Meldungsleiste, angeheftete Datumsleiste).
-   **9g läuft** (Branch `phase-9g`): (1) Meldung mit Ursprung (4.16), (2) Klickpfade, jeder auch
+   **9g fertig geprüft** (PR #22, Review + Nachreview eingearbeitet; Merge auf Tobis „ja, merge“):
+   (1) Meldung mit Ursprung (4.16), (2) Klickpfade, jeder auch
    nur mit Tastatur (4.17), (3) Übersicht-Block „Überholte Meilensteine“, (4) Durchgang von Hand,
-   (5) Wiederholungstest mit dem Sachbearbeiter (dabei 4.14 und 4.15), (6) Version 0.2.0 –
-   veröffentlicht erst auf Tobis „veröffentlichen“.
+   (5) Version 0.2.0 vorbereitet – veröffentlicht erst auf Tobis „veröffentlichen“ (dann README
+   „Stand“ auf 0.2.0, Tag `v0.2.0`). Offen: Wiederholungstest mit dem Sachbearbeiter (dabei 4.14,
+   4.15) und Entscheidung 4.18.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der

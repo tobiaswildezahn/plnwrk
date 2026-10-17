@@ -148,7 +148,7 @@ fn head(
             .clicked();
         });
         // What cannot be taken is said under the buttons.
-        let field = egui::Id::new(("project-form-said", project.id));
+        let field = form_said(project.id);
         if let Some(message) = error {
             state.say_at(field, crate::state::Message::error(message));
         }
@@ -545,4 +545,9 @@ fn list(
             });
         }
     });
+}
+
+/// Where the form of a project says what it cannot take.
+pub(crate) fn form_said(project: ProjectId) -> egui::Id {
+    egui::Id::new(("project-form-said", project))
 }

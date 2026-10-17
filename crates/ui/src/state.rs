@@ -217,6 +217,10 @@ pub struct Said {
 pub enum Source {
     /// The view: said in the message bar under the ribbon.
     View,
+    /// The app as a whole (a recovery copy failing, an upload, typed text not taken on the way
+    /// into a dialog): in the bar too, once no dialog covers it – and no command's success takes
+    /// it away before it was seen (Nachreview 9g, NK1); the close button or the next message do.
+    App,
     /// The open dialog: said in it (refusals). Once seen there it goes with the dialog; what it
     /// could not show any more comes to the bar – so none outlives its dialog.
     Dialog,
@@ -725,7 +729,7 @@ impl State {
     /// upload): in the bar, once no dialog covers it (review 9g, K1: said in a dialog as its
     /// refusal, it went with "Abbrechen").
     pub fn say_in_bar(&mut self, mut message: Message) {
-        message.source = Source::View;
+        message.source = Source::App;
         self.put(Some(message));
     }
 
@@ -745,14 +749,14 @@ impl State {
     }
 
     /// A command was done with nothing to say: the last message goes – except a field's,
-    /// which stands while its field still shows what could not be read (review 9g, K2); the
-    /// field takes it back itself once it reads.
+    /// which stands while its field still shows what could not be read (review 9g, K2; the
+    /// field takes it back itself once it reads), and one of the app's (NK1).
     pub fn done(&mut self) {
         if !self
             .said
             .message
             .as_ref()
-            .is_some_and(|m| matches!(m.source, Source::Field(_)))
+            .is_some_and(|m| matches!(m.source, Source::Field(_) | Source::App))
         {
             self.put(None);
         }
@@ -814,7 +818,7 @@ impl State {
         self.said
             .message
             .as_ref()
-            .filter(|m| m.source == Source::View && self.dialog.is_none())
+            .filter(|m| matches!(m.source, Source::View | Source::App) && self.dialog.is_none())
     }
 
     /// The message said under the field `field`; drawing it counts as shown.

@@ -5,7 +5,7 @@
 
 use egui::{Align2, Rect, Sense, Shape, Stroke, pos2, vec2};
 use jiff::civil::{Date, DateTime};
-use plnwrk_core::{Project, Task, TaskStatus, Workspace};
+use plnwrk_core::{Project, Task, TaskId, TaskStatus, Workspace};
 use plnwrk_engine::query::{self, MilestoneState};
 use plnwrk_schedule::Analysis;
 use serde_json::json;
@@ -506,7 +506,7 @@ fn edit_date(
         cancel = widgets::button(ui, Kind::Quiet, text::t().cancel).clicked();
     });
     // A date that cannot be read is said under the field.
-    let field = egui::Id::new(("edit-milestone-said", milestone.id));
+    let field = edit_said(milestone.id);
     if cancel {
         state.forms.milestone_edit = None;
         state.unsay_at(field);
@@ -580,4 +580,9 @@ fn new_milestone(
         }
     });
     super::field_said(ui, state, field);
+}
+
+/// Where the date typed on a milestone's card says what cannot be read.
+pub(crate) fn edit_said(milestone: TaskId) -> egui::Id {
+    egui::Id::new(("edit-milestone-said", milestone))
 }

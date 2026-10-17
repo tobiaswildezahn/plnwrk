@@ -157,8 +157,7 @@ pub fn panel(
                         .num_columns(2)
                         .show(ui, |ui| {
                             // A date that cannot be read is said under its field.
-                            let start_field = egui::Id::new(("task-start-said", id));
-                            let due_field = egui::Id::new(("task-due-said", id));
+                            let (start_field, due_field) = (start_said(id), due_said(id));
                             let caption = ui.label(text::t().start);
                             let start = date::date_input(
                                 ui,
@@ -574,4 +573,14 @@ fn history(ui: &mut egui::Ui, doc: &OpenDoc, id: TaskId) {
                 ui.label(what);
             }
         });
+}
+
+/// Where a task's start says what cannot be read (its own id, see `State::say_at`).
+pub(crate) fn start_said(task: TaskId) -> egui::Id {
+    egui::Id::new(("task-start-said", task))
+}
+
+/// Where a task's deadline says what cannot be read.
+pub(crate) fn due_said(task: TaskId) -> egui::Id {
+    egui::Id::new(("task-due-said", task))
 }

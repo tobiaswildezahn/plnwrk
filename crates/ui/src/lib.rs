@@ -390,13 +390,18 @@ impl PlnwrkApp {
         let mut refused: Vec<String> = Vec::new();
         // A title being renamed in the list counts like any typed text.
         if let Some((id, title)) = self.inline_pending() {
-            self.run(
+            // Refused or not: what `run` says, not what stands in the message (a field's message
+            // stays after a success – Nachreview 9g, N1).
+            let taken = self.run(
                 "task.update",
                 &serde_json::json!({"task": id.to_string(), "title": title}),
                 Then::Nothing,
                 Some(Clear::Inline),
             );
-            if let Some(message) = self.state.message().filter(|m| m.error) {
+            if !taken
+                && !self.asking_milestone()
+                && let Some(message) = self.state.message().filter(|m| m.error)
+            {
                 refused.push(format!("{} {}", text::t().not_taken, message.text));
             }
         }
@@ -405,13 +410,16 @@ impl PlnwrkApp {
         if let Some((id, form)) = self.project_pending() {
             match form.update_params(id) {
                 Ok(params) => {
-                    self.run(
+                    let taken = self.run(
                         "project.update",
                         &params,
                         Then::Nothing,
                         Some(Clear::ProjectEdit),
                     );
-                    if let Some(message) = self.state.message().filter(|m| m.error) {
+                    if taken {
+                        // What the form said about an earlier try goes with it (Nachreview 9g, N1).
+                        self.state.unsay_at(views::project::form_said(id));
+                    } else if let Some(message) = self.state.message().filter(|m| m.error) {
                         refused.push(format!("{} {}", text::t().not_taken, message.text));
                         self.state.forms.project = None;
                     }
@@ -434,6 +442,7 @@ impl PlnwrkApp {
                 .and_then(|t| t.start);
             match dates::parse_deadline(&day, &time) {
                 Ok(Some((due, due_time))) => {
+                    self.state.unsay_at(views::milestones::edit_said(id));
                     self.reschedule(id, start.filter(|s| *s <= due), Some(due), Some(due_time));
                 }
                 Ok(None) => {
@@ -476,6 +485,11 @@ impl PlnwrkApp {
                     due.map(|(day, _)| day),
                     Some(due.and_then(|(_, time)| time)),
                 );
+                // Taken: what the date fields said about an earlier try goes (Nachreview 9g).
+                if taken {
+                    self.state.unsay_at(views::detail::start_said(task.id));
+                    self.state.unsay_at(views::detail::due_said(task.id));
+                }
             }
             if taken && !params.is_empty() {
                 // "N moved along" stays in view after the second command.
@@ -550,8 +564,9 @@ impl PlnwrkApp {
         false
     }
 
-    /// Opens a dialog and says in it what was typed but not taken on the way (review 9g, F1:
-    /// said behind the dialog, it was never seen – and "Gespeichert." replaced it).
+    /// Opens the question about unsaved changes and says in it what was typed but not taken on
+    /// the way (review 9g, F1: said behind the dialog, it was never seen – and "Gespeichert."
+    /// replaced it). It belongs to that question: it decides what is kept.
     fn open_with(&mut self, dialog: Dialog, warning: Option<String>) {
         self.state.open_dialog(dialog);
         if let Some(warning) = warning {
@@ -809,7 +824,12 @@ impl PlnwrkApp {
                 if self.asking_milestone() {
                     self.after_answer.get_or_insert(Intent::Open(dialog));
                 } else {
-                    self.open_with(dialog, warning);
+                    self.state.open_dialog(dialog);
+                    // Not taken on the way: said in the bar once the dialog closes – in this
+                    // dialog it would look like its own refusal (Nachreview 9g, NK2).
+                    if let Some(warning) = warning {
+                        self.state.say_in_bar(Message::error(warning));
+                    }
                 }
             }
             Intent::CloseDialog => self.state.close_dialog(),

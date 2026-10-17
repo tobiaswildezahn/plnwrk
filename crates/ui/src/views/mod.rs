@@ -7,7 +7,7 @@ mod dialogs;
 pub(crate) mod milestones;
 mod overview;
 mod people;
-mod project;
+pub(crate) mod project;
 mod ribbon;
 pub(crate) mod schedule;
 
