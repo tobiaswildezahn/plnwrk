@@ -34,6 +34,9 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
         .unwrap_or_default();
     let today = doc.map_or_else(|| jiff::Zoned::now().date(), |d| d.session.clock().today());
     let mut message = None;
+    // A refusal while the dialog is open is said in it, not behind it (one message, one
+    // place: the message bar waits while a dialog is open).
+    let refusal = state.message.clone().filter(|m| m.error);
     let response = Modal::new(Id::new("dialog"))
         .frame(w::dialog_frame(ctx))
         .show(ctx, |ui| {
@@ -99,7 +102,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                             );
                             ui.end_row();
                             let label = ui.label(text::t().due);
-                            let case = !form.reference.trim().is_empty();
+                            // The one rule: the template's kind and the reference typed.
+                            let kind = form
+                                .template
+                                .and_then(|id| templates.iter().find(|t| t.id == id))
+                                .and_then(|t| t.kind.clone());
+                            let case = plnwrk_core::is_case(kind.as_deref(), Some(&form.reference));
                             date::deadline_input(
                                 ui,
                                 "template-due",
@@ -370,14 +378,20 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     });
                 }
             }
+            if let Some(refusal) = &refusal {
+                ui.add_space(space::S);
+                w::field_error(ui, &refusal.text);
+            }
         });
     // Escape or a click beside it: for a milestone the same as "Abbrechen" (the typed value
     // goes back to the stored one).
     if response.should_close() && !matches!(dialog, Dialog::Unsaved(_)) {
-        out.push(match dialog {
-            Dialog::ConfirmMilestone { .. } => Intent::DeclineMilestone,
-            _ => Intent::CloseDialog,
-        });
+        match dialog {
+            Dialog::ConfirmMilestone { .. } => out.push(Intent::DeclineMilestone),
+            // Escape while a person is being added drops that person, not the whole form.
+            Dialog::NewProject(form) if form.new_person.is_some() => form.new_person = None,
+            _ => out.push(Intent::CloseDialog),
+        }
     }
     if let Some(error) = message {
         state.message = Some(Message::error(error));
@@ -542,27 +556,49 @@ fn new_project(
     ui.add_space(space::S);
     // A date is wrong only once its field is left (not while it is typed).
     let mut wrong_dates = false;
-    let mut adding_person = false;
+    let mut too_long = false;
+    // Enter counts where it was pressed in one of the form's own fields (on a button it is a
+    // click of that button – "Abbrechen" must not create).
+    let enter = ui.input(|i| i.key_pressed(Key::Enter));
+    let mut enter_in_field = false;
+    let mut person_enter = false;
+    // The person's field takes the cursor once, in the frame after it was chosen.
+    let focus_id = Id::new(("new-person-focus", serial));
+    let focus_person = ui
+        .data_mut(|d| d.remove_temp::<bool>(focus_id))
+        .unwrap_or(false);
+    let mut chosen_now = false;
     egui::Grid::new("new-project")
         .num_columns(2)
         .show(ui, |ui| {
             let label = ui.label(t.title);
-            let field = ui
-                .text_edit_singleline(&mut form.title)
-                .labelled_by(label.id);
-            focus_once(&field, serial);
+            ui.vertical(|ui| {
+                let field = ui
+                    .text_edit_singleline(&mut form.title)
+                    .labelled_by(label.id);
+                focus_once(&field, serial);
+                enter_in_field |= field.lost_focus() && enter;
+                // Said here, before the engine would refuse it (one message, one place).
+                if form.title.trim().chars().count() > plnwrk_core::text::TITLE_MAX {
+                    too_long = true;
+                    w::field_error(ui, &text::title_too_long(plnwrk_core::text::TITLE_MAX));
+                }
+            });
             ui.end_row();
             // A project keeps what was typed here, but does not get it.
             if case {
                 let label = ui.label(t.reference);
-                ui.text_edit_singleline(&mut form.reference)
+                let field = ui
+                    .text_edit_singleline(&mut form.reference)
                     .labelled_by(label.id);
+                enter_in_field |= field.lost_focus() && enter;
                 ui.end_row();
             }
             let label = ui.label(t.start);
             ui.vertical(|ui| {
                 let input =
                     date::date_input(ui, "new-start", &mut form.start, today, Some(label.id));
+                enter_in_field |= input.response.lost_focus() && enter;
                 if let Err(error) = crate::dates::parse(&form.start) {
                     wrong_dates = true;
                     if !input.response.has_focus() {
@@ -582,6 +618,7 @@ fn new_project(
                     case,
                     Some(label.id),
                 );
+                enter_in_field |= (input.response.lost_focus() || input.time_done) && enter;
                 if let Err(error) = crate::dates::parse_deadline(&form.due, &form.due_time) {
                     wrong_dates = true;
                     if !input.response.has_focus() {
@@ -605,14 +642,15 @@ fn new_project(
                         }
                         if ui.selectable_label(false, t.add_person).clicked() {
                             form.new_person = Some(String::new());
+                            chosen_now = true;
                         }
                     })
                     .response
                     .labelled_by(label.id);
                 // A new person, named here: Enter (or the button) adds them and puts them in
-                // charge; Escape or leaving the field empty drops it.
+                // charge; leaving the field empty drops it, Escape too (see `show`).
+                let mut drop_person = false;
                 if let Some(name) = &mut form.new_person {
-                    adding_person = true;
                     ui.horizontal(|ui| {
                         let field = ui.add(
                             egui::TextEdit::singleline(name)
@@ -620,10 +658,12 @@ fn new_project(
                                 .desired_width(160.0),
                         );
                         let field = field.labelled_by(label.id);
-                        if !field.has_focus() && name.is_empty() && !field.lost_focus() {
+                        // The cursor goes there once, when it is chosen – not again and again.
+                        if focus_person || chosen_now {
                             field.request_focus();
                         }
-                        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        let entered = field.lost_focus() && enter;
+                        person_enter = entered;
                         let add = w::button(ui, Kind::Secondary, t.create).clicked();
                         if (entered || add) && !name.trim().is_empty() {
                             out.push(Intent::Run {
@@ -632,17 +672,26 @@ fn new_project(
                                 then: Then::OwnerOfNew,
                                 clear: None,
                             });
+                        } else if field.lost_focus() && name.trim().is_empty() {
+                            drop_person = true;
                         }
                     });
+                }
+                if drop_person {
+                    form.new_person = None;
                 }
             });
             ui.end_row();
         });
+    // Chosen in the list just now: the cursor goes there once more next frame (the list
+    // closing may take it back), then never again.
+    if chosen_now {
+        ui.data_mut(|d| d.insert_temp(focus_id, true));
+    }
     ui.add_space(space::S);
     let titled = !form.title.trim().is_empty();
-    let ready = titled && !wrong_dates;
-    // Enter anywhere in the form creates it – not while a person is being added there.
-    let entered = !adding_person && ui.input(|i| i.key_pressed(Key::Enter));
+    let ready = titled && !wrong_dates && !too_long;
+    let entered = enter_in_field && !person_enter;
     ui.horizontal(|ui| {
         let create = ui
             .add_enabled_ui(ready, |ui| w::button(ui, Kind::Primary, t.create))
@@ -654,13 +703,15 @@ fn new_project(
             if !case {
                 form.reference.clear();
             }
-            if let Ok(params) = form.create_params() {
-                out.push(Intent::Run {
+            match form.create_params() {
+                Ok(params) => out.push(Intent::Run {
                     command: "project.create",
                     params,
                     then: Then::ShowProject,
                     clear: Some(Clear::Dialog),
-                });
+                }),
+                // Not expected (the dates are checked above), but never swallowed.
+                Err(error) => out.push(Intent::Say(Message::error(error))),
             }
         }
         if w::button(ui, Kind::Secondary, t.cancel).clicked() {

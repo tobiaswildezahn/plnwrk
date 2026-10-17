@@ -115,6 +115,8 @@ pub(crate) enum Intent {
     Go(View),
     /// Close the message bar.
     DismissMessage,
+    /// Show a message.
+    Say(Message),
     /// Show a message once the command just before it was carried out (not when it was
     /// refused: then its reason stays in view).
     SayWhenDone(Message),
@@ -766,6 +768,9 @@ impl PlnwrkApp {
                 self.carry_on();
             }
             Intent::Go(view) => {
+                // Another view: the last message is about what was left (a refusal on the
+                // way out is said again below).
+                self.state.message = None;
                 self.flush_draft();
                 self.state.view = view;
                 self.state.select(None);
@@ -878,6 +883,7 @@ impl PlnwrkApp {
             Intent::ExportSchedule(project) => self.export_schedule(project),
             Intent::FocusNewTask => self.state.focus_new_task = true,
             Intent::DismissMessage => self.state.message = None,
+            Intent::Say(message) => self.state.message = Some(message),
             Intent::EditProject(id) => {
                 let open = self
                     .state

@@ -1258,6 +1258,14 @@ pub fn mark_done(title: &str) -> String {
     )
 }
 
+/// A title longer than the engine takes, said at the field.
+pub fn title_too_long(max: usize) -> String {
+    pick(
+        format!("Höchstens {max} Zeichen."),
+        format!("At most {max} characters."),
+    )
+}
+
 /// A card made with "+" that the board's filter hides.
 pub fn created_but_filtered(title: &str) -> String {
     pick(

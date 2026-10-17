@@ -168,7 +168,8 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
 /// The message of the last action (Phase 9f): one place, right under the ribbon, until the
 /// next action or its close button – the status bar is for saving and recovery only.
 fn message_bar(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
-    let Some(message) = &state.message else {
+    // While a dialog is open, its refusals are said in it (see `dialogs::show`).
+    let Some(message) = state.message.as_ref().filter(|_| state.dialog.is_none()) else {
         return;
     };
     let p = design::palette(ui);

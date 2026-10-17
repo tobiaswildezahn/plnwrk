@@ -128,6 +128,36 @@ mod queries {
             .map(|i| i.title)
             .collect();
         assert!(overdue.contains(&"Heute 8 Uhr".to_owned()), "{overdue:?}");
+        // A project due today is listed too; a template's task due today is not (review 9f).
+        s.run(
+            "project.update",
+            &json!({"project": project, "due": "2026-10-14"}),
+            Origin::User,
+        )
+        .unwrap();
+        let template = s
+            .run(
+                "project.create",
+                &json!({"title": "Muster", "template": true}),
+                Origin::User,
+            )
+            .unwrap();
+        let Some(EntityKey::Project(template)) = template.created.first() else {
+            panic!("a template")
+        };
+        s.run(
+            "task.create",
+            &json!({"project": template.to_string(), "title": "Muster heute", "due": "2026-10-14"}),
+            Origin::User,
+        )
+        .unwrap();
+        let today: Vec<String> = query::due_today(s.workspace(), now)
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        let name = s.workspace().project(ids.project).unwrap().title.clone();
+        assert!(today.contains(&name), "{today:?}");
+        assert!(!today.contains(&"Muster heute".to_owned()), "{today:?}");
     }
 
     #[test]

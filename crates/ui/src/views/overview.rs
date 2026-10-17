@@ -77,7 +77,8 @@ fn due_row(
     now: jiff::civil::DateTime,
     out: &mut Vec<Intent>,
 ) {
-    ui.horizontal(|ui| {
+    // Wraps in a narrow window rather than reach past it (and widen everything below).
+    ui.horizontal_wrapped(|ui| {
         if let EntityKey::Task(task) = item.entity {
             let mut done = false;
             let name = text::mark_done(&item.title);
@@ -125,11 +126,17 @@ fn due_row(
     });
 }
 
+/// The width that can be seen: what the layout offers can reach past the window (a long line
+/// above widens it), so it is measured against the visible part.
+fn room(ui: &egui::Ui) -> f32 {
+    ui.clip_rect().right().min(ui.max_rect().right()) - ui.cursor().left()
+}
+
 /// How many cards fit side by side (at least one).
 fn per_row(ui: &egui::Ui) -> usize {
     // The card's frame adds 2 × 12 inside and its line; then the gap.
     let card = CARD_WIDTH + 24.0 + 2.0 + ui.spacing().item_spacing.x;
-    ((ui.available_width() / card).floor() as usize).max(1)
+    ((room(ui) / card).floor() as usize).max(1)
 }
 
 /// One project card. `action`: an extra button below (for templates).
@@ -142,7 +149,10 @@ fn project_card(
     action: Option<(&str, Intent)>,
 ) {
     design::widgets::card(ui, |ui| {
-        ui.set_width(CARD_WIDTH);
+        // Narrower than a card: the card gives way (never cut off at the right).
+        ui.set_width(CARD_WIDTH.min(room(ui) - 26.0).max(160.0));
+        // Long titles and facts wrap inside the card instead of pushing it wider.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.vertical(|ui| {
             let mut line = Vec::new();
             if let Some(kind) = &card.kind {
@@ -168,10 +178,16 @@ fn project_card(
             {
                 ui.label(RichText::new(why).color(design::palette(ui).warning));
             }
-            if ui
-                .link(RichText::new(&card.title).text_style(design::subheading()))
-                .clicked()
-            {
+            // A link that wraps (egui's own link stays on one line).
+            let title =
+                design::subheading_text(ui, &card.title).color(ui.visuals().hyperlink_color);
+            let link = ui
+                .add(egui::Label::new(title).sense(egui::Sense::click()).wrap())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            link.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Link, true, &card.title)
+            });
+            if link.clicked() {
                 out.push(Intent::Go(View::Project(card.id)));
             }
             if card.classification >= Classification::VsNfd {

@@ -45,6 +45,17 @@ pub fn subheading() -> TextStyle {
 /// Puts the font and both themes in place before the first frame (the desktop and web apps,
 /// at start): egui loads the fonts at the beginning of the first pass, so the very first
 /// frame already shows Fira Sans and the theme.
+/// Text in the subheading style – plain strong text until the fonts are set up (the very
+/// first frame; egui stops on a style it does not know).
+pub fn subheading_text(ui: &egui::Ui, text: &str) -> egui::RichText {
+    let style = subheading();
+    if ui.style().text_styles.contains_key(&style) {
+        egui::RichText::new(text).text_style(style)
+    } else {
+        egui::RichText::new(text).strong()
+    }
+}
+
 pub fn install_at_start(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
     ctx.data_mut(|d| d.insert_temp(fonts_id(), 0_u64));

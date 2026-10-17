@@ -7923,3 +7923,150 @@ fn the_project_buttons_never_lie_over_its_title() {
     harness.run();
     assert_eq!(overlaps(&harness), (false, true));
 }
+
+/// Review 9f (F1): Enter on a button of the new dialog is a click of that button – on
+/// "Abbrechen", the segment or the calendar it creates nothing.
+#[test]
+fn enter_on_a_button_of_the_new_dialog_creates_nothing() {
+    for button in [text::t().cancel, text::t().kinds[0], text::t().pick_date] {
+        let mut harness = new_project_dialog();
+        type_into(&mut harness, text::t().title, "Übung", false);
+        harness.get_all_by_label(button).next().unwrap().focus();
+        harness.run();
+        harness.key_press(Key::Enter);
+        harness.run_steps(3);
+        assert!(projects(harness.state()).is_empty(), "Enter on {button}");
+    }
+}
+
+/// Review 9f (F2, F3): the field for a new person takes the cursor once; typing the title
+/// afterwards goes into the title; left empty it goes; Escape there drops only the person.
+#[test]
+fn the_new_person_field_does_not_take_over_the_form() {
+    let mut harness = new_project_dialog();
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    // Back to the title: typed there, Enter creates the project – no person "Titel".
+    type_into(&mut harness, text::t().title, "Titel", true);
+    let people = |h: &Harness<'_, PlnwrkApp>| {
+        h.state()
+            .doc()
+            .unwrap()
+            .session
+            .workspace()
+            .people()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert!(people(&harness).is_empty(), "{:?}", people(&harness));
+    assert!(projects(harness.state()).iter().any(|p| p.title == "Titel"));
+    // Escape while a person is being named: only the person goes.
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, "Übung", false);
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    harness.event(egui::Event::Text("Ann".to_owned()));
+    harness.run();
+    harness.key_press(Key::Escape);
+    harness.run();
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the dialog stays")
+    };
+    assert_eq!(form.title, "Übung");
+    assert!(form.new_person.is_none());
+}
+
+/// Review 9f (F4): a title too long is said at the field and "Anlegen" waits; a refusal while
+/// a dialog is open is said in the dialog – once – not behind it.
+#[test]
+fn refusals_are_said_in_the_dialog() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, &"x".repeat(201), false);
+    let said = text::title_too_long(plnwrk_core::text::TITLE_MAX);
+    assert!(harness.query_by_label(&said).is_some());
+    let create = harness.get_by_label(text::t().create);
+    assert!(egui_kittest::kittest::NodeT::accesskit_node(&create).is_disabled());
+    harness.state_mut().state.message = Some(crate::state::Message::error("Abgelehnt."));
+    harness.run();
+    assert_eq!(harness.query_all_by_label("Abgelehnt.").count(), 1);
+    // In the dialog: above its buttons' bottom, not in the bar under the ribbon.
+    assert!(harness.query_by_label(text::t().dismiss_message).is_none());
+}
+
+/// Review 9f (F5): "Aus Vorlage" decides "case" by the one rule – a template of kind "SKA"
+/// gives a case, with a time at its deadline, also without a reference typed.
+#[test]
+fn a_case_from_a_template_offers_a_time_without_a_reference() {
+    let mut harness = harness_with_sample();
+    let template = projects(harness.state())
+        .into_iter()
+        .find(|p| p.template)
+        .unwrap();
+    assert!(template.is_case());
+    harness
+        .state_mut()
+        .apply(crate::Intent::Open(crate::state::Dialog::FromTemplate(
+            crate::state::TemplateForm {
+                template: Some(template.id),
+                ..crate::state::TemplateForm::default()
+            },
+        )));
+    harness.run();
+    assert!(
+        harness
+            .query_by(|n| n.placeholder() == Some(text::t().time_hint))
+            .is_some()
+    );
+}
+
+/// Review 9f (gap): a wrong date keeps "Anlegen" greyed (not only said at the field).
+#[test]
+fn a_wrong_date_greys_create() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().due, "31.02.2026", false);
+    type_into(&mut harness, text::t().title, "Umzug", false);
+    let create = harness.get_by_label(text::t().create);
+    assert!(egui_kittest::kittest::NodeT::accesskit_node(&create).is_disabled());
+}
+
+/// Review 9f (K1, K2): another view clears the last message; cards never stick out at the
+/// right of a narrow window – and stand side by side where there is room.
+#[test]
+fn messages_go_with_the_view_and_cards_fit_the_window() {
+    let mut harness = harness_with_sample();
+    harness.state_mut().state.message = Some(crate::state::Message::error("Alt."));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::People));
+    harness.run();
+    assert!(harness.state().state.message.is_none());
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Overview));
+    harness.set_size(egui::vec2(1600.0, 900.0));
+    harness.run();
+    let card = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.get_all_by_label(title)
+            .map(|n| n.rect())
+            .find(|r| r.left() > 250.0)
+            .unwrap()
+    };
+    let first = card(&harness, "SKA 23/1234 Sirenenwarnung");
+    let second = card(&harness, "Digitalfunk Umrüstung Wachen");
+    assert!(
+        (first.top() - second.top()).abs() < 1.0,
+        "side by side when wide"
+    );
+    // Narrower than a card beside the sidebar: the card gives way.
+    harness.set_size(egui::vec2(480.0, 900.0));
+    harness.run();
+    for title in ["SKA 23/1234 Sirenenwarnung", "Digitalfunk Umrüstung Wachen"] {
+        assert!(
+            card(&harness, title).right() <= 480.0,
+            "{title}: {:?}",
+            card(&harness, title)
+        );
+    }
+}

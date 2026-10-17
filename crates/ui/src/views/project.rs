@@ -473,10 +473,9 @@ fn list(
                 );
                 let shows = ui.rect_contains_pointer(row_rect)
                     || state.selected == Some(task.id)
-                    || ui.memory(|m| {
-                        m.focused()
-                            .is_some_and(|f| ui.data(|d| d.get_temp::<TaskId>(f.with("plus-of"))) == Some(task.id))
-                    });
+                    || ui
+                        .memory(|m| m.focused())
+                        .is_some_and(|f| ui.data(|d| d.get_temp::<TaskId>(f.with("plus-of"))) == Some(task.id));
                 if shows {
                     let plus = icon_button(ui, Icon::Plus, text::t().add_subtask);
                     ui.data_mut(|d| d.insert_temp(plus.id.with("plus-of"), task.id));
