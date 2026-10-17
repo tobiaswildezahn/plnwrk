@@ -71,10 +71,9 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   **9a–9c gemergt** (#16, #17, #18). **9d gebaut** (Branch `phase-9d`: jede Meilenstein-Änderung
-   wird bestätigt – App, MCP `"confirmed": true`, CLI `--confirmed`; Ansicht Meilensteine mit
-   Zeitstrahl, Karten und abgeleiteter Ampel; angeheftete Meilenstein-Zeile im Zeitplan) – Review
-   steht aus. Danach **9e** (Board). Bekannt für 9f: Mit offenem
+   **9a–9d gemergt** (#16–#19). **9e gebaut** (Branch `phase-9e`: Board über die ganze Breite,
+   Karten mit Fristchip, Person, Priorität, einklappbaren Unteraufgaben; Filter; Linie beim
+   Ziehen; weiche Warnung bei offenen Vorgängern) – Review steht aus. Danach **9f**. Bekannt für 9f: Mit offenem
    Detailbereich rutschen „Bearbeiten/Archivieren“ über den Projekttitel; Eingabefelder noch
    flach; „Vorgang“ ohne Aktenzeichen bekommt noch keine Uhrzeit bei der Frist.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.

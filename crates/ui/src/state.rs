@@ -510,6 +510,8 @@ pub struct Forms {
     pub milestone_title: String,
     pub milestone_date: String,
     pub milestone_time: String,
+    /// A new card being typed at the top of a board column: its project, status and title.
+    pub board_new: Option<(plnwrk_core::ProjectId, plnwrk_core::TaskStatus, String)>,
     /// A milestone's date being changed on its card: the milestone, day and time as typed.
     pub milestone_edit: Option<(TaskId, String, String)>,
     pub comment: String,
@@ -545,6 +547,8 @@ pub struct State {
     pub theme: egui::ThemePreference,
     /// The field for a new task takes the cursor in the next frame.
     pub focus_new_task: bool,
+    /// The field of a new board card takes the focus in the next frame ("+" was chosen).
+    pub focus_board_new: bool,
     /// Files are uploaded and downloaded (the browser).
     pub browser: bool,
     /// Browser: recovery copies in the browser's storage (key and file), newest first.
@@ -571,6 +575,52 @@ pub struct State {
     pub folded: std::collections::BTreeSet<TaskId>,
     /// The schedule does not mark the critical path in red.
     pub hide_critical: bool,
+    /// What the board of each project shows (Phase 9e; per project, Tobi 2026-10-17).
+    pub board_filters: std::collections::BTreeMap<plnwrk_core::ProjectId, BoardFilter>,
+    /// Cards on the board with their subtasks folded away.
+    pub board_folded: std::collections::BTreeSet<TaskId>,
+}
+
+/// The filter above the board: who does it, only what is overdue, words in the title.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardFilter {
+    /// `None`: everyone; `Some(None)`: nobody in charge; `Some(Some(id))`: this person.
+    pub assignee: Option<Option<plnwrk_core::PersonId>>,
+    pub overdue: bool,
+    pub search: String,
+}
+
+impl BoardFilter {
+    /// Whether anything is filtered at all.
+    pub fn active(&self) -> bool {
+        self.assignee.is_some() || self.overdue || !self.search.trim().is_empty()
+    }
+
+    /// Whether the card stays in view.
+    pub fn keeps(&self, card: &plnwrk_engine::query::TaskCard) -> bool {
+        self.keeps_parts(
+            card.assignee.as_ref().map(|p| p.id),
+            card.overdue,
+            &card.title,
+        )
+    }
+
+    /// Whether a new card with this title (nobody in charge, no deadline) would be in view.
+    pub fn keeps_new(&self, title: &str) -> bool {
+        self.keeps_parts(None, false, title)
+    }
+
+    fn keeps_parts(
+        &self,
+        person: Option<plnwrk_core::PersonId>,
+        overdue: bool,
+        title: &str,
+    ) -> bool {
+        let words = self.search.trim().to_lowercase();
+        self.assignee.is_none_or(|wanted| wanted == person)
+            && (!self.overdue || overdue)
+            && (words.is_empty() || title.to_lowercase().contains(&words))
+    }
 }
 
 impl State {
@@ -581,6 +631,9 @@ impl State {
         self.selected = None;
         self.close_dialog();
         self.forms = Forms::default();
+        // Another file: its projects start unfiltered.
+        self.board_filters.clear();
+        self.board_folded.clear();
     }
 
     /// Shows a dialog.
@@ -618,6 +671,7 @@ impl State {
     pub fn clear(&mut self, clear: Clear) {
         match clear {
             Clear::NewTask => self.forms.new_task.clear(),
+            Clear::BoardNew => self.forms.board_new = None,
             Clear::NewSubtask => self.forms.new_subtask = None,
             Clear::Inline => self.forms.inline = None,
             Clear::DetailSubtask => self.forms.detail_subtask.clear(),

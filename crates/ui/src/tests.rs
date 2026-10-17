@@ -6048,8 +6048,9 @@ fn dragging_past_a_milestone_says_so_while_dragging() {
 /// Typed input that is not stored yet must count as unsaved (and be taken on saving and
 /// closing), or be named here with the reason it does not – a new input field cannot be
 /// forgotten (follow-up review 9d: the fourth field found missing by hand).
-const NOT_PENDING: [(&str, &str); 8] = [
+const NOT_PENDING: [(&str, &str); 9] = [
     ("new_task", "nothing exists yet: Enter creates it"),
+    ("board_new", "nothing exists yet: Enter creates it"),
     ("new_subtask", "nothing exists yet: Enter creates it"),
     ("detail_subtask", "nothing exists yet: Enter creates it"),
     (
@@ -6377,4 +6378,726 @@ fn a_date_typed_on_a_milestone_card_counts_as_unsaved() {
     harness.run();
     type_into(&mut harness, text::t().milestone_date, "20.12.2026", false);
     assert!(harness.state().has_unsaved_changes());
+}
+
+/// A board for Phase 9e: Anna Berg; cards due today, in 2, 3, 4 and 20 days, 3 days ago (Anna,
+/// high priority), 5 days ago but done; one with a very long title; "Nachher" waiting for
+/// "Vorher". Shown in the tab Board.
+fn board_9e() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Wache");
+    // Room for all five columns side by side.
+    harness.set_size(egui::vec2(1800.0, 900.0));
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "person.create",
+        serde_json::json!({"name": "Anna Berg"}),
+    ));
+    harness.run();
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .next()
+        .unwrap()
+        .id
+        .to_string();
+    let long = "Sehr lange Aufgabe mit einem Titel, der auf einer schmalen Karte nicht in zwei Zeilen passt, weil er so viele Wörter hat";
+    let cards = [
+        ("Heute", Some(0), serde_json::json!({})),
+        ("Bald", Some(2), serde_json::json!({})),
+        ("Grenze", Some(3), serde_json::json!({})),
+        ("Dahinter", Some(4), serde_json::json!({})),
+        ("Später", Some(20), serde_json::json!({})),
+        (
+            "Alt",
+            Some(-3),
+            serde_json::json!({"assignee": anna, "priority": "high"}),
+        ),
+        (
+            "Erledigt alt",
+            Some(-5),
+            serde_json::json!({"status": "done"}),
+        ),
+        (long, None, serde_json::json!({})),
+        ("Vorher", None, serde_json::json!({})),
+        ("Nachher", None, serde_json::json!({})),
+    ];
+    for (title, days, extra) in cards {
+        let mut params = serde_json::json!({"project": project, "title": title});
+        if let Some(days) = days {
+            params["due"] = serde_json::json!(day_from_today(&harness, days));
+        }
+        if let (Some(params), Some(extra)) = (params.as_object_mut(), extra.as_object()) {
+            params.extend(extra.clone());
+        }
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("task.create", params));
+    }
+    harness.run();
+    let vorher = task_named(harness.state(), "Vorher").unwrap().id;
+    let nachher = task_named(harness.state(), "Nachher").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": vorher.to_string(), "to": nachher.to_string()}),
+    ));
+    harness.run();
+    click(&mut harness, text::t().board);
+    harness
+}
+
+/// The heading of a board column ("Offen (7)"): a plain label, so its text is the value; the
+/// first of the nodes that carry it.
+fn column_heading_node<'a>(
+    harness: &'a Harness<'_, PlnwrkApp>,
+    status: TaskStatus,
+) -> egui_kittest::Node<'a> {
+    let start = format!("{} (", text::task_status(status));
+    harness
+        .query_all_by(move |n| n.value().is_some_and(|l| l.starts_with(&start)))
+        .next()
+        .expect("a column heading")
+}
+
+#[test]
+fn board_cards_say_how_their_deadline_stands() {
+    let harness = board_9e();
+    let now = harness.state().doc().unwrap().session.clock().now_local();
+    let day = |days: i64| now.date() + jiff::Span::new().days(days);
+    for (days, expected) in [
+        (0, text::deadline_state(day(0), None, now).0),
+        (2, text::deadline_state(day(2), None, now).0),
+        // Soon up to 3 days ahead; the day after, the plain date.
+        (3, text::deadline_state(day(3), None, now).0),
+        (4, crate::dates::format_short(day(4))),
+        (20, crate::dates::format_short(day(20))),
+        (-3, text::deadline_state(day(-3), None, now).0),
+        // Done: the date, plain – not "overdue".
+        (-5, crate::dates::format(day(-5))),
+    ] {
+        assert!(
+            harness.query_by_label(&expected).is_some(),
+            "{days}: {expected}"
+        );
+    }
+    let done_late = text::deadline_state(day(-5), None, now).0;
+    assert!(harness.query_by_label(&done_late).is_none(), "{done_late}");
+}
+
+#[test]
+fn a_board_card_names_its_person_and_priority() {
+    let harness = board_9e();
+    assert!(harness.query_by_label("Anna Berg").is_some());
+    assert!(
+        harness
+            .query_by_label(text::priority(plnwrk_core::Priority::High))
+            .is_some()
+    );
+}
+
+#[test]
+fn a_long_title_takes_two_lines_and_is_read_whole() {
+    let harness = board_9e();
+    let long = "Sehr lange Aufgabe mit einem Titel, der auf einer schmalen Karte nicht in zwei Zeilen passt, weil er so viele Wörter hat";
+    let title = harness.get_by_label(long).rect();
+    let line = harness.get_by_label("Heute").rect().height();
+    assert!(
+        title.height() <= 2.0 * line + 2.0,
+        "{} for a line of {line}",
+        title.height()
+    );
+    assert!(title.height() > 1.5 * line, "it wraps: {}", title.height());
+}
+
+/// The columns share the window's width; narrower than 220 px each, the board scrolls sideways.
+#[test]
+fn board_columns_fill_the_window_and_scroll_when_narrow() {
+    let mut harness = board_9e();
+    let heading = |h: &Harness<'_, PlnwrkApp>, status| column_heading_node(h, status).rect();
+    let gap = |h: &Harness<'_, PlnwrkApp>| {
+        heading(h, TaskStatus::InProgress).left() - heading(h, TaskStatus::Todo).left()
+    };
+    assert!(gap(&harness) > 228.0 + 20.0, "wide: {}", gap(&harness));
+    harness.set_size(egui::vec2(900.0, 900.0));
+    harness.run();
+    assert!(
+        (gap(&harness) - 228.0).abs() < 1.0,
+        "narrow: {}",
+        gap(&harness)
+    );
+    assert!(
+        heading(&harness, TaskStatus::Done).left() > 900.0,
+        "the last column lies beyond the window"
+    );
+}
+
+#[test]
+fn the_plus_of_a_column_adds_a_task_there() {
+    let mut harness = board_9e();
+    click(&mut harness, &text::new_in_column(TaskStatus::Blocked));
+    type_into(&mut harness, text::t().new_task_hint, "Funk prüfen", true);
+    let created = task_named(harness.state(), "Funk prüfen").unwrap();
+    assert_eq!(created.status, TaskStatus::Blocked);
+    assert!(harness.state().state.forms.board_new.is_none());
+    // Escape drops what was typed; nothing is created.
+    click(&mut harness, &text::new_in_column(TaskStatus::Review));
+    type_into(&mut harness, text::t().new_task_hint, "Doch nicht", false);
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(harness.state().state.forms.board_new.is_none());
+    assert!(task_named(harness.state(), "Doch nicht").is_none());
+}
+
+#[test]
+fn the_board_filter_keeps_what_was_asked_for() {
+    let mut harness = board_9e();
+    let todo = |h: &Harness<'_, PlnwrkApp>| {
+        let node = column_heading_node(h, TaskStatus::Todo);
+        egui_kittest::kittest::NodeT::accesskit_node(&node)
+            .value()
+            .unwrap_or_default()
+    };
+    // Nine open cards (one is done).
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 9, 9));
+    click(&mut harness, text::t().board_filter_overdue);
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
+    assert!(harness.query_by_label("Alt").is_some());
+    assert!(harness.query_by_label("Heute").is_none());
+    click(&mut harness, text::t().board_filter_reset);
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 9, 9));
+    // Words in the title, any case.
+    type_into(&mut harness, text::t().board_search, "VOR", false);
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
+    assert!(harness.query_by_label("Vorher").is_some());
+    click(&mut harness, text::t().board_filter_reset);
+    // A person; nobody in charge.
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .next()
+        .unwrap()
+        .id;
+    let project = projects(harness.state()).first().unwrap().id;
+    harness
+        .state_mut()
+        .state
+        .board_filters
+        .entry(project)
+        .or_default()
+        .assignee = Some(Some(anna));
+    harness.run();
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
+    harness
+        .state_mut()
+        .state
+        .board_filters
+        .entry(project)
+        .or_default()
+        .assignee = Some(None);
+    harness.run();
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 8, 9));
+}
+
+#[test]
+fn folding_a_card_hides_its_subtasks_and_back() {
+    let mut harness = board_with_subtasks();
+    let ticks = |h: &Harness<'_, PlnwrkApp>| {
+        h.query_all_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox && n.label().as_deref() == Some("Bücher")
+        })
+        .count()
+    };
+    assert_eq!(ticks(&harness), 1);
+    click(&mut harness, text::t().fold_subtasks);
+    assert_eq!(ticks(&harness), 0);
+    // The bar still says how far it is.
+    assert!(harness.query_by_label("0/2").is_some());
+    // With the keyboard too.
+    harness.get_by_label(text::t().unfold_subtasks).focus();
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert_eq!(ticks(&harness), 1);
+}
+
+#[test]
+fn dragging_to_done_says_what_it_still_waits_for() {
+    let mut harness = board_9e();
+    harness.get_by_label("Nachher").scroll_to_me();
+    harness.run();
+    let card = harness.get_by_label("Nachher").rect().center();
+    // Beside the card, in the column "Erledigt" (short: one card), far below its card.
+    let done = egui::pos2(
+        column_heading_node(&harness, TaskStatus::Done)
+            .rect()
+            .center()
+            .x,
+        card.y,
+    );
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(done);
+    harness.run();
+    assert!(
+        harness.query_by_label(&text::still_waits_for(1)).is_some(),
+        "said while dragging"
+    );
+    harness.drop_at(done);
+    harness.run();
+    // Said, not stopped.
+    assert_eq!(
+        task_named(harness.state(), "Nachher").unwrap().status,
+        TaskStatus::Done
+    );
+    assert!(harness.query_by_label(&text::still_waits_for(1)).is_none());
+}
+
+/// Each project keeps its own board filter (Tobi 2026-10-17): filtering one leaves the other
+/// as it was; back in the first, its filter is still there.
+#[test]
+fn each_project_keeps_its_own_board_filter() {
+    let mut harness = board_9e();
+    let first = projects(harness.state()).first().unwrap().id;
+    click(&mut harness, text::t().board_filter_overdue);
+    let filtered = text::column_heading(TaskStatus::Todo, 1, 9);
+    assert!(harness.query_by_label(&filtered).is_some());
+    // A second project with one open task.
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Zweites"}),
+    ));
+    harness.run();
+    let second = projects(harness.state())
+        .into_iter()
+        .find(|p| p.title == "Zweites")
+        .unwrap()
+        .id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": second.to_string(), "title": "Eins"}),
+    ));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Project(second)));
+    harness.run();
+    click(&mut harness, text::t().board);
+    assert!(
+        harness
+            .query_by_label(&text::column_heading(TaskStatus::Todo, 1, 1))
+            .is_some(),
+        "unfiltered there"
+    );
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Project(first)));
+    harness.run();
+    click(&mut harness, text::t().board);
+    assert!(harness.query_by_label(&filtered).is_some(), "kept here");
+}
+
+/// Types with the keyboard into whatever has the focus (no `focus()` first: the app must have
+/// put it there), then Enter.
+fn type_where_the_focus_is(harness: &mut Harness<'_, PlnwrkApp>, text: &str) {
+    harness.event(egui::Event::Text(text.to_owned()));
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+}
+
+/// Review 9e (F1): "+" puts the cursor into the new field every time – twice in one column,
+/// and after another column's "+".
+#[test]
+fn the_plus_of_a_column_puts_the_cursor_there_every_time() {
+    let mut harness = board_9e();
+    for (status, title) in [
+        (TaskStatus::Blocked, "Eins"),
+        (TaskStatus::Blocked, "Zwei"),
+        (TaskStatus::Review, "Drei"),
+        (TaskStatus::Blocked, "Vier"),
+        (TaskStatus::Review, "Fünf"),
+    ] {
+        click(&mut harness, &text::new_in_column(status));
+        type_where_the_focus_is(&mut harness, title);
+        let created = task_named(harness.state(), title);
+        assert_eq!(created.map(|t| t.status), Some(status), "{title}");
+    }
+}
+
+/// Review 9e (F2): a title half typed with "+" belongs to its project: not shown in another,
+/// still there on coming back, and created in its own project.
+#[test]
+fn a_half_typed_board_card_stays_with_its_project() {
+    let mut harness = board_9e();
+    let first = projects(harness.state()).first().unwrap().id;
+    click(&mut harness, &text::new_in_column(TaskStatus::Blocked));
+    harness.event(egui::Event::Text("Funk".to_owned()));
+    harness.run();
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Zweites"}),
+    ));
+    harness.run();
+    let second = projects(harness.state())
+        .into_iter()
+        .find(|p| p.title == "Zweites")
+        .unwrap()
+        .id;
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Project(second)));
+    harness.run();
+    click(&mut harness, text::t().board);
+    let typed = |h: &Harness<'_, PlnwrkApp>| {
+        h.query_all_by(|n| n.value().as_deref() == Some("Funk"))
+            .count()
+    };
+    assert_eq!(typed(&harness), 0, "not in the other project");
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Project(first)));
+    harness.run();
+    click(&mut harness, text::t().board);
+    assert!(typed(&harness) > 0, "kept in its own");
+    harness
+        .query_all_by(|n| n.value().as_deref() == Some("Funk"))
+        .next()
+        .unwrap()
+        .focus();
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Funk").map(|t| t.project),
+        Some(first)
+    );
+}
+
+/// Review 9e (F3): the person filtered for stays named in the choice when nothing is left to
+/// them; a person gone from the file takes the filter along.
+#[test]
+fn the_person_filtered_for_stays_named_or_the_filter_goes() {
+    let mut harness = board_9e();
+    let project = projects(harness.state()).first().unwrap().id;
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let anna = ws.people().next().unwrap().id;
+    harness
+        .state_mut()
+        .state
+        .board_filters
+        .entry(project)
+        .or_default()
+        .assignee = Some(Some(anna));
+    harness.run();
+    let alt = task_named(harness.state(), "Alt").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": alt.to_string(), "assignee": null}),
+    ));
+    harness.run();
+    // The choice shows her (the card no longer does).
+    let named = harness
+        .query_all_by(|n| {
+            n.label().as_deref() == Some("Anna Berg") || n.value().as_deref() == Some("Anna Berg")
+        })
+        .count();
+    assert!(named > 0, "still named");
+    assert!(
+        harness
+            .query_by_label(&text::column_heading(TaskStatus::Todo, 0, 9))
+            .is_some()
+    );
+    // Someone new, filtered for, then taken back (undo): the filter goes with them.
+    harness.state_mut().apply(crate::Intent::run(
+        "person.create",
+        serde_json::json!({"name": "Bert Kaya"}),
+    ));
+    harness.run();
+    let bert = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .find(|p| p.name == "Bert Kaya")
+        .unwrap()
+        .id;
+    harness
+        .state_mut()
+        .state
+        .board_filters
+        .entry(project)
+        .or_default()
+        .assignee = Some(Some(bert));
+    harness.run();
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    harness.run();
+    harness.run();
+    assert!(
+        harness
+            .query_by_label(&text::column_heading(TaskStatus::Todo, 9, 9))
+            .is_some()
+    );
+}
+
+/// Review 9e (F4): the hint about open work shows at the pointer – also with the board
+/// scrolled far down.
+#[test]
+fn the_hint_about_open_work_shows_at_the_pointer() {
+    let mut harness = board_9e();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    for n in 0..25 {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": format!("Füller {n}")}),
+        ));
+    }
+    harness.run();
+    // "Nachher" waits for "Vorher"; moved to the very end of the long column.
+    let nachher = task_named(harness.state(), "Nachher").unwrap().id;
+    let last = task_named(harness.state(), "Füller 24").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.move",
+        serde_json::json!({"task": nachher.to_string(), "after": last.to_string()}),
+    ));
+    harness.set_size(egui::vec2(1800.0, 600.0));
+    harness.run();
+    harness.get_by_label("Nachher").scroll_to_me();
+    harness.run();
+    let card = harness.get_by_label("Nachher").rect().center();
+    let done = egui::pos2(
+        column_heading_node(&harness, TaskStatus::Done)
+            .rect()
+            .center()
+            .x,
+        card.y,
+    );
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(done);
+    harness.run();
+    let hint = harness.get_by_label(&text::still_waits_for(1)).rect();
+    assert!(
+        hint.top() >= 0.0 && hint.bottom() <= 600.0,
+        "in view: {hint:?}"
+    );
+    harness.drop_at(done);
+    harness.run();
+}
+
+/// Review 9e (M6, M7): no hint where nothing waits – the predecessor done, or the card itself
+/// done already.
+#[test]
+fn no_hint_when_nothing_open_is_waited_for() {
+    let mut harness = board_9e();
+    let held = |h: &mut Harness<'_, PlnwrkApp>, title: &str| -> bool {
+        h.get_by_label(title).scroll_to_me();
+        h.run();
+        let card = h.get_by_label(title).rect().center();
+        // In the column "Erledigt", below its cards (it reaches down to the bottom).
+        let done = egui::pos2(
+            column_heading_node(h, TaskStatus::Done).rect().center().x,
+            (card.y + 90.0).min(820.0),
+        );
+        h.drag_at(card);
+        h.run();
+        h.hover_at(card + egui::vec2(10.0, 10.0));
+        h.run();
+        h.hover_at(done);
+        h.run();
+        let shown = h.query_by_label(&text::still_waits_for(1)).is_some();
+        h.drop_at(card);
+        h.run();
+        shown
+    };
+    // The case itself: an open card waiting for open work is warned about (so the two cases
+    // below are checked where the hint would show).
+    assert!(held(&mut harness, "Nachher"), "open, waiting for open work");
+    // The card done already, waiting for open work: nothing to warn about.
+    let vorher = task_named(harness.state(), "Vorher").unwrap().id;
+    let finished = task_named(harness.state(), "Erledigt alt").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": vorher.to_string(), "to": finished.to_string()}),
+    ));
+    harness.run();
+    assert!(!held(&mut harness, "Erledigt alt"), "done already");
+    // The predecessor done: nothing open.
+    harness.state_mut().apply(crate::Intent::run(
+        "task.set_status",
+        serde_json::json!({"task": vorher.to_string(), "status": "done"}),
+    ));
+    harness.run();
+    assert!(!held(&mut harness, "Nachher"), "predecessor done");
+}
+
+/// Review 9e (M4): with a filter, where a card lands is counted among the cards in view.
+#[test]
+fn with_a_filter_a_card_lands_among_the_cards_in_view() {
+    let mut harness = board_9e();
+    type_into(&mut harness, text::t().board_search, "a", false);
+    // Moved one place up among the cards in view – above "Dahinter", below "Bald": counting
+    // the hidden ones too would put it elsewhere (counter-check). (Let go over its own place,
+    // egui hands the drop to the held card, not the column: nothing to prove there.)
+    let dahinter = harness.get_by_label("Dahinter").rect();
+    let at = harness.get_by_label("Alt").rect().center();
+    drag(
+        &mut harness,
+        at,
+        egui::pos2(at.x, dahinter.center().y - 4.0) - at,
+    );
+    let order: Vec<String> = query_titles_in_todo(&harness);
+    let bald = order.iter().position(|t| t == "Bald").unwrap();
+    let alt = order.iter().position(|t| t == "Alt").unwrap();
+    let dahinter = order.iter().position(|t| t == "Dahinter").unwrap();
+    assert!(bald < alt && alt < dahinter, "{order:?}");
+}
+
+/// Review 9e (M10, M11): a chosen card is read as selected; the flag only from "hoch", a
+/// critical one says so in words.
+#[test]
+fn a_board_card_is_read_as_chosen_and_its_priority_in_words() {
+    let mut harness = board_9e();
+    let alt = task_named(harness.state(), "Alt").unwrap().id;
+    harness.state_mut().apply(crate::Intent::Select(Some(alt)));
+    harness.run();
+    let node = harness.get_by(|n| n.label().as_deref() == Some("Alt"));
+    // egui says "selected" as toggled.
+    assert_eq!(
+        egui_kittest::kittest::NodeT::accesskit_node(&node).toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    assert!(
+        harness
+            .query_by_label(text::priority(plnwrk_core::Priority::Normal))
+            .is_none()
+    );
+    let heute = task_named(harness.state(), "Heute").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": heute.to_string(), "priority": "critical"}),
+    ));
+    harness.run();
+    // In words: a chip wider than the 16 px flag of "hoch".
+    let critical = harness
+        .get_by_label(text::priority(plnwrk_core::Priority::Critical))
+        .rect();
+    assert!(critical.width() > 24.0, "{critical:?}");
+}
+
+/// Review 9e: a card made with "+" that the filter hides is said, not lost from sight.
+#[test]
+fn a_new_card_hidden_by_the_filter_is_said() {
+    let mut harness = board_9e();
+    click(&mut harness, text::t().board_filter_overdue);
+    click(&mut harness, &text::new_in_column(TaskStatus::Todo));
+    type_where_the_focus_is(&mut harness, "Neu");
+    assert!(task_named(harness.state(), "Neu").is_some());
+    let said = harness.state().state.message.clone().map(|m| m.text);
+    assert_eq!(said, Some(text::created_but_filtered("Neu")));
+}
+
+/// The titles of the open top-level tasks of the first project, in their order.
+fn query_titles_in_todo(harness: &Harness<'_, PlnwrkApp>) -> Vec<String> {
+    let doc = harness.state().doc().unwrap();
+    let project = projects(harness.state()).first().unwrap().id;
+    let now = doc.session.clock().now_local();
+    plnwrk_engine::query::board(doc.session.workspace(), project, now)
+        .unwrap()
+        .columns
+        .into_iter()
+        .find(|c| c.status == TaskStatus::Todo)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .map(|c| c.title)
+        .collect()
+}
+
+/// Nachreview 9e (E1): a "+" card that is refused (title too long) is not said as created –
+/// the reason stays in view.
+#[test]
+fn a_refused_new_card_is_not_said_as_created() {
+    let mut harness = board_9e();
+    click(&mut harness, text::t().board_filter_overdue);
+    click(&mut harness, &text::new_in_column(TaskStatus::Todo));
+    let long = "x".repeat(201);
+    type_where_the_focus_is(&mut harness, &long);
+    assert!(task_named(harness.state(), &long).is_none());
+    let said = harness.state().state.message.clone();
+    assert!(said.as_ref().is_some_and(|m| m.error), "{said:?}");
+}
+
+/// Nachreview 9e: a new card in view is not said to be hidden.
+#[test]
+fn a_new_card_in_view_is_not_said_to_be_hidden() {
+    let mut harness = board_9e();
+    click(&mut harness, &text::new_in_column(TaskStatus::Todo));
+    type_where_the_focus_is(&mut harness, "Sichtbar");
+    assert!(task_named(harness.state(), "Sichtbar").is_some());
+    assert_ne!(
+        harness.state().state.message.clone().map(|m| m.text),
+        Some(text::created_but_filtered("Sichtbar"))
+    );
+}
+
+/// Nachreview 9e (E2): the hint sits at the pointer, below the card held there – also a tall
+/// one with subtasks (egui paints the held card over it).
+#[test]
+fn the_hint_sits_below_a_tall_held_card() {
+    let mut harness = board_9e();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let nachher = task_named(harness.state(), "Nachher")
+        .unwrap()
+        .id
+        .to_string();
+    for title in ["Teil 1", "Teil 2", "Teil 3"] {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "parent": nachher}),
+        ));
+    }
+    harness.run();
+    harness.get_by_label("Nachher").scroll_to_me();
+    harness.run();
+    let card = harness.get_by_label("Nachher").rect().center();
+    // From the title down to the last subtask: less than the whole card.
+    let tall = harness.get_by_label("Teil 3").rect().bottom()
+        - harness.get_by_label("Nachher").rect().top();
+    let done = egui::pos2(
+        column_heading_node(&harness, TaskStatus::Done)
+            .rect()
+            .center()
+            .x,
+        card.y.min(700.0),
+    );
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(done);
+    harness.run();
+    let hint = harness.get_by_label(&text::still_waits_for(1)).rect();
+    // Below the held card (its half below the pointer), and close by.
+    assert!(
+        hint.top() >= done.y + tall / 2.0,
+        "{hint:?} at {done:?}, card {tall}"
+    );
+    assert!(hint.top() <= done.y + 400.0, "{hint:?} at {done:?}");
+    assert!((hint.left() - done.x).abs() < 40.0, "{hint:?} at {done:?}");
+    harness.drop_at(done);
+    harness.run();
 }
