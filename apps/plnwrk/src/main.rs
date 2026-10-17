@@ -1,6 +1,10 @@
 //! plnwrk desktop app: opens the window, provides the system file dialogs and hands everything
 //! to `plnwrk_ui`. A file given on the command line is opened right away.
 
+// A window program on Windows: no console window next to it (closing that would end plnwrk
+// and lose what is typed).
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -51,6 +55,11 @@ fn main() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(plnwrk_ui::APP_NAME)
+            .with_icon(std::sync::Arc::new(eframe::egui::IconData {
+                rgba: include_bytes!("../assets/icon-128.rgba").to_vec(),
+                width: 128,
+                height: 128,
+            }))
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([720.0, 480.0]),
         event_loop_builder: Some(Box::new(|builder| {
