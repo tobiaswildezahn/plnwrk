@@ -5930,3 +5930,97 @@ fn saving_waits_for_the_answer_about_a_typed_milestone_date() {
     click(&mut harness, text::t().change_button);
     assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-20");
 }
+
+/// One milestone "Abnahme" in 10 days, waiting for "Vor" (due in 8 days).
+fn milestone_waiting_for_vor() -> (Harness<'static, PlnwrkApp>, TaskId) {
+    let mut harness = one_milestone();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let due = day_from_today(&harness, 8);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Vor", "due": due}),
+    ));
+    harness.run();
+    let vor = task_named(harness.state(), "Vor").unwrap().id;
+    let abnahme = task_named(harness.state(), "Abnahme").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": vor.to_string(), "to": abnahme.to_string()}),
+    ));
+    harness.run();
+    (harness, vor)
+}
+
+/// Phase 9d (Tobi: a hint when moving): moving what a milestone waits for past it is done –
+/// the milestone stays – and says so; up to the milestone's own day it says nothing.
+#[test]
+fn moving_past_a_milestone_says_so() {
+    let (mut harness, vor) = milestone_waiting_for_vor();
+    let overtaken = text::overtakes(&["Abnahme".to_owned()]);
+    let message = |h: &Harness<'_, PlnwrkApp>| h.state().state.message.clone().map(|m| m.text);
+    let to = |h: &Harness<'_, PlnwrkApp>, days| {
+        day_from_today(h, days)
+            .parse::<jiff::civil::Date>()
+            .unwrap()
+    };
+    // To the milestone's day: allowed (it may fall on the day its predecessor ends).
+    let same = to(&harness, 10);
+    harness.state_mut().apply(crate::Intent::Reschedule {
+        task: vor,
+        start: None,
+        due: Some(same),
+        due_time: None,
+    });
+    harness.run();
+    assert!(!asking(&harness), "the milestone itself does not change");
+    assert!(
+        message(&harness).is_none_or(|m| !m.contains(&overtaken)),
+        "{:?}",
+        message(&harness)
+    );
+    // One day further: done, and said.
+    let past = to(&harness, 11);
+    harness.state_mut().apply(crate::Intent::Reschedule {
+        task: vor,
+        start: None,
+        due: Some(past),
+        due_time: None,
+    });
+    harness.run();
+    assert_eq!(task_named(harness.state(), "Vor").unwrap().due, Some(past));
+    let said = message(&harness).unwrap_or_default();
+    assert!(said.contains(&overtaken), "{said}");
+    assert!(
+        harness
+            .state()
+            .state
+            .message
+            .as_ref()
+            .is_some_and(|m| m.error)
+    );
+}
+
+/// The same while dragging in the schedule: the bar's spoken name (and the preview) say it.
+#[test]
+fn dragging_past_a_milestone_says_so_while_dragging() {
+    let (mut harness, _) = milestone_waiting_for_vor();
+    click(&mut harness, text::t().schedule_tab);
+    let overtaken = text::overtakes(&["Abnahme".to_owned()]);
+    let from = bar(&harness, "Vor").center();
+    harness.hover_at(from);
+    harness.run_steps(2);
+    harness.drag_at(from);
+    harness.run_steps(2);
+    // Five days later at the level "Woche" (22 px a day).
+    for step in 1..=5 {
+        harness.hover_at(from + egui::vec2(22.0 * step as f32, 0.0));
+        harness.run_steps(2);
+    }
+    let node = harness.get_by(|n| n.label().is_some_and(|l| l.starts_with("Vor: ")));
+    let spoken = egui_kittest::kittest::NodeT::accesskit_node(&node)
+        .label()
+        .unwrap_or_default();
+    assert!(spoken.contains(&overtaken), "{spoken}");
+    harness.drop_at(from + egui::vec2(110.0, 0.0));
+    harness.run_steps(2);
+}

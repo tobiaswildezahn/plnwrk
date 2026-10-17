@@ -1075,3 +1075,44 @@ fn other_tasks_need_no_confirmation() {
     assert!(!error, "{answer}");
     assert!(!answer.to_string().contains("milestone_changes"));
 }
+
+/// Phase 9d (Tobi: a hint when moving): new dates that put a task after a milestone waiting for
+/// it are done – the milestone stays – and the answer names the milestone.
+#[test]
+fn moving_past_a_milestone_is_named_in_the_answer() {
+    let (path, _, _) = sample("overtaken");
+    let ws = open(&path).workspace().clone();
+    let find = |title: &str| ws.tasks().find(|t| t.title == title).unwrap().clone();
+    let (install, milestone) = (find("Einbau Wache 11"), find("Inbetriebnahme"));
+    let (answer, error) = tool(
+        "run_command",
+        json!({"file": s(&path), "command": "dependency.add",
+               "params": {"from": install.id.to_string(), "to": milestone.id.to_string()}}),
+    );
+    assert!(!error, "{answer}");
+    // Ending on 20.11.: well before the milestone (15.12.) – nothing to say.
+    let (answer, error) = tool(
+        "move_task",
+        json!({"file": s(&path), "task": install.id.to_string(), "days": 7}),
+    );
+    assert!(!error, "{answer}");
+    assert!(
+        !answer.to_string().contains("milestones_overtaken"),
+        "{answer}"
+    );
+    // Another 30 days: it ends after the milestone, which stays.
+    let (answer, error) = tool(
+        "move_task",
+        json!({"file": s(&path), "task": install.id.to_string(), "days": 30}),
+    );
+    assert!(!error, "{answer}");
+    let text = answer.to_string();
+    assert!(
+        text.contains("milestones_overtaken") && text.contains("Inbetriebnahme"),
+        "{text}"
+    );
+    assert_eq!(
+        open(&path).workspace().task(milestone.id).unwrap().due,
+        milestone.due
+    );
+}

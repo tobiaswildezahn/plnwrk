@@ -691,23 +691,9 @@ impl PlnwrkApp {
                 self.run(command, &params, then, clear);
             }
             Intent::Confirmed(intent) => {
-                // New dates said yes to: what moved along is said too, as without the question.
-                let along = match intent.as_ref() {
-                    Intent::Run {
-                        command: "task.reschedule",
-                        params,
-                        ..
-                    } => along_of(params),
-                    _ => 0,
-                };
-                let steps = |app: &Self| app.doc.as_ref().map_or(0, |d| d.session.log().len());
-                let before = steps(self);
                 self.confirmed = true;
                 self.apply(*intent);
                 self.confirmed = false;
-                if along > 0 && steps(self) > before {
-                    self.state.message = Some(Message::info(text::moved_along(along)));
-                }
             }
             Intent::DeclineMilestone => {
                 self.state.close_dialog();
@@ -876,6 +862,21 @@ impl PlnwrkApp {
                 return false;
             }
         }
+        // New dates: what moves along and which milestones they overtake, said once it is done
+        // (read before, from the dates as they are).
+        let news = (command == "task.reschedule").then(|| {
+            let along = along_of(params);
+            let overtaken: Vec<String> = plnwrk_schedule::overtaken_by(
+                doc.session.workspace(),
+                params,
+                plnwrk_schedule::Calendar::standard(),
+            )
+            .into_iter()
+            .filter_map(|id| doc.session.workspace().task(id))
+            .map(|t| t.title.clone())
+            .collect();
+            (along, overtaken)
+        });
         match doc.session.run(command, params, Origin::User) {
             Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
                 // Last line for a way not foreseen above: taken back at once, and the file can
@@ -887,7 +888,21 @@ impl PlnwrkApp {
                 false
             }
             Ok(outcome) => {
-                self.state.message = None;
+                self.state.message = match news {
+                    Some((along, overtaken)) if !overtaken.is_empty() => {
+                        let said = if along > 0 {
+                            format!("{} ", text::moved_along(along))
+                        } else {
+                            String::new()
+                        };
+                        Some(Message::error(format!(
+                            "{said}⚠ {}",
+                            text::overtakes(&overtaken)
+                        )))
+                    }
+                    Some((along, _)) if along > 0 => Some(Message::info(text::moved_along(along))),
+                    _ => None,
+                };
                 if let (Then::ShowProject, Some(EntityKey::Project(id))) =
                     (then, outcome.created.first())
                 {
@@ -945,11 +960,8 @@ impl PlnwrkApp {
             return false;
         }
         let params = reschedule.params(due_time);
-        let taken = self.run("task.reschedule", &params, Then::Nothing, None);
-        if taken && along > 0 {
-            self.state.message = Some(Message::info(text::moved_along(along)));
-        }
-        taken
+        // What moved along (and what it overtook) is said by `run`.
+        self.run("task.reschedule", &params, Then::Nothing, None)
     }
 
     /// Saves the schedule of `project` as a table. Classified content carries the marking;

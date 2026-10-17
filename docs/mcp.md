@@ -26,6 +26,9 @@ lesen und ändern, etwa so:
   erst nach deinem Ja mit `"confirmed": true`; die Antwort nennt dann unter
   `milestone_changes`, was sich geändert hat. Einen Meilenstein anlegen fragt nicht nach,
   Rückgängig auch nicht. In der App fragt dieselbe Regel mit einem Dialog nach.
+- **Meilensteine rutschen nie mit:** Läge nach neuen Terminen eine Aufgabe hinter einem
+  Meilenstein, der auf sie wartet, nennt die Antwort ihn unter `milestones_overtaken`; Claude
+  sagt dir das.
 - **Verschieben um Tage:** Das Werkzeug `move_task` schiebt eine Aufgabe um N Tage („um eine
   Woche“ = 7), Uhrzeit der Frist bleibt.
 - **Antworten** nennen, was sich geändert hat (Aufgabe, neue Termine, mitgerutschte

@@ -103,6 +103,10 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
     oder Frist. Beim Ziehen zeigt ein Hinweis die neuen Tage und wie viele Aufgaben mitrutschen.
     Was wartet, rutscht so weit wie nötig mit (jeder Tag zählt, auch Wochenende und Feiertag).
     Rückgängig (⌘Z / Strg+Z) nimmt alles in einem Schritt zurück.
+    Meilensteine rutschen nie mit. Läge danach eine Aufgabe hinter einem Meilenstein, der auf sie
+    wartet, sagt plnwrk das schon beim Ziehen und noch einmal danach (⚠ „Danach liegt der
+    Meilenstein … vor einer Aufgabe, auf die er wartet“) – verschoben wird trotzdem; den
+    Meilenstein ändert man bewusst selbst.
   - **Abhängigkeiten:** den Punkt am Ende eines Balkens auf einen anderen Balken ziehen – der
     wartet dann darauf. Oder Rechtsklick auf einen Balken: **Vorgänger / Nachfolger
     hinzufügen…**. Oder in den Details unter **Wartet auf**. Kreise lässt plnwrk nicht zu.

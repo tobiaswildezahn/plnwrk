@@ -1143,6 +1143,35 @@ pub fn little_slack(days: i32) -> String {
     }
 }
 
+/// Milestones a move puts before what they wait for (they never move along).
+pub fn overtakes(titles: &[String]) -> String {
+    let quoted = |open: &str, close: &str| {
+        titles
+            .iter()
+            .map(|t| format!("{open}{t}{close}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match (language(), titles.len()) {
+        (Language::German, 1) => format!(
+            "Danach liegt der Meilenstein {} vor einer Aufgabe, auf die er wartet.",
+            quoted("„", "“")
+        ),
+        (Language::German, _) => format!(
+            "Danach liegen die Meilensteine {} vor Aufgaben, auf die sie warten.",
+            quoted("„", "“")
+        ),
+        (Language::English, 1) => format!(
+            "The milestone {} then lies before a task it waits for.",
+            quoted("“", "”")
+        ),
+        (Language::English, _) => format!(
+            "The milestones {} then lie before tasks they wait for.",
+            quoted("“", "”")
+        ),
+    }
+}
+
 pub fn moves_along(count: usize) -> String {
     match count {
         1 => pick("+1 Aufgabe verschiebt sich", "+1 task moves along").to_owned(),

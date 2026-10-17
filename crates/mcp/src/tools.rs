@@ -321,12 +321,27 @@ fn step(session: &mut Session, command: &str, params: &Value, confirmed: bool) -
     if !milestones.is_empty() && !confirmed {
         return Err(milestone_refusal(&milestones));
     }
+    // Milestones new dates would overtake (they never move along), read before running.
+    let overtaken: Vec<Value> = if command == "task.reschedule" {
+        let ws = session.workspace();
+        plnwrk_schedule::overtaken_by(ws, params, Calendar::standard())
+            .into_iter()
+            .filter_map(|id| ws.task(id))
+            .map(|t| json!({"task": t.id.to_string(), "title": t.title}))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let outcome = session
         .run(command, params, Origin::Assistant)
         .map_err(error)?;
     let mut answer = serde_json::to_value(&outcome).map_err(|e| e.to_string())?;
     if let (Some(seq), Some(fields)) = (outcome.change, answer.as_object_mut()) {
         describe(session, seq, fields);
+        if !overtaken.is_empty() {
+            // Said in the answer, so the person hears of it in the chat.
+            fields.insert("milestones_overtaken".to_owned(), Value::Array(overtaken));
+        }
         if !milestones.is_empty() {
             // Named in the answer, so the change stays visible in the chat.
             fields.insert(

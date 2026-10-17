@@ -698,11 +698,18 @@ pub fn show(
                 }
                 .span()
             });
-            let along = landing
-                .and_then(|(from, to)| {
-                    plnwrk_schedule::Reschedule::of(ws, task.id, from, to, Calendar::standard())
-                })
-                .map_or(0, |r| r.along());
+            let reschedule = landing.and_then(|(from, to)| {
+                plnwrk_schedule::Reschedule::of(ws, task.id, from, to, Calendar::standard())
+            });
+            let along = reschedule.as_ref().map_or(0, |r| r.along());
+            // Milestones it would overtake (they stay where they are): said while dragging.
+            let overtaken: Vec<String> = reschedule
+                .map(|r| r.overtaken(ws, Calendar::standard()))
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|id| ws.task(id))
+                .map(|t| t.title.clone())
+                .collect();
             let shown = landed.map_or(bar, |span| bar_of(task.milestone, span, y));
             // The one rule of the app (list, details, overview): with a deadline and its time,
             // not in finished, archived projects or templates.
@@ -780,6 +787,9 @@ pub fn show(
                 if along > 0 {
                     lines.push(text::moves_along(along));
                 }
+                if !overtaken.is_empty() {
+                    lines.push(format!("⚠ {}", text::overtakes(&overtaken)));
+                }
                 preview = Some((at, lines.join("\n")));
             }
             let (from, to) = landed.unwrap_or((start, end));
@@ -801,6 +811,9 @@ pub fn show(
             }
             if along > 0 {
                 name.push_str(&format!(", {}", text::moves_along(along)));
+            }
+            if !overtaken.is_empty() {
+                name.push_str(&format!(", {}", text::overtakes(&overtaken)));
             }
             let enabled = ui.is_enabled();
             response.widget_info(|| {

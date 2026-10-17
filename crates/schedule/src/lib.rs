@@ -8,4 +8,4 @@ mod reschedule;
 
 pub use calendar::{Calendar, easter};
 pub use plan::{Analysis, Item, Link, Move, Plan, Warning};
-pub use reschedule::Reschedule;
+pub use reschedule::{Reschedule, overtaken_by};
