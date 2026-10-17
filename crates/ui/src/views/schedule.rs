@@ -14,13 +14,16 @@ use plnwrk_schedule::{Analysis, Calendar, Item, Plan, Warning};
 
 use crate::design::Icon;
 use crate::doc::OpenDoc;
-use crate::state::State;
+use crate::state::{ScheduleRequest, State};
 use crate::{Intent, dates, text};
 
-/// Width of a day at each zoom level, coarse to fine.
-const ZOOM: [f32; 6] = [3.0, 6.0, 11.0, 22.0, 34.0, 48.0];
-/// The level a schedule opens with.
-const ZOOM_START: usize = 3;
+/// Width of a day at each zoom level, coarse to fine: quarter, month, week, day (names in
+/// `text::t().zoom_levels`).
+const ZOOM: [f32; 4] = [3.0, 8.0, 22.0, 48.0];
+/// The level a schedule opens with (week).
+pub const LEVEL_START: usize = 2;
+/// Room before the first and after the last date: the schedule scrolls this far, no further.
+const PAD: i32 = 28;
 /// Height of a row.
 const ROW: f32 = 24.0;
 /// Width of the column with the titles.
@@ -29,6 +32,11 @@ const LABELS: f32 = 220.0;
 const HEADER: f32 = 40.0;
 /// At most this many days are drawn (see [`window`] for which).
 const MOST_DAYS: i32 = 800;
+
+/// Width of a day at zoom level `level`.
+fn day_width_of(level: usize) -> f32 {
+    ZOOM.get(level).copied().unwrap_or(22.0)
+}
 
 /// Days from `first` to `date` (negative before).
 fn days_from(first: Date, date: Date) -> i32 {
@@ -93,11 +101,15 @@ fn window(
         match open.iter().map(|(start, _)| *start).min() {
             Some(start) if start > plus(today, half) => start,
             Some(start) => start.min(today).max(plus(today, -half)),
-            None => plus(last_work, 9 - MOST_DAYS),
+            // The room after the end counts too, so the end stays in view.
+            None => plus(last_work, 9 + PAD - MOST_DAYS),
         }
     };
-    let first = plus(first, -3);
-    Some((first, (days_from(first, latest) + 6).clamp(1, MOST_DAYS)))
+    let first = plus(first, -PAD);
+    Some((
+        first,
+        (days_from(first, latest) + PAD + 1).clamp(1, MOST_DAYS),
+    ))
 }
 
 /// The tasks of the project in the order of the list: parents before their subtasks.
@@ -155,7 +167,7 @@ pub fn show(
     ui: &mut egui::Ui,
     doc: &OpenDoc,
     project: &Project,
-    state: &State,
+    state: &mut State,
     out: &mut Vec<Intent>,
 ) {
     let ws = doc.session.workspace();
@@ -180,39 +192,45 @@ pub fn show(
         .collect();
 
     // Above everything, so a project without dates can be exported too.
-    // Zoom: buttons, or Ctrl/⌘ and the mouse wheel over the chart; kept per project.
-    let zoom_id = egui::Id::new(("schedule-zoom", project.id));
-    let mut level = ui
-        .data(|d| d.get_temp::<usize>(zoom_id))
-        .unwrap_or(ZOOM_START)
+    // Zoom: named levels, or Ctrl/⌘ and the mouse wheel (a pinch) anywhere in the schedule;
+    // kept per project in the state, so the ribbon shows the level too.
+    let mut level = state
+        .zoom_levels
+        .get(&project.id)
+        .copied()
+        .unwrap_or(LEVEL_START)
         .min(ZOOM.len() - 1);
-    // A step asked for in the ribbon.
-    if let Some((asked, step)) = state.zoom_request
-        && asked == project.id
-    {
-        level = if step > 0 {
-            (level + 1).min(ZOOM.len() - 1)
-        } else {
-            level.saturating_sub(1)
-        };
+    // Today or the whole project, asked for here or in the ribbon.
+    let mut jump = None;
+    match state.schedule_request {
+        Some((asked, ScheduleRequest::Level(n))) if asked == project.id => {
+            level = n.min(ZOOM.len() - 1);
+        }
+        Some((asked, request)) if asked == project.id => jump = Some(request),
+        _ => {}
     }
     ui.horizontal(|ui| {
-        if super::icon_button(ui, Icon::ZoomOut, text::t().zoom_out).clicked() {
-            level = level.saturating_sub(1);
+        use crate::design::widgets::{Kind, button_with, segmented};
+        if button_with(ui, Kind::Secondary, Some(Icon::Today), text::t().today).clicked() {
+            jump = Some(ScheduleRequest::Today);
         }
-        if super::icon_button(ui, Icon::ZoomIn, text::t().zoom_in).clicked() {
-            level = (level + 1).min(ZOOM.len() - 1);
+        let whole = text::t().whole_project;
+        if button_with(ui, Kind::Secondary, Some(Icon::WholeProject), whole).clicked() {
+            jump = Some(ScheduleRequest::Whole);
         }
-        if crate::design::widgets::button(
-            ui,
-            crate::design::widgets::Kind::Secondary,
-            text::t().export_schedule,
-        )
-        .clicked()
+        ui.add_space(8.0);
+        // Finest first, as people read it: Tag, Woche, Monat, Quartal.
+        let names = text::t().zoom_levels;
+        let options: Vec<(usize, &str)> = (0..ZOOM.len())
+            .rev()
+            .filter_map(|n| names.get(n).map(|name| (n, *name)))
+            .collect();
+        segmented(ui, &mut level, &options);
+        ui.add_space(8.0);
+        if crate::design::widgets::button(ui, Kind::Secondary, text::t().export_schedule).clicked()
         {
             out.push(Intent::ExportSchedule(project.id));
         }
-        ui.weak(text::t().critical_hint);
     });
     ui.add_space(4.0);
 
@@ -259,7 +277,18 @@ pub fn show(
             ui.ctx().request_repaint();
         }
     }
-    let day_width = ZOOM.get(level).copied().unwrap_or(22.0);
+    // The whole project: the finest level at which its dates fit into the visible chart.
+    // What can be seen, not what the layout offers (it can reach past the window).
+    let right = ui.clip_rect().right().min(ui.max_rect().right());
+    let visible = (right - ui.cursor().left() - LABELS - 12.0).max(day_width_of(0));
+    let span = (days - 2 * PAD).max(1) as f32;
+    if jump == Some(ScheduleRequest::Whole) {
+        level = (0..ZOOM.len())
+            .rev()
+            .find(|n| span * day_width_of(*n) <= visible)
+            .unwrap_or(0);
+    }
+    let day_width = day_width_of(level);
 
     // Opens a week before today (once per project), so the current work is in view.
     let opened = ui.id().with(("schedule-opened", project.id));
@@ -272,10 +301,17 @@ pub fn show(
     // (with only one direction left, egui turns the wheel sideways). Shift and the wheel, or a
     // trackpad swiped sideways, always move through time.
     let rows_fit = HEADER + rows.len() as f32 * ROW <= max_height;
+    // Scroll bars always shown (the way sideways must be visible), beside the rows, never over
+    // them; dragging the empty area moves the view (with the mouse too).
     let mut scroll = egui::ScrollArea::new([true, !rows_fit])
         .id_salt(scroll_salt)
         .auto_shrink([false, true])
-        .max_height(max_height);
+        .max_height(max_height)
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+        .scroll_source(egui::scroll_area::ScrollSource {
+            drag: egui::scroll_area::DragScroll::Always,
+            ..Default::default()
+        });
     // The zoom level last drawn: a change keeps the same dates in view (the scroll offset is
     // in pixels, so it is scaled along).
     let drawn_id = egui::Id::new(("schedule-drawn-zoom", project.id));
@@ -286,9 +322,17 @@ pub fn show(
     let anchor = ui
         .data_mut(|d| d.remove_temp::<f32>(anchor_id))
         .unwrap_or(LABELS);
-    if first_time && (0..days).contains(&days_from(first, today)) {
-        let offset = (days_from(first, today) - 7).max(0) as f32 * day_width;
-        scroll = scroll.horizontal_scroll_offset(offset);
+    // Today a third into the visible chart; the whole project from its first date.
+    let today_offset = |width: f32| {
+        let third = (visible / width / 3.0) as i32;
+        (days_from(first, today) - third).max(0) as f32 * width
+    };
+    if jump == Some(ScheduleRequest::Whole) {
+        scroll = scroll.horizontal_scroll_offset((PAD - 2).max(0) as f32 * day_width);
+    } else if (jump == Some(ScheduleRequest::Today) || first_time)
+        && (0..days).contains(&days_from(first, today))
+    {
+        scroll = scroll.horizontal_scroll_offset(today_offset(day_width));
     } else if let Some(drawn) = drawn
         && drawn != level
         && let (Some(before), Some(state)) = (
@@ -301,6 +345,11 @@ pub fn show(
             (LABELS + from_labels * day_width / before - anchor).max(0.0),
         );
     }
+    // A task chosen elsewhere (list, details, palette) since the last frame: its bar comes into
+    // view.
+    let chosen_id = egui::Id::new(("schedule-chosen", project.id));
+    let newly_chosen = ui.data(|d| d.get_temp::<Option<TaskId>>(chosen_id)) != Some(state.selected);
+    ui.data_mut(|d| d.insert_temp(chosen_id, state.selected));
     let only_direction = ui.style().always_scroll_the_only_direction;
     ui.style_mut().always_scroll_the_only_direction = true;
     scroll.show(ui, |ui| {
@@ -433,6 +482,9 @@ pub fn show(
             let critical = analysis.critical.contains(&task.id);
             let bar = bar_of(task.milestone, (start, end), y);
             boxes.insert(task.id, bar);
+            if newly_chosen && state.selected == Some(task.id) {
+                ui.scroll_to_rect(bar, Some(egui::Align::Center));
+            }
             let visible = bar.intersect(chart);
             if visible.width() <= 0.0 || visible.height() <= 0.0 {
                 continue;
@@ -585,7 +637,12 @@ pub fn show(
     });
     ui.style_mut().always_scroll_the_only_direction = only_direction;
 
-    ui.data_mut(|d| d.insert_temp(zoom_id, level));
+    state.zoom_levels.insert(project.id, level);
+
+    // The legend, only when something red is shown.
+    if !analysis.critical.is_empty() || project.due.is_some() {
+        ui.add(egui::Label::new(RichText::new(text::t().critical_hint).weak()).wrap());
+    }
 
     // What cannot hold.
     for warning in &analysis.warnings {
@@ -632,14 +689,18 @@ mod tests {
     }
 
     #[test]
-    fn everything_is_shown_when_it_fits() {
+    fn everything_is_shown_when_it_fits_with_four_weeks_around() {
         let all = [(d("2026-10-12"), d("2026-10-16"))];
         let (first, days) = window(&all, &all, d("2026-10-14"), None).unwrap();
-        assert_eq!(first, d("2026-10-09"));
-        assert_eq!(days, days_from(first, d("2026-10-16")) + 6);
+        assert_eq!(first, d("2026-09-14"), "four weeks before the first date");
+        assert_eq!(
+            plus(first, days - 1),
+            d("2026-11-13"),
+            "four weeks after the last"
+        );
         // Today before a project that starts later: in view too.
         let (first, _) = window(&all, &all, d("2026-09-01"), None).unwrap();
-        assert_eq!(first, d("2026-08-29"));
+        assert_eq!(first, plus(d("2026-09-01"), -PAD));
     }
 
     #[test]
@@ -651,13 +712,13 @@ mod tests {
         let open = [(d("2026-10-12"), d("2026-10-16"))];
         let today = d("2026-10-14");
         let (first, days) = window(&all, &open, today, None).unwrap();
-        assert_eq!(first, d("2026-10-09"));
+        assert_eq!(first, plus(d("2026-10-12"), -PAD));
         assert!((0..days).contains(&days_from(first, today)));
         // An open task from long ago: today still in view.
         let open = [(d("2020-01-06"), d("2020-01-10"))];
         let (first, days) = window(&all, &open, today, None).unwrap();
         assert!((0..days).contains(&days_from(first, today)));
-        assert_eq!(first, plus(today, -MOST_DAYS / 2 - 3));
+        assert_eq!(first, plus(today, -MOST_DAYS / 2 - PAD));
         assert!(
             days_from(first, d("2026-10-16")) < days,
             "up to the last end"
@@ -670,7 +731,7 @@ mod tests {
         let (first, days) = window(&all, &[], d("2026-10-14"), None).unwrap();
         assert!((0..days).contains(&days_from(first, d("2020-03-10"))));
         assert!(
-            days_from(first, d("2020-03-10")) >= days - 12,
+            days_from(first, d("2020-03-10")) >= days - PAD - 12,
             "the end, not the start"
         );
     }
@@ -679,7 +740,7 @@ mod tests {
     fn open_work_far_ahead_is_shown_from_its_start() {
         let all = [(d("2029-01-08"), d("2029-02-09"))];
         let (first, days) = window(&all, &all, d("2026-10-14"), None).unwrap();
-        assert_eq!(first, d("2029-01-05"));
+        assert_eq!(first, plus(d("2029-01-08"), -PAD));
         assert!(days > 30);
         // Within half a window: from today, both in view.
         let all = [
@@ -688,7 +749,7 @@ mod tests {
         ];
         let open = [(d("2027-06-07"), d("2027-06-11"))];
         let (first, days) = window(&all, &open, d("2026-10-14"), None).unwrap();
-        assert_eq!(first, d("2026-10-11"));
+        assert_eq!(first, plus(d("2026-10-14"), -PAD));
         assert!((0..days).contains(&days_from(first, d("2027-06-11"))));
     }
 

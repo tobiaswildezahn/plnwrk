@@ -24,6 +24,17 @@ pub enum View {
     People,
 }
 
+/// What the ribbon asks of the schedule (Phase 9c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleRequest {
+    /// Show this zoom level (index, coarse to fine).
+    Level(usize),
+    /// Bring today into view.
+    Today,
+    /// Fit the whole project into view.
+    Whole,
+}
+
 /// The parts of a project view.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -503,8 +514,10 @@ pub struct State {
     /// Whether the ribbon starts collapsed, decided once from the window height (until the
     /// person chooses).
     pub ribbon_default: Option<bool>,
-    /// A zoom step for the schedule of this project (from the ribbon), taken in the next frame.
-    pub zoom_request: Option<(plnwrk_core::ProjectId, i8)>,
+    /// What the ribbon asks of the schedule of a project, taken in the next frame.
+    pub schedule_request: Option<(plnwrk_core::ProjectId, ScheduleRequest)>,
+    /// The zoom level of each project's schedule (index into the levels of the schedule).
+    pub zoom_levels: std::collections::HashMap<plnwrk_core::ProjectId, usize>,
 }
 
 impl State {
