@@ -181,7 +181,7 @@ pub fn milestone_state_in(project: &Project, milestone: &Task, now: DateTime) ->
 }
 
 /// Days from `from` to `to` (negative if `to` is earlier).
-pub(crate) fn days_between(from: Date, to: Date) -> i64 {
+pub fn days_between(from: Date, to: Date) -> i64 {
     from.until(to).map_or(0, |span| i64::from(span.get_days()))
 }
 

@@ -111,6 +111,8 @@ pub(crate) enum Intent {
     },
     /// Show another view.
     Go(View),
+    /// Show a message (after the intents before it, e.g. a command that clears it).
+    Say(Message),
     /// Select a task (detail panel) or none.
     Select(Option<TaskId>),
     /// Open a dialog.
@@ -771,6 +773,7 @@ impl PlnwrkApp {
             }
             Intent::Open(dialog) => self.state.open_dialog(dialog),
             Intent::CloseDialog => self.state.close_dialog(),
+            Intent::Say(message) => self.state.message = Some(message),
             Intent::Schedule(project, request) => {
                 self.state.schedule_request = Some((project, request));
             }

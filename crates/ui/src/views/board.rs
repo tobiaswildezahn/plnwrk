@@ -5,7 +5,7 @@
 //! Above: a filter by person, overdue and words in the title.
 
 use egui::{Id, Sense, Stroke, vec2};
-use jiff::civil::{Date, DateTime};
+use jiff::civil::DateTime;
 use plnwrk_core::{Priority, Project, Task, TaskId, TaskStatus, Workspace};
 use plnwrk_engine::query::{self, TaskCard};
 use serde_json::{Map, Value, json};
@@ -117,9 +117,20 @@ pub fn show(
 fn filters(ui: &mut egui::Ui, ws: &Workspace, project: &Project, filter: &mut BoardFilter) {
     let t = text::t();
     ui.horizontal_wrapped(|ui| {
+        // A person filtered for who is gone from the file: the filter goes with them.
+        if let Some(Some(id)) = filter.assignee
+            && ws.person(id).is_none()
+        {
+            filter.assignee = None;
+        }
+        // The people in charge of something here, and the one chosen (even with nothing left
+        // to do: the choice must show what is filtered).
         let people: Vec<(plnwrk_core::PersonId, String)> = {
-            let mut ids: Vec<plnwrk_core::PersonId> =
-                ws.tasks_of(project.id).filter_map(|t| t.assignee).collect();
+            let mut ids: Vec<plnwrk_core::PersonId> = ws
+                .tasks_of(project.id)
+                .filter_map(|t| t.assignee)
+                .chain(filter.assignee.flatten())
+                .collect();
             ids.sort();
             ids.dedup();
             ids.into_iter()
@@ -149,11 +160,13 @@ fn filters(ui: &mut egui::Ui, ws: &Workspace, project: &Project, filter: &mut Bo
         ui.add_space(8.0);
         ui.checkbox(&mut filter.overdue, t.board_filter_overdue);
         ui.add_space(8.0);
+        let caption = ui.label(t.board_search_label);
         ui.add(
             egui::TextEdit::singleline(&mut filter.search)
                 .hint_text(t.board_search)
                 .desired_width(200.0),
-        );
+        )
+        .labelled_by(caption.id);
         if filter.active() {
             ui.add_space(8.0);
             if widgets::button(ui, widgets::Kind::Quiet, t.board_filter_reset).clicked() {
@@ -182,21 +195,27 @@ fn column_ui(
         .cloned()
         .unwrap_or_default();
     let shown: Vec<&TaskCard> = column.tasks.iter().filter(|c| filter.keeps(c)).collect();
-    ui.horizontal(|ui| {
-        ui.strong(text::column_heading(
-            column.status,
-            shown.len(),
-            column.tasks.len(),
-        ));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let name = text::new_in_column(column.status);
-            if widgets::icon_button(ui, Icon::Plus, &name).clicked() {
-                state.forms.board_new = Some((column.status, String::new()));
-            }
-        });
-    });
-    // A new card typed here: Enter creates it in this status, Escape drops it.
-    if let Some((status, title)) = &mut state.forms.board_new
+    let heading = ui
+        .horizontal(|ui| {
+            let heading = ui.strong(text::column_heading(
+                column.status,
+                shown.len(),
+                column.tasks.len(),
+            ));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let name = text::new_in_column(column.status);
+                if widgets::icon_button(ui, Icon::Plus, &name).clicked() {
+                    state.forms.board_new = Some((project.id, column.status, String::new()));
+                    state.focus_board_new = true;
+                }
+            });
+            heading
+        })
+        .inner;
+    // A new card typed here (in this project and column): Enter creates it with this status;
+    // leaving the field otherwise (Escape, a click elsewhere) drops it.
+    if let Some((owner, status, title)) = &mut state.forms.board_new
+        && *owner == project.id
         && *status == column.status
     {
         let field = ui.add(
@@ -204,26 +223,28 @@ fn column_ui(
                 .hint_text(text::t().new_task_hint)
                 .desired_width(width - 8.0),
         );
-        let fresh = Id::new(("board-new-focus", column.status.name()));
-        if !ui.data(|d| d.get_temp::<bool>(fresh).unwrap_or(false)) {
+        let field = field.labelled_by(heading.id);
+        if std::mem::take(&mut state.focus_board_new) {
             field.request_focus();
-            ui.data_mut(|d| d.insert_temp(fresh, true));
         }
-        // Enter creates; leaving the field otherwise (Escape, a click elsewhere) drops it.
         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if entered && !title.trim().is_empty() {
+        let title = title.trim().to_owned();
+        if entered && !title.is_empty() {
             out.push(Intent::Run {
                 command: "task.create",
-                params: json!({"project": project.id.to_string(), "title": title.trim(),
+                params: json!({"project": project.id.to_string(), "title": title,
                                "status": column.status.name()}),
                 then: Then::Nothing,
                 clear: Some(Clear::BoardNew),
             });
-        } else if field.lost_focus() && !entered {
+            // Created, but the filter would hide it: said, so it is not lost from sight.
+            if !filter.keeps_new(&title) {
+                out.push(Intent::Say(crate::state::Message::info(
+                    text::created_but_filtered(&title),
+                )));
+            }
+        } else if field.lost_focus() {
             state.forms.board_new = None;
-        }
-        if state.forms.board_new.is_none() {
-            ui.data_mut(|d| d.remove::<bool>(fresh));
         }
     }
     // Dragging to "Erledigt" what still waits for open work: said, not stopped.
@@ -245,12 +266,14 @@ fn column_ui(
     let reach = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(160.0);
     let zone = frame.show(ui, |ui| {
         ui.set_min_size(vec2(width - 8.0, reach));
-        if waiting > 0 && ui.rect_contains_pointer(ui.max_rect()) {
-            widgets::field_error(ui, &text::still_waits_for(waiting));
-        }
         for card in &shown {
             let folded = state.board_folded.contains(&card.id);
-            let subtasks = children(ws, card.id);
+            // Folded: the subtasks are not drawn, so not looked up either.
+            let subtasks = if folded {
+                Vec::new()
+            } else {
+                children(ws, card.id)
+            };
             let held = ui.dnd_drag_source(Id::new(("card", card.id)), card.id, |ui| {
                 card_ui(
                     ui,
@@ -298,6 +321,21 @@ fn column_ui(
             Stroke::new(2.0, p.accent),
             egui::StrokeKind::Inside,
         );
+    }
+    // Said at the pointer, where the eyes are – also when the column's top is scrolled away.
+    if waiting > 0
+        && over
+        && let Some(at) = ui.ctx().pointer_interact_pos()
+    {
+        egui::Area::new(Id::new("board-waits-hint"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(at + vec2(16.0, 18.0))
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    widgets::field_error(ui, &text::still_waits_for(waiting));
+                });
+            });
     }
     let dropped = zone.response.dnd_release_payload::<TaskId>();
     // Where a dragged card would land: a line in the gap (the same index as the drop).
@@ -464,15 +502,13 @@ fn card_ui(
                 if let Some(person) = &card.assignee {
                     person_circle(ui, &person.initials, &person.name);
                 }
-                if card.priority >= Priority::High {
-                    let color = if card.priority == Priority::Critical {
-                        p.danger
-                    } else {
-                        p.warning
-                    };
+                // High: a flag; critical: said in a red chip (not colour alone apart).
+                let name = text::priority(card.priority);
+                if card.priority == Priority::Critical {
+                    widgets::chip(ui, Tone::Danger, name);
+                } else if card.priority == Priority::High {
                     let (rect, response) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                    Icon::Priority.paint(ui.painter(), rect, color);
-                    let name = text::priority(card.priority);
+                    Icon::Priority.paint(ui.painter(), rect, p.warning);
                     response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Label, true, name)
                     });
@@ -499,8 +535,9 @@ fn card_ui(
                         text::t().fold_subtasks
                     };
                     let arrow = widgets::icon_button(ui, icon, name);
-                    // Keyboard: the button itself; a mouse click is taken by the column.
-                    fold_key = arrow.clicked() && !ui.input(|i| i.pointer.any_click());
+                    // Keyboard: the button itself (a mouse click lands on the column's interact
+                    // above the drag source).
+                    fold_key = arrow.clicked();
                     fold_at = Some(arrow.rect);
                     let fraction = card.subtasks_done as f32 / card.subtasks as f32;
                     widgets::progress(
@@ -546,7 +583,7 @@ fn due_chip(ui: &mut egui::Ui, card: &TaskCard, now: DateTime, counts: bool) {
 /// and projects where deadlines do not count: the date, plain.
 fn due_look(card: &TaskCard, now: DateTime, counts: bool) -> Option<(Tone, String)> {
     let due = card.due?;
-    let days = days_until(now.date(), due);
+    let days = query::days_between(now.date(), due);
     let state = || text::deadline_state(due, card.due_time, now).0;
     Some(if !counts || card.status == TaskStatus::Done {
         (Tone::Neutral, dates::format_deadline(due, card.due_time))
@@ -559,12 +596,6 @@ fn due_look(card: &TaskCard, now: DateTime, counts: bool) -> Option<(Tone, Strin
     } else {
         (Tone::Neutral, dates::format_short(due))
     })
-}
-
-fn days_until(today: Date, due: Date) -> i64 {
-    today
-        .until(due)
-        .map_or(0, |span| i64::from(span.get_days()))
 }
 
 /// The person in charge as a small circle with initials; the name on hover and when read out.

@@ -510,8 +510,8 @@ pub struct Forms {
     pub milestone_title: String,
     pub milestone_date: String,
     pub milestone_time: String,
-    /// A new card being typed at the top of a board column: its status and title.
-    pub board_new: Option<(plnwrk_core::TaskStatus, String)>,
+    /// A new card being typed at the top of a board column: its project, status and title.
+    pub board_new: Option<(plnwrk_core::ProjectId, plnwrk_core::TaskStatus, String)>,
     /// A milestone's date being changed on its card: the milestone, day and time as typed.
     pub milestone_edit: Option<(TaskId, String, String)>,
     pub comment: String,
@@ -547,6 +547,8 @@ pub struct State {
     pub theme: egui::ThemePreference,
     /// The field for a new task takes the cursor in the next frame.
     pub focus_new_task: bool,
+    /// The field of a new board card takes the focus in the next frame ("+" was chosen).
+    pub focus_board_new: bool,
     /// Files are uploaded and downloaded (the browser).
     pub browser: bool,
     /// Browser: recovery copies in the browser's storage (key and file), newest first.
@@ -596,11 +598,28 @@ impl BoardFilter {
 
     /// Whether the card stays in view.
     pub fn keeps(&self, card: &plnwrk_engine::query::TaskCard) -> bool {
-        let person = card.assignee.as_ref().map(|p| p.id);
+        self.keeps_parts(
+            card.assignee.as_ref().map(|p| p.id),
+            card.overdue,
+            &card.title,
+        )
+    }
+
+    /// Whether a new card with this title (nobody in charge, no deadline) would be in view.
+    pub fn keeps_new(&self, title: &str) -> bool {
+        self.keeps_parts(None, false, title)
+    }
+
+    fn keeps_parts(
+        &self,
+        person: Option<plnwrk_core::PersonId>,
+        overdue: bool,
+        title: &str,
+    ) -> bool {
         let words = self.search.trim().to_lowercase();
         self.assignee.is_none_or(|wanted| wanted == person)
-            && (!self.overdue || card.overdue)
-            && (words.is_empty() || card.title.to_lowercase().contains(&words))
+            && (!self.overdue || overdue)
+            && (words.is_empty() || title.to_lowercase().contains(&words))
     }
 }
 

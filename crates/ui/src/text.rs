@@ -151,6 +151,7 @@ pub struct Texts {
     pub board_filter_everyone: &'static str,
     pub board_filter_overdue: &'static str,
     pub board_search: &'static str,
+    pub board_search_label: &'static str,
     pub board_filter_reset: &'static str,
     pub light_reached: &'static str,
     pub light_overdue: &'static str,
@@ -418,6 +419,7 @@ pub static DE: Texts = Texts {
     board_filter_everyone: "Alle",
     board_filter_overdue: "Nur Überfälliges",
     board_search: "Im Titel suchen",
+    board_search_label: "Suche",
     board_filter_reset: "Filter aufheben",
     light_reached: "erreicht",
     light_overdue: "überfällig",
@@ -684,6 +686,7 @@ pub static EN: Texts = Texts {
     board_filter_everyone: "Everyone",
     board_filter_overdue: "Only overdue",
     board_search: "Search titles",
+    board_search_label: "Search",
     board_filter_reset: "Clear filter",
     light_reached: "reached",
     light_overdue: "overdue",
@@ -1184,6 +1187,14 @@ pub fn overtakes(titles: &[String]) -> String {
     }
 }
 
+/// A card made with "+" that the board's filter hides.
+pub fn created_but_filtered(title: &str) -> String {
+    pick(
+        format!("„{title}“ angelegt – der Filter blendet die Karte aus."),
+        format!("“{title}” created – the filter hides the card."),
+    )
+}
+
 /// The "+" of a board column: a new task with this status.
 pub fn new_in_column(status: TaskStatus) -> String {
     pick(
@@ -1208,13 +1219,13 @@ pub fn column_heading(status: TaskStatus, shown: usize, all: usize) -> String {
 pub fn still_waits_for(open: usize) -> String {
     match open {
         1 => pick(
-            "⚠ Wartet noch auf 1 offene Aufgabe",
-            "⚠ Still waits for 1 open task",
+            "Wartet noch auf 1 offene Aufgabe",
+            "Still waits for 1 open task",
         )
         .to_owned(),
         n => pick(
-            format!("⚠ Wartet noch auf {n} offene Aufgaben"),
-            format!("⚠ Still waits for {n} open tasks"),
+            format!("Wartet noch auf {n} offene Aufgaben"),
+            format!("Still waits for {n} open tasks"),
         ),
     }
 }
