@@ -71,7 +71,13 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 
 ## 3. Ansichten
 
-- **Übersicht:** alle Projekte und Vorgänge mit Fortschritt; darunter alles Überfällige.
+- **Übersicht:** oben **Heute und überfällig** – alles Überfällige und alles, was heute fällig
+  ist; ein Haken erledigt es gleich dort (Meilensteine und Aufgaben mit offenen Unteraufgaben
+  fragen nach). Darunter alle Projekte und Vorgänge als Karten mit **Ampel** (erreicht,
+  überfällig, gefährdet – mit Grund –, im Plan) und Fortschritt.
+- **Seitenleiste:** nach **Vorgängen** und **Projekten** getrennt. Ein Vorgang ist alles mit
+  Aktenzeichen oder einer eigenen Art (z. B. „SKA“); ein Projekt hat die Art „Projekt“ oder
+  keine. Beim Anlegen wählt man es oben im Dialog.
 - **Liste:** Aufgaben mit Unteraufgaben; Doppelklick auf einen Titel benennt um.
 - **Board:** Spalten Offen / In Arbeit / Blockiert / Prüfung / Erledigt über die ganze Breite
   (in schmalen Fenstern seitlich scrollen). Karten ziehen ändert den Status; eine Linie zeigt,

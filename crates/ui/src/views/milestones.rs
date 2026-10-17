@@ -45,7 +45,7 @@ impl Light {
         }
     }
 
-    fn tone(self) -> Tone {
+    pub fn tone(self) -> Tone {
         match self {
             Self::Reached => Tone::Success,
             Self::Overdue => Tone::Danger,
@@ -89,6 +89,48 @@ pub fn light(
         Some(&days) if days <= AT_RISK_SLACK => (Light::AtRisk, Some(text::little_slack(days))),
         _ => (Light::OnPlan, None),
     }
+}
+
+/// The light of a project or case (overview, Phase 9f), from the same rules as the
+/// milestones': done is reached; its deadline passed is overdue; overdue work or a milestone
+/// overdue or at risk puts it at risk (the first reason is said); otherwise on plan.
+pub fn project_light(
+    ws: &Workspace,
+    project: &Project,
+    analysis: &Analysis,
+    now: DateTime,
+) -> (Light, Option<String>) {
+    if project.status == plnwrk_core::ProjectStatus::Done {
+        return (Light::Reached, None);
+    }
+    if !query::deadlines_count(project) {
+        return (Light::OnPlan, None);
+    }
+    if project
+        .due
+        .is_some_and(|due| query::is_past(due, project.due_time, now))
+    {
+        return (Light::Overdue, None);
+    }
+    let late = ws
+        .tasks_of(project.id)
+        .filter(|t| !t.milestone && query::task_overdue(Some(project), t, now))
+        .count();
+    if late > 0 {
+        return (Light::AtRisk, Some(text::overdue_tasks(late)));
+    }
+    let mut milestones: Vec<&Task> = ws.tasks_of(project.id).filter(|t| t.milestone).collect();
+    milestones.sort_by_key(|m| query::deadline_order(m.due, m.due_time));
+    for milestone in milestones {
+        let (light, _) = light(ws, project, milestone, analysis, now);
+        if matches!(light, Light::Overdue | Light::AtRisk) {
+            return (
+                Light::AtRisk,
+                Some(format!("♦ {}: {}", milestone.title, light.name())),
+            );
+        }
+    }
+    (Light::OnPlan, None)
 }
 
 pub fn show(

@@ -14,8 +14,8 @@ use serde_json::Value;
 pub use history::{Action, FieldChange, HistoryEntry, done_at, history};
 pub use overview::{
     MilestoneRef, MilestoneState, OverdueItem, PersonRef, Progress, ProjectCard, days_between,
-    deadline_order, deadlines_count, effective_progress, is_past, milestone_ref, milestone_state,
-    milestone_state_in, overdue, overview, progress, task_overdue, templates,
+    deadline_order, deadlines_count, due_today, effective_progress, is_past, milestone_ref,
+    milestone_state, milestone_state_in, overdue, overview, progress, task_overdue, templates,
 };
 pub use tasks::{
     Board, Column, TaskCard, TaskGroup, TaskGroupRows, TaskIndex, TaskQuery, TaskSort, board, card,
@@ -92,6 +92,10 @@ fn q_tasks(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
 
 fn q_overdue(s: &Session, _: &Params<'_>) -> Result<Value, CommandError> {
     json(&overdue(s.workspace(), s.clock().now_local()))
+}
+
+fn q_due_today(s: &Session, _: &Params<'_>) -> Result<Value, CommandError> {
+    json(&due_today(s.workspace(), s.clock().now_local()))
 }
 
 fn q_progress(s: &Session, params: &Params<'_>) -> Result<Value, CommandError> {
@@ -306,6 +310,12 @@ static QUERIES: &[QuerySpec] = &[
         summary: "Everything past its deadline: projects and tasks (milestones too), latest first.",
         params: &[],
         run: q_overdue,
+    },
+    QuerySpec {
+        name: "due_today",
+        summary: "Everything due today whose time has not passed yet (passed: see overdue), earliest first.",
+        params: &[],
+        run: q_due_today,
     },
     QuerySpec {
         name: "progress",

@@ -1,10 +1,10 @@
 //! The views. They read the workspace and push [`Intent`]s; they never change data themselves.
 
-mod board;
+pub(crate) mod board;
 mod date;
 pub(crate) mod detail;
 mod dialogs;
-mod milestones;
+pub(crate) mod milestones;
 mod overview;
 mod people;
 mod project;
@@ -359,28 +359,59 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                     }
                 });
                 ui.separator();
-                ui.strong(text::t().projects);
-                for card in query::overview(ws, now) {
-                    let label = match &card.reference {
-                        Some(reference) => format!("{} · {reference}", card.title),
-                        None => card.title.clone(),
-                    };
-                    let shown = state.view == View::Project(card.id);
-                    let mut response = ui.selectable_label(shown, label);
-                    if card.overdue_tasks > 0 || card.days_left.is_some_and(|d| d < 0) {
-                        response = response.on_hover_text(text::t().overdue);
+                // Grouped (Phase 9f): cases, then projects – the one rule `is_case` – each
+                // with its symbol; a group without entries is left out.
+                let cards = query::overview(ws, now);
+                if cards.is_empty() {
+                    ui.weak(text::t().nothing_yet);
+                }
+                for (icon, heading, cases) in [
+                    (Icon::Case, text::t().cases_heading, true),
+                    (Icon::Project, text::t().projects_heading, false),
+                ] {
+                    let group: Vec<&query::ProjectCard> = cards
+                        .iter()
+                        .filter(|c| {
+                            plnwrk_core::is_case(c.kind.as_deref(), c.reference.as_deref()) == cases
+                        })
+                        .collect();
+                    if group.is_empty() {
+                        continue;
                     }
-                    if response.clicked() {
-                        out.push(Intent::Go(View::Project(card.id)));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                        icon.paint(ui.painter(), rect, ui.visuals().weak_text_color());
+                        ui.strong(heading);
+                    });
+                    for card in group {
+                        let label = match &card.reference {
+                            Some(reference) => format!("{} · {reference}", card.title),
+                            None => card.title.clone(),
+                        };
+                        let shown = state.view == View::Project(card.id);
+                        let mut response = ui.selectable_label(shown, label);
+                        if card.overdue_tasks > 0 || card.days_left.is_some_and(|d| d < 0) {
+                            response = response.on_hover_text(text::t().overdue);
+                        }
+                        if response.clicked() {
+                            out.push(Intent::Go(View::Project(card.id)));
+                        }
                     }
                 }
                 ui.separator();
-                if ui
-                    .selectable_label(state.view == View::Templates, text::t().templates)
-                    .clicked()
-                {
-                    out.push(Intent::Go(View::Templates));
-                }
+                ui.horizontal(|ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                    Icon::Board.paint(ui.painter(), rect, ui.visuals().weak_text_color());
+                    if ui
+                        .selectable_label(state.view == View::Templates, text::t().templates)
+                        .clicked()
+                    {
+                        out.push(Intent::Go(View::Templates));
+                    }
+                });
                 if ui
                     .selectable_label(state.view == View::People, text::t().people)
                     .clicked()

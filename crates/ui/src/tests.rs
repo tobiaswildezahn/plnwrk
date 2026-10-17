@@ -102,7 +102,11 @@ fn the_sample_opens_and_shows_its_projects() {
             .count()
             >= 1
     );
-    assert!(harness.query_by_label(text::t().overdue).is_some());
+    assert!(
+        harness
+            .query_by_label(text::t().today_and_overdue)
+            .is_some()
+    );
 }
 
 #[test]
@@ -4387,11 +4391,11 @@ fn collapsed_ribbon() -> Harness<'static, PlnwrkApp> {
 #[test]
 fn a_peek_lies_over_the_content_and_closes_with_an_action_or_escape() {
     let mut harness = collapsed_ribbon();
-    let heading = harness.get_by_label(text::t().overdue).rect();
+    let heading = harness.get_by_label(text::t().today_and_overdue).rect();
     click(&mut harness, text::t().ribbon.start);
     assert!(ribbon_open(&harness), "peek");
     assert_eq!(
-        harness.get_by_label(text::t().overdue).rect(),
+        harness.get_by_label(text::t().today_and_overdue).rect(),
         heading,
         "the content does not move"
     );
@@ -7400,7 +7404,10 @@ fn the_start_page_offers_two_ways_in_said_in_a_sentence() {
     let new = harness.get_by_label(text::t().new_file).rect();
     let sample = harness.get_by_label(text::t().open_sample).rect();
     assert!(sample.left() > new.right(), "side by side");
-    assert!((new.top() - sample.top()).abs() < 1.0, "level: {new:?} {sample:?}");
+    assert!(
+        (new.top() - sample.top()).abs() < 1.0,
+        "level: {new:?} {sample:?}"
+    );
     // The browser's limits: in the footer, said once – not in the page as well.
     assert_eq!(
         harness.query_all_by_label(text::t().browser_not_vs).count(),
@@ -7411,4 +7418,159 @@ fn the_start_page_offers_two_ways_in_said_in_a_sentence() {
             .query_by_label(text::t().browser_not_vs_hint)
             .is_none()
     );
+}
+
+/// A project with: "Alt" 2 days overdue, "Heute" due today, "Morgen" tomorrow, "Fertig" due
+/// today but done, "Mit Teilen" due today with an open subtask, milestone "Ziel" due today.
+fn today_and_overdue() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Lage");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    for (title, days, extra) in [
+        ("Alt", -2, serde_json::json!({})),
+        ("Heute", 0, serde_json::json!({})),
+        ("Morgen", 1, serde_json::json!({})),
+        ("Fertig", 0, serde_json::json!({"status": "done"})),
+        ("Mit Teilen", 0, serde_json::json!({})),
+        ("Ziel", 0, serde_json::json!({"milestone": true})),
+    ] {
+        let mut params = serde_json::json!({"project": project, "title": title,
+                                            "due": day_from_today(&harness, days)});
+        if let (Some(p), Some(e)) = (params.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("task.create", params));
+    }
+    harness.run();
+    let parent = task_named(harness.state(), "Mit Teilen")
+        .unwrap()
+        .id
+        .to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Teil", "parent": parent}),
+    ));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Overview));
+    harness.run();
+    harness
+}
+
+/// Phase 9f: "Heute und überfällig" lists what is overdue and what is due today – not what is
+/// done or due tomorrow – each ticked off right there.
+#[test]
+fn today_and_overdue_are_ticked_off_in_the_overview() {
+    let mut harness = today_and_overdue();
+    let tick = |title: &str| text::mark_done(title);
+    for listed in ["Alt", "Heute", "Mit Teilen", "Ziel"] {
+        assert!(harness.query_by_label(&tick(listed)).is_some(), "{listed}");
+    }
+    for not_listed in ["Morgen", "Fertig"] {
+        assert!(
+            harness.query_by_label(&tick(not_listed)).is_none(),
+            "{not_listed}"
+        );
+    }
+    // A task: done at once.
+    harness.get_by_label(&tick("Heute")).click();
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Heute").unwrap().status,
+        TaskStatus::Done
+    );
+    // With an open subtask: asked about it first.
+    harness.get_by_label(&tick("Mit Teilen")).click();
+    harness.run();
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::CloseSubtasks { .. })
+    ));
+    click(&mut harness, text::t().cancel);
+    // A milestone: the question about milestones.
+    harness.get_by_label(&tick("Ziel")).click();
+    harness.run();
+    assert!(asking(&harness));
+    assert_ne!(
+        task_named(harness.state(), "Ziel").unwrap().status,
+        TaskStatus::Done
+    );
+}
+
+/// Phase 9f: the project's light on its card – at risk with overdue work; on plan without;
+/// overdue once its own deadline passed.
+#[test]
+fn a_project_card_shows_its_light() {
+    let mut harness = today_and_overdue();
+    let chip = |h: &Harness<'_, PlnwrkApp>, light: super::views::milestones::Light| {
+        h.query_by_label(light.name()).is_some()
+    };
+    use super::views::milestones::Light;
+    assert!(chip(&harness, Light::AtRisk), "overdue work");
+    assert!(!chip(&harness, Light::OnPlan));
+    // Its reason is in the facts already ("… · 1 überfällig"): not said twice.
+    assert!(harness.query_by_label(&text::overdue_tasks(1)).is_none());
+    let alt = task_named(harness.state(), "Alt").unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.set_status",
+        serde_json::json!({"task": alt, "status": "done"}),
+    ));
+    harness.run();
+    assert!(chip(&harness, Light::OnPlan), "nothing late any more");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let yesterday = day_from_today(&harness, -1);
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": project, "due": yesterday}),
+    ));
+    harness.run();
+    assert!(chip(&harness, Light::Overdue), "its own deadline passed");
+}
+
+/// Phase 9f: the sidebar groups cases and projects (the rule `is_case`), each group only when
+/// it has entries.
+#[test]
+fn the_sidebar_groups_cases_and_projects() {
+    let harness = harness_with_sample();
+    assert!(harness.query_by_label(text::t().cases_heading).is_some());
+    assert!(harness.query_by_label(text::t().projects_heading).is_some());
+    let mut harness = harness_after_new_file();
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Umbau", "kind": text::t().kinds[0]}),
+    ));
+    harness.run();
+    assert!(harness.query_by_label(text::t().projects_heading).is_some());
+    assert!(
+        harness.query_by_label(text::t().cases_heading).is_none(),
+        "no cases, no heading"
+    );
+}
+
+fn harness_after_new_file() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::t().new_file);
+    harness
+}
+
+/// Phase 9f: cards that do not fit side by side go to the next row (egui does not wrap
+/// framed cards itself).
+#[test]
+fn overview_cards_wrap_into_rows() {
+    let mut harness = harness_with_sample();
+    harness.set_size(egui::vec2(900.0, 900.0));
+    harness.run();
+    let first = harness
+        .get_all_by_label("SKA 23/1234 Sirenenwarnung")
+        .map(|n| n.rect())
+        .find(|r| r.left() > 250.0)
+        .unwrap();
+    let second = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .map(|n| n.rect())
+        .find(|r| r.left() > 250.0)
+        .unwrap();
+    assert!(second.top() > first.bottom(), "{first:?} {second:?}");
+    assert!(second.right() <= 900.0);
 }

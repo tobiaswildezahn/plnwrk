@@ -249,6 +249,50 @@ pub fn overdue(ws: &Workspace, now: DateTime) -> Vec<OverdueItem> {
     items
 }
 
+/// Every unfinished task and milestone due today whose time has not passed yet (once passed,
+/// it is in [`overdue`]), earliest first; projects and cases due today too. Templates,
+/// archived and finished projects are left out – the same rule as [`overdue`].
+pub fn due_today(ws: &Workspace, now: DateTime) -> Vec<OverdueItem> {
+    let today = now.date();
+    let index = TaskIndex::new(ws);
+    let mut items = Vec::new();
+    let due_now = |due: Option<Date>, time: Option<Time>| {
+        due.filter(|d| *d == today && !is_past(*d, time, now))
+    };
+    for project in ws.projects().filter(|p| deadlines_count(p)) {
+        if let Some(due) = due_now(project.due, project.due_time) {
+            items.push(OverdueItem {
+                entity: EntityKey::Project(project.id),
+                project: project.id,
+                title: project.title.clone(),
+                due,
+                due_time: project.due_time,
+                days_late: 0,
+            });
+        }
+        for task in index.tasks_of(project.id) {
+            if task.status != TaskStatus::Done
+                && let Some(due) = due_now(task.due, task.due_time)
+            {
+                items.push(OverdueItem {
+                    entity: EntityKey::Task(task.id),
+                    project: project.id,
+                    title: task.title.clone(),
+                    due,
+                    due_time: task.due_time,
+                    days_late: 0,
+                });
+            }
+        }
+    }
+    items.sort_by(|a, b| {
+        deadline_order(Some(a.due), a.due_time)
+            .cmp(&deadline_order(Some(b.due), b.due_time))
+            .then_with(|| a.title.cmp(&b.title))
+    });
+    items
+}
+
 /// A project or case as shown in the overview.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProjectCard {

@@ -99,7 +99,6 @@ pub struct Texts {
     pub from_template: &'static str,
     pub nothing_yet: &'static str,
     pub overdue: &'static str,
-    pub nothing_overdue: &'static str,
     pub list: &'static str,
     pub board: &'static str,
     pub milestones: &'static str,
@@ -148,6 +147,10 @@ pub struct Texts {
     pub milestone_unmarked: &'static str,
     pub milestone_marked: &'static str,
     pub after_project_due_then: &'static str,
+    pub cases_heading: &'static str,
+    pub projects_heading: &'static str,
+    pub today_and_overdue: &'static str,
+    pub nothing_due: &'static str,
     pub new_file_explained: &'static str,
     pub sample_explained: &'static str,
     pub case_explained: &'static str,
@@ -373,7 +376,6 @@ pub static DE: Texts = Texts {
     from_template: "+ Aus Vorlage",
     nothing_yet: "Noch keine Projekte oder Vorgänge. Lege mit „+ Neu“ eines an.",
     overdue: "Überfällig",
-    nothing_overdue: "Nichts ist überfällig.",
     list: "Liste",
     board: "Board",
     milestones: "Meilensteine",
@@ -421,6 +423,10 @@ pub static DE: Texts = Texts {
     milestone_unmarked: "ist danach kein Meilenstein mehr",
     milestone_marked: "wird ein Meilenstein",
     after_project_due_then: "Er liegt dann nach der Frist des Projekts.",
+    cases_heading: "Vorgänge",
+    projects_heading: "Projekte",
+    today_and_overdue: "Heute und überfällig",
+    nothing_due: "Heute ist nichts fällig, und nichts ist überfällig.",
     new_file_explained: "Eine leere Datei für eigene Vorgänge und Projekte. Sie gehört dir und bleibt auf diesem Gerät.",
     sample_explained: "Ein Projekt und ein Vorgang mit Aufgaben, Fristen und Meilensteinen – zum Ausprobieren, nichts geht kaputt.",
     case_explained: "Ein Auftrag mit Frist, oft mit Aktenzeichen – z. B. eine Schriftliche Kleine Anfrage.",
@@ -645,7 +651,6 @@ pub static EN: Texts = Texts {
     from_template: "+ From template",
     nothing_yet: "No projects or cases yet. Create one with “+ New”.",
     overdue: "Overdue",
-    nothing_overdue: "Nothing is overdue.",
     list: "List",
     board: "Board",
     milestones: "Milestones",
@@ -693,6 +698,10 @@ pub static EN: Texts = Texts {
     milestone_unmarked: "is no longer a milestone afterwards",
     milestone_marked: "becomes a milestone",
     after_project_due_then: "It then lies after the project's deadline.",
+    cases_heading: "Cases",
+    projects_heading: "Projects",
+    today_and_overdue: "Today and overdue",
+    nothing_due: "Nothing is due today, and nothing is overdue.",
     new_file_explained: "An empty file for your own cases and projects. It is yours and stays on this device.",
     sample_explained: "A project and a case with tasks, deadlines and milestones – to try things out, nothing breaks.",
     case_explained: "A request with a deadline, often with a reference – e.g. a written question from parliament.",
@@ -1209,6 +1218,14 @@ pub fn kind_shown(kind: &str) -> String {
         "vorgang" | "case" => case.to_owned(),
         _ => kind.to_owned(),
     }
+}
+
+/// The tick of a task in "Heute und überfällig", as read out.
+pub fn mark_done(title: &str) -> String {
+    pick(
+        format!("„{title}“ erledigen"),
+        format!("Mark “{title}” done"),
+    )
 }
 
 /// A card made with "+" that the board's filter hides.

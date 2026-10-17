@@ -101,7 +101,8 @@ steht „durch KI“.
 
 - **Protokoll:** MCP über stdio, zeilenweises JSON-RPC 2.0 (`crates/mcp`), ohne `rmcp`.
   Unterstützte Protokollversionen: `2025-06-18`, `2025-03-26`, `2024-11-05`.
-- **Werkzeuge:** `overview`, `query` (alle Abfragen der Engine), `search_commands` (sucht auch
+- **Werkzeuge:** `overview`, `query` (alle Abfragen der Engine, z. B. `overdue` und `due_today`
+  für die Lage am Morgen), `search_commands` (sucht auch
   in den Feldbeschreibungen; nennt unter `in_the_app` den Platz im Menüband, z. B.
   „Start › Neu“, damit Claude sagen kann, wo man klickt – Tabelle `plnwrk_engine::places`,
   ein Test hält sie gleich mit dem Menüband), `run_command` (alle Befehle) und `move_task`
