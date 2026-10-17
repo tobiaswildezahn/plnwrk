@@ -389,6 +389,23 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
     in die erste Zeile).
 - **Leerzustände überall:** Symbol, ein Satz, eine Aktion.
 - **Statuszeile:** nur noch für Speichern/Wiederherstellung; Fehler gehören an den Ort.
+- **Review-Fokus 9f** (Lehren aus 9d/9e: Fehler sitzen an Übergängen; zwei Rückmeldungen an
+  einer Stelle; Tests nur über den Barrierebaum übersehen, was gezeichnet ist und was oben
+  liegt):
+  - **eine Meldung, ein Ort:** jeder Fehler steht genau an einer Stelle (am Feld *oder* in der
+    Statuszeile), nie in beiden und nie von einer späteren Meldung verdrängt;
+  - Anlegen-Dialog: Wechsel Vorgang ↔ Projekt mit schon Getipptem, Enter bei Fehler, Escape,
+    Datumswähler im Dialog, „Person anlegen…“ mitten im Formular, Vorlage ohne Vorlagen;
+  - `Project::is_case()` überall gleich (Seitenleiste, Übersicht, Dialog, Export, Uhrzeit an
+    Fristen) – und der Gegenfall: ein Projekt mit Art „Projekt“ ist kein Vorgang;
+  - Übersicht „Heute und überfällig“: Abhaken eines Meilensteins (fragt nach), einer Aufgabe
+    mit offenen Unteraufgaben;
+  - Detailbereich: Gruppen auf- und zuklappen mit getipptem, nicht übernommenem Text;
+    ausgegraute „Wartet auf“-Optionen nicht wählbar, auch nicht per Tastatur;
+  - Zeitplan: angeheftete Datumsleiste beim Scrollen, Zoomen und mit der Meilenstein-Zeile;
+  - **Gegenfall je Regel** vorab in den Tests (was *nicht* erscheinen darf);
+  - **Sichtbar gezeichnet:** Gestaltungsänderungen mit dem Test-Helfer über die gezeichneten
+    Formen belegen, nicht nur über den Barrierebaum.
 
 ## 9. Klicktests und Wiederholungstest (Phase 9g, laufend ab 9a)
 
