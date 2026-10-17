@@ -209,6 +209,8 @@ pub struct ProjectForm {
     pub owner: Option<PersonId>,
     pub status: ProjectStatus,
     pub template: bool,
+    /// A person being added right in the form ("Person anlegen…"): the name as typed.
+    pub new_person: Option<String>,
 }
 
 fn optional(text: &str) -> Value {
@@ -233,6 +235,7 @@ impl ProjectForm {
             owner: project.owner,
             status: project.status,
             template: project.template,
+            new_person: None,
         }
     }
 
@@ -253,6 +256,11 @@ impl ProjectForm {
         );
         map.insert("template".to_owned(), json!(self.template));
         Ok(map)
+    }
+
+    /// Whether the form describes a case (Vorgang): the one rule, [`plnwrk_core::is_case`].
+    pub fn is_case(&self) -> bool {
+        plnwrk_core::is_case(Some(&self.kind), Some(&self.reference))
     }
 
     /// Parameters of `project.create` (empty fields left out).
@@ -539,6 +547,8 @@ pub struct State {
     pub quitting: bool,
     /// Counts opened dialogs, so each one can focus its first field once.
     pub dialog_serial: u64,
+    /// The message standing when the dialog opened – not said again in it.
+    pub message_at_open: Option<Message>,
     /// How the recovery copy stands, for the status bar.
     pub recovery: Option<crate::autosave::Written>,
     /// The language of the interface.
@@ -549,6 +559,11 @@ pub struct State {
     pub focus_new_task: bool,
     /// The field of a new board card takes the focus in the next frame ("+" was chosen).
     pub focus_board_new: bool,
+    /// The title of a new milestone, or the name of a new person, takes the focus next frame.
+    pub focus_new_milestone: bool,
+    pub focus_new_person: bool,
+    /// A task just made from the list, lit up briefly so the eye finds it (Phase 9f).
+    pub fresh: Option<TaskId>,
     /// Files are uploaded and downloaded (the browser).
     pub browser: bool,
     /// Browser: recovery copies in the browser's storage (key and file), newest first.
@@ -641,6 +656,8 @@ impl State {
         self.close_dialog();
         self.dialog = Some(dialog);
         self.dialog_serial = self.dialog_serial.wrapping_add(1);
+        // What was said before belongs to before: the dialog says only what comes up in it.
+        self.message_at_open = self.message.clone();
     }
 
     /// Closes the dialog; a typed passphrase is wiped from memory.

@@ -433,7 +433,7 @@ fn children(ws: &Workspace, task: TaskId) -> Vec<(&Task, usize)> {
 }
 
 /// How many subtasks below a task (at any depth) are not done.
-fn open_below(ws: &Workspace, task: TaskId) -> usize {
+pub(crate) fn open_below(ws: &Workspace, task: TaskId) -> usize {
     let mut open = 0;
     let mut next = vec![task];
     while let Some(parent) = next.pop() {

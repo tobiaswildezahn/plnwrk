@@ -169,6 +169,8 @@ pub struct Action {
     pub intents: Vec<Intent>,
     /// Possible now; otherwise the ribbon shows it greyed and the palette leaves it out.
     pub enabled: bool,
+    /// Why it is not possible now, said where it is greyed (when there is something to say).
+    pub why_not: Option<&'static str>,
     /// The current choice of a group (view, theme, language): marked in the ribbon, left out
     /// of the palette.
     pub chosen: bool,
@@ -195,6 +197,7 @@ fn act(group: Group, icon: Icon, label: impl Into<String>, intents: Vec<Intent>)
         commands: &[],
         intents,
         enabled: true,
+        why_not: None,
         chosen: false,
     }
 }
@@ -217,6 +220,15 @@ impl Action {
 
     fn when(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Not possible while `blocked`, and why.
+    fn unless(mut self, blocked: bool, why: &'static str) -> Self {
+        if blocked {
+            self.enabled = false;
+            self.why_not = Some(why);
+        }
         self
     }
 
@@ -382,11 +394,16 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
         .when(open),
     );
     a.push(
-        act(Group::New, Icon::Project, r.new_project, vec![new_form("")])
-            .long(r.new_project_long)
-            .large()
-            .runs(&["project.create"])
-            .when(open),
+        act(
+            Group::New,
+            Icon::Project,
+            r.new_project,
+            vec![new_form(text::t().kinds[0])],
+        )
+        .long(r.new_project_long)
+        .large()
+        .runs(&["project.create"])
+        .when(open),
     );
     let project = match state.view {
         View::Project(id) => doc.and_then(|d| d.session.workspace().project(id)),
@@ -398,6 +415,7 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
             .runs(&["task.create"])
             .when(project.is_some()),
     );
+    let templates = doc.is_some_and(|d| d.session.workspace().projects().any(|p| p.template));
     let from = Intent::Open(Dialog::FromTemplate(TemplateForm {
         start: today.map(crate::dates::format).unwrap_or_default(),
         ..TemplateForm::default()
@@ -406,7 +424,8 @@ pub fn all(doc: Option<&OpenDoc>, state: &State) -> Vec<Action> {
         act(Group::New, Icon::Plus, r.from_template, vec![from])
             .long(t.from_template_title)
             .runs(&["project.instantiate"])
-            .when(open),
+            .when(open)
+            .unless(open && !templates, t.no_templates),
     );
     let session = doc.map(|d| &d.session);
     a.push(

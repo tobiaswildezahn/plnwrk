@@ -102,7 +102,11 @@ fn the_sample_opens_and_shows_its_projects() {
             .count()
             >= 1
     );
-    assert!(harness.query_by_label(text::t().overdue).is_some());
+    assert!(
+        harness
+            .query_by_label(text::t().today_and_overdue)
+            .is_some()
+    );
 }
 
 #[test]
@@ -135,11 +139,16 @@ fn a_wrong_date_keeps_the_dialog_open_and_says_why() {
     click(&mut harness, text::t().new_project);
     type_into(&mut harness, text::t().title, "Umzug", false);
     type_into(&mut harness, text::t().due, "31.02.2026", false);
-    click(&mut harness, text::t().create);
+    // Left: the mistake is said at the field, and "Anlegen" waits (one message, one place).
+    type_into(&mut harness, text::t().title, "Umzug", false);
+    let said = crate::dates::parse("31.02.2026").unwrap_err();
+    assert!(harness.query_by_label(&said).is_some(), "{said}");
+    harness.get_by_label(text::t().create).click();
+    harness.run();
     let app = harness.state();
     assert!(projects(app).is_empty());
     assert!(app.state.dialog.is_some(), "input stays");
-    assert!(app.state.message.as_ref().is_some_and(|m| m.error));
+    assert!(app.state.message.is_none(), "{:?}", app.state.message);
 }
 
 #[test]
@@ -155,12 +164,7 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     let parent = task_named(harness.state(), "Lage vorbereiten").unwrap();
     assert!(task_named(harness.state(), "Einladung").is_some());
 
-    harness
-        .get_all_by_label(text::t().add_subtask)
-        .next()
-        .unwrap()
-        .click();
-    harness.run();
+    add_subtask_to(&mut harness, "Lage vorbereiten");
     type_into(
         &mut harness,
         text::t().new_subtask_hint,
@@ -1123,6 +1127,14 @@ fn a_deadline_is_picked_in_the_calendar_and_gets_a_time() {
     let mut harness = harness(PlnwrkApp::default());
     click(&mut harness, text::t().new_file);
     click(&mut harness, text::t().new_project);
+    // A case has the time field open at once (the one rule, `is_case`).
+    assert!(
+        harness
+            .query_by(|n| n.placeholder() == Some(text::t().time_hint))
+            .is_some()
+    );
+    // A project: the time field opens on request.
+    click(&mut harness, text::t().kinds[0]);
     type_into(&mut harness, text::t().title, "Übung", false);
     // Start and deadline each have a calendar button; the deadline's is the second.
     harness
@@ -1194,12 +1206,7 @@ fn a_task_becomes_a_milestone_but_not_a_subtask() {
     let mut harness = with_project("Umzug");
     type_into(&mut harness, text::t().new_task_hint, "Übergabe", true);
     type_into(&mut harness, text::t().new_task_hint, "Packen", true);
-    harness
-        .get_all_by_label(text::t().add_subtask)
-        .last()
-        .unwrap()
-        .click();
-    harness.run();
+    add_subtask_to(&mut harness, "Packen");
     type_into(&mut harness, text::t().new_subtask_hint, "Kartons", true);
     click(&mut harness, "Übergabe");
     harness
@@ -3264,7 +3271,7 @@ fn a_deadline_typed_and_left_by_saving_moves_what_waits_too() {
 }
 
 #[test]
-fn waits_for_does_not_offer_what_would_make_a_circle() {
+fn waits_for_greys_what_would_make_a_circle_and_says_why() {
     let (mut harness, first, second) = two_dated_tasks();
     let project = projects(harness.state()).first().unwrap().id.to_string();
     harness.state_mut().apply(crate::Intent::run(
@@ -3278,20 +3285,47 @@ fn waits_for_does_not_offer_what_would_make_a_circle() {
             .state_mut()
             .apply(crate::Intent::run("dependency.add", link));
     }
-    // Both others wait for the first (one through the other): nothing left to offer.
+    let greyed = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.query_all_by_label(title)
+            .any(|n| egui_kittest::kittest::NodeT::accesskit_node(&n).is_disabled())
+    };
+    let open_choice = |h: &mut Harness<'_, PlnwrkApp>| {
+        h.get_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
+            .click();
+        h.run();
+    };
+    // Both others wait for the first (one through the other): offered, but greyed (Phase 9f:
+    // not missing without a word).
     click(&mut harness, "Ausschreibung");
-    assert!(
-        harness
-            .query_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
-            .is_none()
-    );
-    // The last may still wait for the first directly.
+    open_choice(&mut harness);
+    assert!(greyed(&harness, "Vergabe") && greyed(&harness, "Abnahme"));
+    harness.key_press(Key::Escape);
+    harness.run();
+    // The last may still wait for the first directly; what it waits for already is greyed.
     click(&mut harness, "Abnahme");
-    assert!(
-        harness
-            .query_by(|n| n.value().as_deref() == Some(text::t().add_predecessor))
-            .is_some()
-    );
+    open_choice(&mut harness);
+    assert!(!greyed(&harness, "Ausschreibung"));
+    assert!(greyed(&harness, "Vergabe"));
+}
+
+/// The reasons of the circle rule (one rule for the details and the schedule).
+#[test]
+fn the_circle_rule_says_why() {
+    let (harness, first, second) = two_dated_tasks();
+    let ws = harness.state().doc().unwrap().session.workspace().clone();
+    let mut ws = ws;
+    ws.put(plnwrk_core::Entity::Dependency(plnwrk_core::Dependency {
+        id: plnwrk_core::DependencyId::from_ulid(ulid::Ulid(99)),
+        from: first,
+        to: second,
+        kind: plnwrk_core::DependencyKind::FinishToStart,
+        lag_days: 0,
+    }));
+    let of_second = crate::views::detail::precede_refusal(&ws, second);
+    assert_eq!(of_second(second), Some(text::t().not_itself));
+    assert_eq!(of_second(first), Some(text::t().waits_already));
+    let of_first = crate::views::detail::precede_refusal(&ws, first);
+    assert_eq!(of_first(second), Some(text::t().would_circle));
 }
 
 #[test]
@@ -4374,11 +4408,11 @@ fn collapsed_ribbon() -> Harness<'static, PlnwrkApp> {
 #[test]
 fn a_peek_lies_over_the_content_and_closes_with_an_action_or_escape() {
     let mut harness = collapsed_ribbon();
-    let heading = harness.get_by_label(text::t().overdue).rect();
+    let heading = harness.get_by_label(text::t().today_and_overdue).rect();
     click(&mut harness, text::t().ribbon.start);
     assert!(ribbon_open(&harness), "peek");
     assert_eq!(
-        harness.get_by_label(text::t().overdue).rect(),
+        harness.get_by_label(text::t().today_and_overdue).rect(),
         heading,
         "the content does not move"
     );
@@ -5792,7 +5826,7 @@ fn escape_on_the_milestone_question_is_cancel() {
 
 /// The wide schedule with a milestone "Ziel" in 10 days, its rows scrolled down: the pinned row
 /// lies over some of them. Returns the pinned row's rect and a row hidden under it.
-fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, String) {
+fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, String, f32) {
     let mut harness = wide_schedule(40);
     let project = projects(harness.state()).first().unwrap().id.to_string();
     let due = day_from_today(&harness, 10);
@@ -5805,25 +5839,30 @@ fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, S
     for _ in 0..3 {
         wheel(&mut harness, at, Modifiers::NONE);
     }
-    let band = harness
+    // The whole milestone row (32 px high) around its diamond.
+    let diamond = harness
         .get_by(|n| n.label().is_some_and(|l| l.starts_with("♦ Ziel: ")))
         .rect();
-    let hidden = (0..40)
+    let band = egui::Rect::from_center_size(diamond.center(), egui::vec2(diamond.width(), 32.0));
+    // A bar wholly under it (bars are 16 px high), and the height of its middle.
+    let (hidden, y) = (0..40)
         .map(|n| format!("Zeile {n}"))
-        .find(|title| {
+        .find_map(|title| {
             let start = format!("{title}: ");
-            harness
+            let y = harness
                 .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
-                .any(|n| (n.rect().center().y - band.center().y).abs() < 6.0)
+                .map(|n| n.rect().center().y)
+                .find(|y| *y - 8.0 >= band.top() && *y + 8.0 <= band.bottom())?;
+            Some((title, y))
         })
         .expect("a row under the milestone row");
-    (harness, band, hidden)
+    (harness, band, hidden, y)
 }
 
 /// Review 9d (F1): a bar hidden under the pinned row cannot be dragged through it.
 #[test]
 fn a_bar_under_the_milestone_row_cannot_be_dragged_through_it() {
-    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let (mut harness, band, hidden, y) = rows_under_the_milestone_row();
     let id = task_named(harness.state(), &hidden).unwrap().id;
     let before = dates_of(&harness, id);
     // On the pinned row, over the hidden bar, away from the diamond.
@@ -5838,18 +5877,14 @@ fn a_bar_under_the_milestone_row_cannot_be_dragged_through_it() {
         (x - ziel).abs() > 30.0,
         "the hidden bar lies apart from the diamond"
     );
-    drag(
-        &mut harness,
-        egui::pos2(x, band.center().y),
-        egui::vec2(66.0, 0.0),
-    );
+    drag(&mut harness, egui::pos2(x, y), egui::vec2(66.0, 0.0));
     assert_eq!(dates_of(&harness, id), before);
 }
 
 /// Review 9d (K3): a task chosen elsewhere whose row lies under the pinned row comes into view.
 #[test]
 fn a_chosen_task_under_the_milestone_row_comes_into_view() {
-    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let (mut harness, band, hidden, _) = rows_under_the_milestone_row();
     let id = task_named(harness.state(), &hidden).unwrap().id;
     harness.state_mut().apply(crate::Intent::Select(Some(id)));
     harness.run_steps(30);
@@ -6222,7 +6257,7 @@ fn protecting_waits_for_the_answer_about_a_typed_milestone_date() {
 /// Follow-up review 9d: a link cannot be dropped onto a bar hidden under the milestone row.
 #[test]
 fn a_link_cannot_be_dropped_onto_a_bar_under_the_milestone_row() {
-    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let (mut harness, band, hidden, y) = rows_under_the_milestone_row();
     let links = |h: &Harness<'_, PlnwrkApp>| {
         h.state()
             .doc()
@@ -6251,7 +6286,7 @@ fn a_link_cannot_be_dropped_onto_a_bar_under_the_milestone_row() {
     drag(
         &mut harness,
         handle.center(),
-        egui::pos2(x, band.center().y) - handle.center(),
+        egui::pos2(x, y) - handle.center(),
     );
     assert_eq!(links(&harness), before);
 }
@@ -7100,4 +7135,1115 @@ fn the_hint_sits_below_a_tall_held_card() {
     assert!((hint.left() - done.x).abs() < 40.0, "{hint:?} at {done:?}");
     harness.drop_at(done);
     harness.run();
+}
+
+/// What the last frame painted as text, in paint order (later lies on top), with where –
+/// for checks the accessibility tree cannot make: what is drawn, and what covers what.
+fn painted_texts(harness: &Harness<'_, PlnwrkApp>) -> Vec<(String, egui::Rect)> {
+    fn texts_in(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(text) => {
+                out.push((text.galley.text().to_owned(), text.visual_bounding_rect()));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    texts_in(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for clipped in &harness.output().shapes {
+        // Only what is inside its clip shows.
+        let before = out.len();
+        texts_in(&clipped.shape, &mut out);
+        for (_, rect) in out.iter_mut().skip(before) {
+            *rect = rect.intersect(clipped.clip_rect);
+        }
+    }
+    out.retain(|(_, rect)| rect.width() > 0.0 && rect.height() > 0.0);
+    out
+}
+
+/// The helper itself: a heading painted in the overview is found where its label is.
+#[test]
+fn painted_texts_finds_what_is_drawn_and_where() {
+    let harness = harness_with_sample();
+    let painted = painted_texts(&harness);
+    let label = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .rect();
+    assert!(
+        painted
+            .iter()
+            .any(|(t, r)| t == "Digitalfunk Umrüstung Wachen" && r.intersects(label)),
+        "{painted:?}"
+    );
+    assert!(!painted.iter().any(|(t, _)| t == "Nicht gezeichnet"));
+}
+
+/// Phase 9f (Tobi: "Datumsleiste anheften"): the time axis – weeks, "Heute", the headings of
+/// the table – stays at the top of the view while the rows scroll, painted over them.
+#[test]
+fn the_time_axis_stays_in_view_when_the_rows_scroll() {
+    let mut harness = wide_schedule(40);
+    let week = |h: &Harness<'_, PlnwrkApp>| {
+        painted_texts(h)
+            .into_iter()
+            .find(|(t, _)| t.starts_with(text::week(1).split(' ').next().unwrap_or("KW")))
+            .map(|(_, r)| r)
+    };
+    let painted = |h: &Harness<'_, PlnwrkApp>, said: &str| {
+        painted_texts(h)
+            .into_iter()
+            .filter(|(t, _)| t == said)
+            .map(|(_, r)| r)
+            .collect::<Vec<_>>()
+    };
+    let week_before = week(&harness).expect("a week label");
+    let heading_before = painted(&harness, text::t().ribbon.task)[0];
+    let today_before = painted(&harness, text::t().today);
+    let first = bar(&harness, "Jetzt").top();
+    let at = bar(&harness, "Jetzt").center() + egui::vec2(120.0, 0.0);
+    for _ in 0..3 {
+        wheel(&mut harness, at, Modifiers::NONE);
+    }
+    let moved = bar(&harness, "Jetzt").top();
+    assert!(
+        moved < first - 100.0,
+        "the rows scrolled: {first} → {moved}"
+    );
+    let week_after = week(&harness).expect("still painted");
+    assert!(
+        (week_after.top() - week_before.top()).abs() < 1.0,
+        "{week_before:?} → {week_after:?}"
+    );
+    let heading_after = painted(&harness, text::t().ribbon.task)[0];
+    assert!((heading_after.top() - heading_before.top()).abs() < 1.0);
+    // "Heute" (the button above says it too): the one in the axis stays in the axis.
+    let in_axis = |r: &egui::Rect| {
+        r.top() >= heading_before.top() - 40.0 && r.bottom() <= heading_before.bottom() + 2.0
+    };
+    assert!(today_before.iter().any(in_axis), "{today_before:?}");
+    assert!(painted(&harness, text::t().today).iter().any(in_axis));
+    // Over the rows scrolled under it: nothing is painted on top of the heading.
+    let texts = painted_texts(&harness);
+    let last = texts
+        .iter()
+        .rposition(|(_, r)| r.intersects(heading_after.shrink(1.0)))
+        .unwrap();
+    assert_eq!(texts[last].0, text::t().ribbon.task, "{:?}", texts[last]);
+}
+
+/// Phase 9f: a bar hidden under the pinned time axis cannot be dragged through it.
+#[test]
+fn a_bar_under_the_time_axis_cannot_be_dragged_through_it() {
+    let mut harness = wide_schedule(40);
+    let at = bar(&harness, "Jetzt").center() + egui::vec2(120.0, 0.0);
+    for _ in 0..3 {
+        wheel(&mut harness, at, Modifiers::NONE);
+    }
+    // The axis: from the top of the view down to just below its headings.
+    let heading = painted_texts(&harness)
+        .into_iter()
+        .find(|(t, _)| t == text::t().ribbon.task)
+        .map(|(_, r)| r)
+        .unwrap();
+    let axis = egui::Rect::from_min_max(
+        egui::pos2(0.0, heading.bottom() + 3.0 - 40.0),
+        egui::pos2(f32::INFINITY, heading.bottom() + 3.0),
+    );
+    let (hidden, y) = (0..40)
+        .map(|n| format!("Zeile {n}"))
+        .find_map(|title| {
+            let start = format!("{title}: ");
+            let y = harness
+                .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+                .map(|n| n.rect().center().y)
+                .find(|y| *y - 8.0 >= axis.top() && *y + 8.0 <= axis.bottom())?;
+            Some((title, y))
+        })
+        .expect("a bar under the axis");
+    let id = task_named(harness.state(), &hidden).unwrap().id;
+    let before = dates_of(&harness, id);
+    let start = format!("{hidden}: ");
+    let x = harness
+        .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+        .map(|n| n.rect().center().x)
+        .fold(f32::MIN, f32::max);
+    drag(&mut harness, egui::pos2(x, y), egui::vec2(66.0, 0.0));
+    assert_eq!(dates_of(&harness, id), before);
+}
+
+/// A new file with the new-project dialog open ("+ Neu": a case is preselected).
+fn new_project_dialog() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::t().new_file);
+    click(&mut harness, text::t().new_project);
+    harness
+}
+
+/// Phase 9f: Enter creates; without a title nothing is created, and it says why.
+#[test]
+fn the_new_dialog_creates_with_enter_and_waits_for_a_title() {
+    let mut harness = new_project_dialog();
+    harness.get_by_label(text::t().create).click();
+    harness.run();
+    assert!(
+        projects(harness.state()).is_empty(),
+        "no title, nothing created"
+    );
+    assert!(harness.query_by_label(text::t().title_needed).is_some());
+    // Said in the dialog only – not as a refusal in the status line too.
+    assert!(
+        harness.state().state.message.is_none(),
+        "{:?}",
+        harness.state().state.message
+    );
+    type_into(&mut harness, text::t().title, "SKA 23/999", true);
+    let created = projects(harness.state());
+    assert_eq!(created.len(), 1);
+    // Preselected: a case.
+    assert!(created[0].is_case(), "{:?}", created[0].kind);
+}
+
+/// Phase 9f: the choice writes the kind; a reference only for a case – typed and then
+/// switched to a project, it is kept in the form but not given to the project.
+#[test]
+fn a_project_from_the_dialog_is_no_case_even_with_a_reference_typed() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().reference, "23/1234", false);
+    click(&mut harness, text::t().kinds[0]);
+    assert!(
+        harness.query_by_label(text::t().reference).is_none(),
+        "no reference for a project"
+    );
+    type_into(&mut harness, text::t().title, "Umbau Wache", true);
+    let created = projects(harness.state());
+    assert_eq!(created.len(), 1);
+    assert!(!created[0].is_case());
+    assert_eq!(created[0].reference, None);
+    assert_eq!(created[0].kind.as_deref(), Some(text::t().kinds[0]));
+}
+
+/// Phase 9f: "Person anlegen…" right in the choice: Enter adds the person and puts them in
+/// charge – the project is not created by that Enter.
+#[test]
+fn a_person_is_added_right_in_the_new_dialog() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, "Übung", false);
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    type_where_the_focus_is(&mut harness, "Anna Berg");
+    assert!(
+        projects(harness.state()).is_empty(),
+        "Enter added the person only"
+    );
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .find(|p| p.name == "Anna Berg")
+        .map(|p| p.id);
+    assert!(anna.is_some());
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the dialog stays open")
+    };
+    assert_eq!(form.owner, anna);
+    assert!(form.new_person.is_none());
+}
+
+/// Phase 9f: "Aus Vorlage" is greyed while there is no template – and possible once there is.
+#[test]
+fn from_template_waits_for_a_template() {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::t().new_file);
+    // In the sidebar and in the ribbon (each has its own wording).
+    let disabled = |h: &Harness<'_, PlnwrkApp>| {
+        let all: Vec<bool> = [text::t().from_template, text::t().from_template_title]
+            .iter()
+            .flat_map(|label| h.query_all_by_label(label).collect::<Vec<_>>())
+            .map(|n| egui_kittest::kittest::NodeT::accesskit_node(&n).is_disabled())
+            .collect();
+        assert!(all.len() >= 2, "{all:?}");
+        all.iter().all(|d| *d)
+    };
+    assert!(disabled(&harness));
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Muster", "template": true}),
+    ));
+    harness.run();
+    assert!(!disabled(&harness));
+}
+
+/// Phase 9f: the base kinds are shown in the language of the interface; others as typed.
+#[test]
+fn base_kinds_are_shown_in_the_language_of_the_interface() {
+    assert_eq!(text::kind_shown("Vorgang"), text::t().kinds[1]);
+    assert_eq!(text::kind_shown("case"), text::t().kinds[1]);
+    assert_eq!(text::kind_shown("Project"), text::t().kinds[0]);
+    assert_eq!(text::kind_shown("SKA"), "SKA");
+}
+
+/// Phase 9f (known since the real test): a case without a reference gets a time at its
+/// deadlines too – the one rule `is_case`, here on a milestone's card.
+#[test]
+fn a_case_without_a_reference_offers_a_time_at_its_deadlines() {
+    let mut harness = one_milestone();
+    assert!(projects(harness.state())[0].reference.is_none());
+    let times = |h: &Harness<'_, PlnwrkApp>| {
+        h.query_all_by(|n| n.placeholder() == Some(text::t().time_hint))
+            .count()
+    };
+    // The form for a new milestone has one already; the card's date gets its own.
+    let before = times(&harness);
+    assert!(before >= 1);
+    click(&mut harness, text::t().change_date);
+    assert_eq!(times(&harness), before + 1);
+}
+
+/// Phase 9f: the start page offers two ways in, each said in a sentence, with buttons side by
+/// side and level; in the browser its limits stand in the footer only, not in the page.
+#[test]
+fn the_start_page_offers_two_ways_in_said_in_a_sentence() {
+    let (harness, _browser) = in_browser();
+    for sentence in [text::t().new_file_explained, text::t().sample_explained] {
+        assert!(harness.query_by_label(sentence).is_some(), "{sentence}");
+    }
+    let new = harness.get_by_label(text::t().new_file).rect();
+    let sample = harness.get_by_label(text::t().open_sample).rect();
+    assert!(sample.left() > new.right(), "side by side");
+    assert!(
+        (new.top() - sample.top()).abs() < 1.0,
+        "level: {new:?} {sample:?}"
+    );
+    // The browser's limits: in the footer, said once – not in the page as well.
+    assert_eq!(
+        harness.query_all_by_label(text::t().browser_not_vs).count(),
+        1
+    );
+    assert!(
+        harness
+            .query_by_label(text::t().browser_not_vs_hint)
+            .is_none()
+    );
+}
+
+/// A project with: "Alt" 2 days overdue, "Heute" due today, "Morgen" tomorrow, "Fertig" due
+/// today but done, "Mit Teilen" due today with an open subtask, milestone "Ziel" due today.
+fn today_and_overdue() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Lage");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    for (title, days, extra) in [
+        ("Alt", -2, serde_json::json!({})),
+        ("Heute", 0, serde_json::json!({})),
+        ("Morgen", 1, serde_json::json!({})),
+        ("Fertig", 0, serde_json::json!({"status": "done"})),
+        ("Mit Teilen", 0, serde_json::json!({})),
+        ("Ziel", 0, serde_json::json!({"milestone": true})),
+    ] {
+        let mut params = serde_json::json!({"project": project, "title": title,
+                                            "due": day_from_today(&harness, days)});
+        if let (Some(p), Some(e)) = (params.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("task.create", params));
+    }
+    harness.run();
+    let parent = task_named(harness.state(), "Mit Teilen")
+        .unwrap()
+        .id
+        .to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Teil", "parent": parent}),
+    ));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Overview));
+    harness.run();
+    harness
+}
+
+/// Phase 9f: "Heute und überfällig" lists what is overdue and what is due today – not what is
+/// done or due tomorrow – each ticked off right there.
+#[test]
+fn today_and_overdue_are_ticked_off_in_the_overview() {
+    let mut harness = today_and_overdue();
+    let tick = |title: &str| text::mark_done(title);
+    for listed in ["Alt", "Heute", "Mit Teilen", "Ziel"] {
+        assert!(harness.query_by_label(&tick(listed)).is_some(), "{listed}");
+    }
+    for not_listed in ["Morgen", "Fertig"] {
+        assert!(
+            harness.query_by_label(&tick(not_listed)).is_none(),
+            "{not_listed}"
+        );
+    }
+    // A task: done at once.
+    harness.get_by_label(&tick("Heute")).click();
+    harness.run();
+    assert_eq!(
+        task_named(harness.state(), "Heute").unwrap().status,
+        TaskStatus::Done
+    );
+    // With an open subtask: asked about it first.
+    harness.get_by_label(&tick("Mit Teilen")).click();
+    harness.run();
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::CloseSubtasks { .. })
+    ));
+    click(&mut harness, text::t().cancel);
+    // A milestone: the question about milestones.
+    harness.get_by_label(&tick("Ziel")).click();
+    harness.run();
+    assert!(asking(&harness));
+    assert_ne!(
+        task_named(harness.state(), "Ziel").unwrap().status,
+        TaskStatus::Done
+    );
+}
+
+/// Phase 9f: the project's light on its card – at risk with overdue work; on plan without;
+/// overdue once its own deadline passed.
+#[test]
+fn a_project_card_shows_its_light() {
+    let mut harness = today_and_overdue();
+    let chip = |h: &Harness<'_, PlnwrkApp>, light: super::views::milestones::Light| {
+        h.query_by_label(light.name()).is_some()
+    };
+    use super::views::milestones::Light;
+    assert!(chip(&harness, Light::AtRisk), "overdue work");
+    assert!(!chip(&harness, Light::OnPlan));
+    // Its reason is in the facts already ("… · 1 überfällig"): not said twice.
+    assert!(harness.query_by_label(&text::overdue_tasks(1)).is_none());
+    let alt = task_named(harness.state(), "Alt").unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.set_status",
+        serde_json::json!({"task": alt, "status": "done"}),
+    ));
+    harness.run();
+    assert!(chip(&harness, Light::OnPlan), "nothing late any more");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let yesterday = day_from_today(&harness, -1);
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": project, "due": yesterday}),
+    ));
+    harness.run();
+    assert!(chip(&harness, Light::Overdue), "its own deadline passed");
+}
+
+/// Phase 9f: the sidebar groups cases and projects (the rule `is_case`), each group only when
+/// it has entries.
+#[test]
+fn the_sidebar_groups_cases_and_projects() {
+    let harness = harness_with_sample();
+    assert!(harness.query_by_label(text::t().cases_heading).is_some());
+    assert!(harness.query_by_label(text::t().projects_heading).is_some());
+    let mut harness = harness_after_new_file();
+    harness.state_mut().apply(crate::Intent::run(
+        "project.create",
+        serde_json::json!({"title": "Umbau", "kind": text::t().kinds[0]}),
+    ));
+    harness.run();
+    assert!(harness.query_by_label(text::t().projects_heading).is_some());
+    assert!(
+        harness.query_by_label(text::t().cases_heading).is_none(),
+        "no cases, no heading"
+    );
+}
+
+fn harness_after_new_file() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness(PlnwrkApp::default());
+    click(&mut harness, text::t().new_file);
+    harness
+}
+
+/// Phase 9f: cards that do not fit side by side go to the next row (egui does not wrap
+/// framed cards itself).
+#[test]
+fn overview_cards_wrap_into_rows() {
+    let mut harness = harness_with_sample();
+    harness.set_size(egui::vec2(900.0, 900.0));
+    harness.run();
+    let first = harness
+        .get_all_by_label("SKA 23/1234 Sirenenwarnung")
+        .map(|n| n.rect())
+        .find(|r| r.left() > 250.0)
+        .unwrap();
+    let second = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .map(|n| n.rect())
+        .find(|r| r.left() > 250.0)
+        .unwrap();
+    assert!(second.top() > first.bottom(), "{first:?} {second:?}");
+    assert!(second.right() <= 900.0);
+}
+
+/// "+ Unteraufgabe" of a task in the list: shown where the pointer is (Phase 9f), so the
+/// pointer goes to its row first.
+fn add_subtask_to(harness: &mut Harness<'_, PlnwrkApp>, title: &str) {
+    let row = harness.get_by_label(title).rect().center();
+    harness.hover_at(row);
+    // A tooltip fades in there: a few frames, not "until still".
+    harness.run_steps(3);
+    harness.get_by_label(text::t().add_subtask).click();
+    harness.run_steps(3);
+}
+
+/// The filled rectangles the last frame painted (colour and where) – for highlights.
+fn painted_fills(harness: &Harness<'_, PlnwrkApp>) -> Vec<(egui::Color32, egui::Rect)> {
+    fn fills_in(shape: &egui::Shape, out: &mut Vec<(egui::Color32, egui::Rect)>) {
+        match shape {
+            egui::Shape::Rect(rect) if rect.fill != egui::Color32::TRANSPARENT => {
+                out.push((rect.fill, rect.rect));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    fills_in(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for clipped in &harness.output().shapes {
+        fills_in(&clipped.shape, &mut out);
+    }
+    out
+}
+
+/// A project with "Packen" (in progress, Anna Berg) and "Laden" (open), in the list.
+fn list_with_columns() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Umzug");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "person.create",
+        serde_json::json!({"name": "Anna Berg"}),
+    ));
+    harness.run();
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .next()
+        .unwrap()
+        .id
+        .to_string();
+    for (title, extra) in [
+        (
+            "Packen",
+            serde_json::json!({"status": "in_progress", "assignee": anna}),
+        ),
+        ("Laden", serde_json::json!({})),
+    ] {
+        let mut params = serde_json::json!({"project": project, "title": title});
+        if let (Some(p), Some(e)) = (params.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("task.create", params));
+    }
+    harness.run();
+    harness
+}
+
+/// Phase 9f: the list has columns with headings – deadline, who, status – that give way from
+/// the right in a narrow window; the values stand in them.
+#[test]
+fn the_list_has_columns_with_headings() {
+    let mut harness = list_with_columns();
+    let painted = |h: &Harness<'_, PlnwrkApp>| {
+        painted_texts(h)
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect::<Vec<_>>()
+    };
+    let headings = [
+        text::t().ribbon.task,
+        text::t().due,
+        text::t().assignee,
+        text::t().status,
+    ];
+    let now = painted(&harness);
+    for heading in headings {
+        assert!(now.iter().any(|t| t == heading), "{heading}: {now:?}");
+    }
+    // The values: the person's full name, a status other than "Offen".
+    assert!(harness.query_by_label("Anna Berg").is_some());
+    assert!(
+        harness
+            .query_by_label(text::task_status(TaskStatus::InProgress))
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_by_label(text::task_status(TaskStatus::Todo))
+            .is_none(),
+        "„Offen“ goes without saying"
+    );
+    // Narrow: the status gives way first; the title stays.
+    harness.set_size(egui::vec2(760.0, 900.0));
+    harness.run();
+    let narrow = painted(&harness);
+    assert!(!narrow.iter().any(|t| t == text::t().status), "{narrow:?}");
+    assert!(narrow.iter().any(|t| t == "Packen"));
+}
+
+/// Phase 9f: "+ Unteraufgabe" shows where the pointer is and at the chosen task – not on
+/// every row.
+#[test]
+fn add_subtask_shows_only_at_the_row_in_question() {
+    let mut harness = list_with_columns();
+    // The pointer away from the list.
+    harness.hover_at(egui::pos2(5.0, 5.0));
+    harness.run_steps(3);
+    assert_eq!(harness.query_all_by_label(text::t().add_subtask).count(), 0);
+    let row = harness.get_by_label("Laden").rect().center();
+    harness.hover_at(row);
+    harness.run_steps(3);
+    assert_eq!(harness.query_all_by_label(text::t().add_subtask).count(), 1);
+    harness.hover_at(egui::pos2(5.0, 5.0));
+    let packen = task_named(harness.state(), "Packen").unwrap().id;
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(packen)));
+    harness.run_steps(3);
+    assert_eq!(
+        harness.query_all_by_label(text::t().add_subtask).count(),
+        1,
+        "at the chosen one"
+    );
+}
+
+/// Phase 9f: a task just made from the list is lit up – that one only – and not for long.
+#[test]
+fn a_new_task_is_lit_up_for_a_moment() {
+    let mut harness = list_with_columns();
+    type_into(&mut harness, text::t().new_task_hint, "Fahren", true);
+    let fahren = task_named(harness.state(), "Fahren").unwrap().id;
+    assert_eq!(harness.state().state.fresh, Some(fahren));
+    let lit = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        let soft = [
+            crate::design::tokens::of(false).accent_soft,
+            crate::design::tokens::of(true).accent_soft,
+        ];
+        let row = h.get_by_label(title).rect();
+        painted_fills(h)
+            .iter()
+            .any(|(c, r)| soft.contains(c) && r.contains(row.center()))
+    };
+    assert!(lit(&harness, "Fahren"));
+    assert!(!lit(&harness, "Laden"), "only the new one");
+    // Two seconds later (60 frames a second): no longer.
+    harness.run_steps(120);
+    assert!(!lit(&harness, "Fahren"));
+    assert_eq!(harness.state().state.fresh, None);
+}
+
+/// Phase 9f: the details in groups that fold away; a date typed and then folded away is not
+/// lost – it counts as unsaved and is taken like any typed text.
+#[test]
+fn the_details_fold_in_groups_and_keep_what_was_typed() {
+    let (mut harness, _, _) = two_dated_tasks();
+    click(&mut harness, "Vergabe");
+    let t = text::t();
+    for heading in [
+        t.group_assignment,
+        t.group_dates,
+        t.subtasks,
+        t.waits_for,
+        t.group_notes,
+    ] {
+        assert!(harness.query_by_label(heading).is_some(), "{heading}");
+    }
+    type_into(&mut harness, t.due, "20.10.2026", false);
+    click(&mut harness, t.group_dates);
+    assert!(harness.query_by_label(t.due).is_none(), "folded away");
+    assert!(harness.state().has_unsaved_changes());
+    assert!(harness.state_mut().flush_draft().is_none());
+    assert_eq!(
+        task_named(harness.state(), "Vergabe")
+            .unwrap()
+            .due
+            .map(|d| d.to_string()),
+        Some("2026-10-20".to_owned())
+    );
+}
+
+/// Phase 9f: "Aufgabe löschen" stands apart at the bottom, below everything else.
+#[test]
+fn delete_stands_apart_at_the_bottom_of_the_details() {
+    let (mut harness, _, _) = two_dated_tasks();
+    harness.set_size(egui::vec2(1400.0, 2400.0));
+    click(&mut harness, "Vergabe");
+    let delete = harness.get_by_label(text::t().delete_task).rect();
+    let notes = harness.get_by_label(text::t().group_notes).rect();
+    let history = harness.get_by_label(text::t().history).rect();
+    assert!(delete.top() > notes.bottom() && delete.top() > history.bottom() + 16.0);
+}
+
+/// Phase 9f: a date that does not fit what a task waits for is marked at both tasks – in the
+/// schedule's words – and not at a task that has nothing to do with it.
+#[test]
+fn a_date_conflict_is_marked_in_the_details() {
+    let (mut harness, first, second) = two_dated_tasks();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Abseits", "due": "2026-10-20"}),
+    ));
+    // "Vergabe" (from 15.10.) waits for "Ausschreibung" moved to end on 18.10.: a conflict.
+    harness.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": first.to_string(), "due": "2026-10-18"}),
+    ));
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": first.to_string(), "to": second.to_string()}),
+    ));
+    harness.run();
+    let said = text::waits_too_short("Ausschreibung", "Vergabe");
+    let abseits = task_named(harness.state(), "Abseits").unwrap().id;
+    for (task, marked) in [(second, true), (first, true), (abseits, false)] {
+        harness.state_mut().apply(crate::Intent::Select(Some(task)));
+        harness.run();
+        assert_eq!(harness.query_by_label(&said).is_some(), marked, "{task}");
+    }
+}
+
+/// Phase 9f: every empty view says so with a sentence and offers the step that helps – which
+/// puts the cursor where the next thing is typed.
+#[test]
+fn empty_views_offer_the_next_step() {
+    let t = text::t();
+    // The overview: a new case.
+    let mut harness = harness_after_new_file();
+    assert!(harness.query_by_label(t.nothing_yet).is_some());
+    click(&mut harness, t.first_case);
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the dialog for a new case")
+    };
+    assert!(plnwrk_core::is_case(Some(&form.kind), None));
+    // The list: the cursor in the field for a new task.
+    let mut harness = with_project("Leer");
+    assert!(harness.query_by_label(t.no_tasks).is_some());
+    click(&mut harness, t.first_task);
+    type_where_the_focus_is(&mut harness, "Erste");
+    assert!(task_named(harness.state(), "Erste").is_some());
+    assert!(
+        harness.query_by_label(t.no_tasks).is_none(),
+        "not empty any more"
+    );
+    // The milestones: the cursor in the title of a new one.
+    click(&mut harness, t.milestones);
+    assert!(harness.query_by_label(t.milestones_empty).is_some());
+    click(&mut harness, t.first_milestone);
+    harness.event(egui::Event::Text("Abgabe".to_owned()));
+    harness.run();
+    assert_eq!(harness.state().state.forms.milestone_title, "Abgabe");
+    // The people: the cursor in the name of a new person.
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::People));
+    harness.run();
+    assert!(harness.query_by_label(t.people_empty).is_some());
+    click(&mut harness, t.add_person);
+    harness.event(egui::Event::Text("Anna".to_owned()));
+    harness.run();
+    assert_eq!(harness.state().state.forms.person.name, "Anna");
+}
+
+/// Phase 9f: a message stands once, right under the ribbon (not in the status bar), until it
+/// is closed.
+#[test]
+fn a_message_stands_once_under_the_ribbon() {
+    let mut harness = with_project("Umzug");
+    harness.state_mut().state.message = Some(crate::state::Message::error("Etwas ging schief."));
+    harness.run();
+    let shown: Vec<egui::Rect> = harness
+        .query_all_by_label("Etwas ging schief.")
+        .map(|n| n.rect())
+        .collect();
+    assert_eq!(shown.len(), 1, "one place");
+    // Above the content (the project's heading), not at the bottom.
+    let heading = harness
+        .get_all_by_label("Umzug")
+        .map(|n| n.rect())
+        .fold(f32::MAX, |a, r| a.min(r.top()));
+    assert!(shown[0].bottom() <= heading, "{shown:?} above {heading}");
+    click(&mut harness, text::t().dismiss_message);
+    assert!(harness.state().state.message.is_none());
+    assert!(harness.query_by_label("Etwas ging schief.").is_none());
+}
+
+/// Known since the real test (fixed in 9f): with the details open the middle is narrow – the
+/// project's buttons must not lie over its title; there is room, they stand beside it.
+#[test]
+fn the_project_buttons_never_lie_over_its_title() {
+    let mut harness = harness_with_sample();
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    let overlaps = |h: &Harness<'_, PlnwrkApp>| {
+        // The heading is a plain label: its text is the value.
+        let title = h
+            .query_all_by(|n| n.value().as_deref() == Some("Digitalfunk Umrüstung Wachen"))
+            .map(|n| n.rect())
+            .find(|r| r.left() > 200.0)
+            .unwrap();
+        let edit = h.get_by_label(text::t().edit).rect();
+        (title.intersects(edit), edit.top() > title.bottom())
+    };
+    // Wide: beside it on one line.
+    assert_eq!(overlaps(&harness), (false, false));
+    // Narrow with the details open: below it, not over it.
+    harness.set_size(egui::vec2(980.0, 900.0));
+    let task = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
+    harness.state_mut().apply(crate::Intent::Select(Some(task)));
+    harness.run();
+    assert_eq!(overlaps(&harness), (false, true));
+}
+
+/// Review 9f (F1): Enter on a button of the new dialog is a click of that button – on
+/// "Abbrechen", the segment or the calendar it creates nothing.
+#[test]
+fn enter_on_a_button_of_the_new_dialog_creates_nothing() {
+    for button in [text::t().cancel, text::t().kinds[0], text::t().pick_date] {
+        let mut harness = new_project_dialog();
+        type_into(&mut harness, text::t().title, "Übung", false);
+        harness.get_all_by_label(button).next().unwrap().focus();
+        harness.run();
+        harness.key_press(Key::Enter);
+        harness.run_steps(3);
+        assert!(projects(harness.state()).is_empty(), "Enter on {button}");
+    }
+}
+
+/// Review 9f (F2, F3): the field for a new person takes the cursor once; typing the title
+/// afterwards goes into the title; left empty it goes; Escape there drops only the person.
+#[test]
+fn the_new_person_field_does_not_take_over_the_form() {
+    let mut harness = new_project_dialog();
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    // Back to the title: typed there, Enter creates the project – no person "Titel".
+    type_into(&mut harness, text::t().title, "Titel", true);
+    let people = |h: &Harness<'_, PlnwrkApp>| {
+        h.state()
+            .doc()
+            .unwrap()
+            .session
+            .workspace()
+            .people()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert!(people(&harness).is_empty(), "{:?}", people(&harness));
+    assert!(projects(harness.state()).iter().any(|p| p.title == "Titel"));
+    // Escape while a person is being named: only the person goes.
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, "Übung", false);
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    harness.event(egui::Event::Text("Ann".to_owned()));
+    harness.run();
+    harness.key_press(Key::Escape);
+    harness.run();
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the dialog stays")
+    };
+    assert_eq!(form.title, "Übung");
+    assert!(form.new_person.is_none());
+}
+
+/// Review 9f (F4): a title too long is said at the field and "Anlegen" waits; a refusal while
+/// a dialog is open is said in the dialog – once – not behind it.
+#[test]
+fn refusals_are_said_in_the_dialog() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, &"x".repeat(201), false);
+    let said = text::title_too_long(plnwrk_core::text::TITLE_MAX);
+    assert!(harness.query_by_label(&said).is_some());
+    let create = harness.get_by_label(text::t().create);
+    assert!(egui_kittest::kittest::NodeT::accesskit_node(&create).is_disabled());
+    harness.state_mut().state.message = Some(crate::state::Message::error("Abgelehnt."));
+    harness.run();
+    assert_eq!(harness.query_all_by_label("Abgelehnt.").count(), 1);
+    // In the dialog: above its buttons' bottom, not in the bar under the ribbon.
+    assert!(harness.query_by_label(text::t().dismiss_message).is_none());
+}
+
+/// Review 9f (F5): "Aus Vorlage" decides "case" by the one rule – a template of kind "SKA"
+/// gives a case, with a time at its deadline, also without a reference typed.
+#[test]
+fn a_case_from_a_template_offers_a_time_without_a_reference() {
+    let mut harness = harness_with_sample();
+    let template = projects(harness.state())
+        .into_iter()
+        .find(|p| p.template)
+        .unwrap();
+    assert!(template.is_case());
+    harness
+        .state_mut()
+        .apply(crate::Intent::Open(crate::state::Dialog::FromTemplate(
+            crate::state::TemplateForm {
+                template: Some(template.id),
+                ..crate::state::TemplateForm::default()
+            },
+        )));
+    harness.run();
+    assert!(
+        harness
+            .query_by(|n| n.placeholder() == Some(text::t().time_hint))
+            .is_some()
+    );
+}
+
+/// Review 9f (gap): a wrong date keeps "Anlegen" greyed (not only said at the field).
+#[test]
+fn a_wrong_date_greys_create() {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().due, "31.02.2026", false);
+    type_into(&mut harness, text::t().title, "Umzug", false);
+    let create = harness.get_by_label(text::t().create);
+    assert!(egui_kittest::kittest::NodeT::accesskit_node(&create).is_disabled());
+}
+
+/// Review 9f (K1, K2): another view clears the last message; cards never stick out at the
+/// right of a narrow window – and stand side by side where there is room.
+#[test]
+fn messages_go_with_the_view_and_cards_fit_the_window() {
+    let mut harness = harness_with_sample();
+    harness.state_mut().state.message = Some(crate::state::Message::error("Alt."));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::People));
+    harness.run();
+    assert!(harness.state().state.message.is_none());
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Overview));
+    harness.set_size(egui::vec2(1600.0, 900.0));
+    harness.run();
+    let card = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        h.get_all_by_label(title)
+            .map(|n| n.rect())
+            .find(|r| r.left() > 250.0)
+            .unwrap()
+    };
+    let first = card(&harness, "SKA 23/1234 Sirenenwarnung");
+    let second = card(&harness, "Digitalfunk Umrüstung Wachen");
+    assert!(
+        (first.top() - second.top()).abs() < 1.0,
+        "side by side when wide"
+    );
+    // Narrower than a card beside the sidebar: the card gives way.
+    harness.set_size(egui::vec2(480.0, 900.0));
+    harness.run();
+    for title in ["SKA 23/1234 Sirenenwarnung", "Digitalfunk Umrüstung Wachen"] {
+        assert!(
+            card(&harness, title).right() <= 480.0,
+            "{title}: {:?}",
+            card(&harness, title)
+        );
+    }
+}
+
+/// The new dialog with the field for a new person open (chosen in the list).
+fn new_person_chosen() -> Harness<'static, PlnwrkApp> {
+    let mut harness = new_project_dialog();
+    type_into(&mut harness, text::t().title, "Übung", false);
+    harness.get_by_label(text::t().owner).click();
+    harness.run();
+    click(&mut harness, text::t().add_person);
+    harness.run();
+    harness
+}
+
+fn new_form(harness: &Harness<'_, PlnwrkApp>) -> crate::state::ProjectForm {
+    let Some(crate::state::Dialog::NewProject(form)) = harness.state().state.dialog.clone() else {
+        panic!("the new dialog is open")
+    };
+    form
+}
+
+/// Nachreview 9f (N1): Escape at once in the (empty) field for a new person drops only it.
+#[test]
+fn escape_in_the_empty_person_field_keeps_the_dialog() {
+    let mut harness = new_person_chosen();
+    harness.key_press(Key::Escape);
+    harness.run();
+    let form = new_form(&harness);
+    assert_eq!(form.title, "Übung");
+    assert!(form.new_person.is_none());
+}
+
+/// Nachreview 9f (K1): the person's field does not take the cursor back – typing in the title
+/// goes there – and left empty it goes away.
+#[test]
+fn the_person_field_lets_go_of_the_cursor_and_goes_when_left_empty() {
+    let mut harness = new_person_chosen();
+    assert!(new_form(&harness).new_person.is_some());
+    // Into the title with the mouse, then typing.
+    let title = harness.get_by_label(text::t().title).rect().center();
+    harness.hover_at(title);
+    harness.run();
+    tap(&mut harness, title);
+    harness.run_steps(3);
+    harness.event(egui::Event::Text("!".to_owned()));
+    harness.run();
+    let form = new_form(&harness);
+    assert_eq!(form.title, "Übung!");
+    assert!(form.new_person.is_none(), "left empty: gone");
+}
+
+/// Nachreview 9f (N3): a name typed for a new person and not added yet is not lost by Enter in
+/// the title – nothing is created until it is added or emptied, and it says so.
+#[test]
+fn a_typed_person_is_not_lost_by_enter() {
+    let mut harness = new_person_chosen();
+    harness.event(egui::Event::Text("Ann".to_owned()));
+    harness.run();
+    type_into(&mut harness, text::t().title, "Übung", true);
+    assert!(projects(harness.state()).is_empty());
+    assert!(harness.query_by_label(text::t().person_pending).is_some());
+    assert_eq!(new_form(&harness).new_person.as_deref(), Some("Ann"));
+}
+
+/// Nachreview 9f (N2): a refusal said earlier is not said again in a later dialog.
+#[test]
+fn an_old_refusal_does_not_show_in_a_new_dialog() {
+    let mut harness = harness_after_new_file();
+    harness.state_mut().state.message = Some(crate::state::Message::error("Früher abgelehnt."));
+    harness.run();
+    click(&mut harness, text::t().new_project);
+    assert!(harness.query_by_label("Früher abgelehnt.").is_none());
+    // One that comes up while it is open is said in it.
+    harness.state_mut().state.message = Some(crate::state::Message::error("Jetzt abgelehnt."));
+    harness.run();
+    assert_eq!(harness.query_all_by_label("Jetzt abgelehnt.").count(), 1);
+}
+
+/// Nachreview 9f (K2): Enter in every field of the form creates – reference, start, deadline,
+/// its time – not only in the title.
+#[test]
+fn enter_in_any_field_of_the_new_dialog_creates() {
+    let t = text::t();
+    let today = jiff::Zoned::now().date();
+    let day = crate::dates::format(today);
+    for (field, typed) in [
+        (t.reference, "23/1"),
+        (t.start, day.as_str()),
+        (t.due, day.as_str()),
+        (t.time_hint, "14:00"),
+    ] {
+        let mut harness = new_project_dialog();
+        type_into(&mut harness, t.title, "Übung", false);
+        // A time needs its day.
+        if field == t.time_hint {
+            type_into(&mut harness, t.due, &day, false);
+        }
+        type_into(&mut harness, field, typed, true);
+        assert_eq!(projects(harness.state()).len(), 1, "Enter in {field}");
+    }
+}
+
+/// Nachreview 9f (K3): a long overdue line does not widen the overview past the window; the
+/// card's title is a link.
+#[test]
+fn a_long_line_does_not_widen_the_overview() {
+    let mut harness = harness_with_sample();
+    let project = projects(harness.state())
+        .into_iter()
+        .find(|p| !p.template && !p.is_case())
+        .unwrap()
+        .id
+        .to_string();
+    let long = "Eine sehr lange überfällige Aufgabe mit einem Titel, der in einer Zeile weit über das Fenster hinausreichen würde";
+    let yesterday = day_from_today(&harness, -1);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": long, "due": yesterday}),
+    ));
+    harness.set_size(egui::vec2(700.0, 900.0));
+    harness.run();
+    let roles: Vec<(egui::accesskit::Role, egui::Rect)> = harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .map(|n| {
+            (
+                egui_kittest::kittest::NodeT::accesskit_node(&n).role(),
+                n.rect(),
+            )
+        })
+        .collect();
+    let card = roles
+        .iter()
+        .find(|(role, _)| *role == egui::accesskit::Role::Link)
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("the card's title is a link: {roles:?}"));
+    assert!(card.right() <= 700.0, "{card:?}");
+    // The long line itself wraps inside the window.
+    let line = harness
+        .query_all_by_label_contains("Eine sehr lange überfällige Aufgabe")
+        .map(|n| n.rect())
+        .next()
+        .unwrap();
+    assert!(line.right() <= 700.0, "{line:?}");
+}
+
+/// Nachreview 9f (K4): a refusal on the way to another view (a title emptied) stays said there.
+#[test]
+fn a_refusal_on_the_way_out_stays_said() {
+    let (mut harness, first, _) = two_dated_tasks();
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(first)));
+    harness.run();
+    let title = harness
+        .query_all_by(|n| n.value().as_deref() == Some("Ausschreibung"))
+        .find(|n| {
+            egui_kittest::kittest::NodeT::accesskit_node(n).role()
+                == egui::accesskit::Role::TextInput
+        })
+        .unwrap();
+    title.focus();
+    harness.run();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.run();
+    harness.key_press(Key::Backspace);
+    harness.run();
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::People));
+    harness.run();
+    let said = harness
+        .state()
+        .state
+        .message
+        .clone()
+        .map(|m| m.text)
+        .unwrap_or_default();
+    assert!(said.contains(text::t().not_taken), "{said}");
 }

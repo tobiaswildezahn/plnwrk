@@ -1,10 +1,10 @@
 //! The views. They read the workspace and push [`Intent`]s; they never change data themselves.
 
-mod board;
+pub(crate) mod board;
 mod date;
 pub(crate) mod detail;
 mod dialogs;
-mod milestones;
+pub(crate) mod milestones;
 mod overview;
 mod people;
 mod project;
@@ -12,7 +12,7 @@ mod ribbon;
 pub(crate) mod schedule;
 
 use egui::{Key, RichText};
-use plnwrk_core::{Classification, TaskStatus};
+use plnwrk_core::Classification;
 use plnwrk_engine::query;
 
 use crate::design::Icon;
@@ -83,6 +83,7 @@ pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
 /// The whole window.
 pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
     ribbon::show(ui, doc, state, out);
+    message_bar(ui, state, out);
     status_bar(ui, doc, state);
     match doc {
         None => {
@@ -116,6 +117,7 @@ pub fn themes() -> [(egui::ThemePreference, &'static str); 3] {
     ]
 }
 
+/// The status bar: the file, whether it is saved, its recovery copy, the browser's limits.
 fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
     egui::Panel::bottom("status").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -159,17 +161,45 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     None => {}
                 }
             }
-            if let Some(message) = &state.message {
-                ui.separator();
-                let color = if message.error {
-                    ui.visuals().error_fg_color
-                } else {
-                    ui.visuals().weak_text_color()
-                };
-                ui.label(RichText::new(&message.text).color(color));
-            }
         });
     });
+}
+
+/// The message of the last action (Phase 9f): one place, right under the ribbon, until the
+/// next action or its close button – the status bar is for saving and recovery only.
+fn message_bar(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
+    // While a dialog is open, its refusals are said in it (see `dialogs::show`).
+    let Some(message) = state.message.as_ref().filter(|_| state.dialog.is_none()) else {
+        return;
+    };
+    let p = design::palette(ui);
+    let (fill, text_color) = if message.error {
+        (p.danger_soft, p.danger)
+    } else {
+        (p.info_soft, p.text)
+    };
+    egui::Panel::top("message")
+        .show_separator_line(false)
+        .frame(
+            egui::Frame::new()
+                .fill(fill)
+                .inner_margin(egui::Margin::symmetric(12, 6)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if message.error {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                    Icon::Warning.paint(ui.painter(), rect, p.danger);
+                }
+                ui.add(egui::Label::new(RichText::new(&message.text).color(text_color)).wrap());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if icon_button(ui, Icon::Close, text::t().dismiss_message).clicked() {
+                        out.push(Intent::DismissMessage);
+                    }
+                });
+            });
+        });
 }
 
 fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
@@ -182,20 +212,75 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
             text::t().version,
             env!("CARGO_PKG_VERSION")
         ));
-        if state.browser {
-            ui.add_space(8.0);
-            ui.label(RichText::new(text::t().browser_not_vs).strong())
-                .on_hover_text(text::t().browser_not_vs_hint);
-            ui.weak(text::t().browser_not_vs_hint);
+        // Two ways in, each said in a sentence (Phase 9f); the browser's limits stand in the
+        // footer.
+        ui.add_space(24.0);
+        let card_width = 260.0;
+        let gap = 16.0;
+        let row = egui::vec2(2.0 * card_width + gap, 0.0);
+        ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for (icon, kind, label, sentence, action) in [
+                (
+                    Icon::Case,
+                    Kind::Primary,
+                    text::t().new_file,
+                    text::t().new_file_explained,
+                    FileAction::New,
+                ),
+                (
+                    Icon::Overview,
+                    Kind::Secondary,
+                    text::t().open_sample,
+                    text::t().sample_explained,
+                    FileAction::Sample,
+                ),
+            ] {
+                design::widgets::card(ui, |ui| {
+                    ui.set_width(card_width - 24.0);
+                    ui.vertical(|ui| {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+                        icon.paint(ui.painter(), rect, design::palette(ui).accent);
+                        ui.add_space(4.0);
+                        // The same room in both cards, so their buttons line up.
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(card_width - 24.0, 72.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_min_height(72.0);
+                                ui.label(sentence);
+                            },
+                        );
+                        ui.add_space(8.0);
+                        if design::widgets::wide_button(ui, kind, label, card_width - 24.0)
+                            .clicked()
+                        {
+                            out.push(Intent::File(action));
+                        }
+                    });
+                });
+            }
+        });
+        ui.add_space(8.0);
+        if design::widgets::button(ui, Kind::Quiet, text::t().open_file).clicked() {
+            out.push(Intent::File(FileAction::Open));
         }
-        ui.add_space(16.0);
-        for (kind, label, action) in [
-            (Kind::Primary, text::t().new_file, FileAction::New),
-            (Kind::Secondary, text::t().open_file, FileAction::Open),
-            (Kind::Secondary, text::t().open_sample, FileAction::Sample),
-        ] {
-            if design::widgets::wide_button(ui, kind, label, 220.0).clicked() {
-                out.push(Intent::File(action));
+        if !state.recent.is_empty() {
+            ui.add_space(16.0);
+            ui.strong(text::t().recent);
+            for path in &state.recent {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                if ui
+                    .link(name)
+                    .on_hover_text(path.display().to_string())
+                    .clicked()
+                {
+                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
+                }
             }
         }
         if !state.stored_copies.is_empty() {
@@ -245,23 +330,6 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                 }
             }
         }
-        if !state.recent.is_empty() {
-            ui.add_space(16.0);
-            ui.strong(text::t().recent);
-            for path in &state.recent {
-                let name = path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |n| n.to_string_lossy().into_owned(),
-                );
-                if ui
-                    .link(name)
-                    .on_hover_text(path.display().to_string())
-                    .clicked()
-                {
-                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
-                }
-            }
-        }
     });
 }
 
@@ -304,9 +372,16 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                 }
                 ui.horizontal(|ui| {
                     if ui.button(text::t().new_project).clicked() {
-                        out.push(Intent::Open(Dialog::NewProject(ProjectForm::default())));
+                        out.push(Intent::Open(Dialog::NewProject(ProjectForm {
+                            kind: text::t().kinds[1].to_owned(),
+                            ..ProjectForm::default()
+                        })));
                     }
-                    if ui.button(text::t().from_template).clicked() {
+                    let templates = ws.projects().any(|p| p.template);
+                    let from = ui
+                        .add_enabled(templates, egui::Button::new(text::t().from_template))
+                        .on_disabled_hover_text(text::t().no_templates);
+                    if from.clicked() {
                         out.push(Intent::Open(Dialog::FromTemplate(TemplateForm {
                             start: crate::dates::format(today),
                             ..TemplateForm::default()
@@ -314,28 +389,56 @@ fn sidebar(ui: &mut egui::Ui, doc: &OpenDoc, state: &State, out: &mut Vec<Intent
                     }
                 });
                 ui.separator();
-                ui.strong(text::t().projects);
-                for card in query::overview(ws, now) {
-                    let label = match &card.reference {
-                        Some(reference) => format!("{} · {reference}", card.title),
-                        None => card.title.clone(),
-                    };
-                    let shown = state.view == View::Project(card.id);
-                    let mut response = ui.selectable_label(shown, label);
-                    if card.overdue_tasks > 0 || card.days_left.is_some_and(|d| d < 0) {
-                        response = response.on_hover_text(text::t().overdue);
+                // Grouped (Phase 9f): cases, then projects – the one rule `is_case` – each
+                // with its symbol; a group without entries is left out.
+                let cards = query::overview(ws, now);
+                for (icon, heading, cases) in [
+                    (Icon::Case, text::t().cases_heading, true),
+                    (Icon::Project, text::t().projects_heading, false),
+                ] {
+                    let group: Vec<&query::ProjectCard> = cards
+                        .iter()
+                        .filter(|c| {
+                            plnwrk_core::is_case(c.kind.as_deref(), c.reference.as_deref()) == cases
+                        })
+                        .collect();
+                    if group.is_empty() {
+                        continue;
                     }
-                    if response.clicked() {
-                        out.push(Intent::Go(View::Project(card.id)));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                        icon.paint(ui.painter(), rect, ui.visuals().weak_text_color());
+                        ui.strong(heading);
+                    });
+                    for card in group {
+                        let label = match &card.reference {
+                            Some(reference) => format!("{} · {reference}", card.title),
+                            None => card.title.clone(),
+                        };
+                        let shown = state.view == View::Project(card.id);
+                        let mut response = ui.selectable_label(shown, label);
+                        if card.overdue_tasks > 0 || card.days_left.is_some_and(|d| d < 0) {
+                            response = response.on_hover_text(text::t().overdue);
+                        }
+                        if response.clicked() {
+                            out.push(Intent::Go(View::Project(card.id)));
+                        }
                     }
                 }
                 ui.separator();
-                if ui
-                    .selectable_label(state.view == View::Templates, text::t().templates)
-                    .clicked()
-                {
-                    out.push(Intent::Go(View::Templates));
-                }
+                ui.horizontal(|ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                    Icon::Board.paint(ui.painter(), rect, ui.visuals().weak_text_color());
+                    if ui
+                        .selectable_label(state.view == View::Templates, text::t().templates)
+                        .clicked()
+                    {
+                        out.push(Intent::Go(View::Templates));
+                    }
+                });
                 if ui
                     .selectable_label(state.view == View::People, text::t().people)
                     .clicked()
@@ -371,13 +474,6 @@ fn due_label(
     }
 }
 
-/// A short status tag for tasks that are neither open nor done.
-fn status_tag(ui: &mut egui::Ui, status: TaskStatus) {
-    if !matches!(status, TaskStatus::Todo | TaskStatus::Done) {
-        ui.label(RichText::new(text::task_status(status)).small().weak());
-    }
-}
-
 /// A button showing only a symbol, with a spoken name for screen readers (and as tooltip).
 pub use crate::design::widgets::icon_button;
 
@@ -389,8 +485,10 @@ fn commit_field(response: &egui::Response) -> bool {
 /// A single-line input that commits on Enter only (and keeps the focus for the next entry).
 /// `focus`: it takes the cursor now.
 fn enter_field(ui: &mut egui::Ui, value: &mut String, hint: &str, width: f32, focus: bool) -> bool {
+    // A fixed id: rows or headings appearing above must not take its focus away.
     let response = ui.add(
         egui::TextEdit::singleline(value)
+            .id_salt(("enter-field", hint))
             .hint_text(hint)
             .desired_width(width),
     );

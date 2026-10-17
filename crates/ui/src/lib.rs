@@ -82,6 +82,8 @@ pub(crate) enum Then {
     Nothing,
     /// Show the project it created.
     ShowProject,
+    /// The person it created is in charge in the open new-project dialog.
+    OwnerOfNew,
 }
 
 /// Which form to empty after a command succeeded (on failure the input stays).
@@ -111,6 +113,10 @@ pub(crate) enum Intent {
     },
     /// Show another view.
     Go(View),
+    /// Close the message bar.
+    DismissMessage,
+    /// Show a message.
+    Say(Message),
     /// Show a message once the command just before it was carried out (not when it was
     /// refused: then its reason stays in view).
     SayWhenDone(Message),
@@ -762,6 +768,9 @@ impl PlnwrkApp {
                 self.carry_on();
             }
             Intent::Go(view) => {
+                // Another view: the last message is about what was left (a refusal on the
+                // way out is said again below).
+                self.state.message = None;
                 self.flush_draft();
                 self.state.view = view;
                 self.state.select(None);
@@ -873,6 +882,8 @@ impl PlnwrkApp {
             }
             Intent::ExportSchedule(project) => self.export_schedule(project),
             Intent::FocusNewTask => self.state.focus_new_task = true,
+            Intent::DismissMessage => self.state.message = None,
+            Intent::Say(message) => self.state.message = Some(message),
             Intent::EditProject(id) => {
                 let open = self
                     .state
@@ -976,6 +987,19 @@ impl PlnwrkApp {
                     self.state.view = View::Project(*id);
                     self.state.tab = Tab::List;
                     self.state.select(None);
+                }
+                if let (Then::OwnerOfNew, Some(EntityKey::Person(id))) =
+                    (then, outcome.created.first())
+                    && let Some(Dialog::NewProject(form)) = &mut self.state.dialog
+                {
+                    form.owner = Some(*id);
+                    form.new_person = None;
+                }
+                // Made from the list: lit up for a moment where it landed.
+                if matches!(clear, Some(Clear::NewTask | Clear::NewSubtask))
+                    && let Some(EntityKey::Task(id)) = outcome.created.first()
+                {
+                    self.state.fresh = Some(*id);
                 }
                 if let Some(clear) = clear {
                     self.state.clear(clear);

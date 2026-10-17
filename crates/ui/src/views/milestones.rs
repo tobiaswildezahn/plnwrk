@@ -45,7 +45,7 @@ impl Light {
         }
     }
 
-    fn tone(self) -> Tone {
+    pub fn tone(self) -> Tone {
         match self {
             Self::Reached => Tone::Success,
             Self::Overdue => Tone::Danger,
@@ -91,6 +91,48 @@ pub fn light(
     }
 }
 
+/// The light of a project or case (overview, Phase 9f), from the same rules as the
+/// milestones': done is reached; its deadline passed is overdue; overdue work or a milestone
+/// overdue or at risk puts it at risk (the first reason is said); otherwise on plan.
+pub fn project_light(
+    ws: &Workspace,
+    project: &Project,
+    analysis: &Analysis,
+    now: DateTime,
+) -> (Light, Option<String>) {
+    if project.status == plnwrk_core::ProjectStatus::Done {
+        return (Light::Reached, None);
+    }
+    if !query::deadlines_count(project) {
+        return (Light::OnPlan, None);
+    }
+    if project
+        .due
+        .is_some_and(|due| query::is_past(due, project.due_time, now))
+    {
+        return (Light::Overdue, None);
+    }
+    let late = ws
+        .tasks_of(project.id)
+        .filter(|t| !t.milestone && query::task_overdue(Some(project), t, now))
+        .count();
+    if late > 0 {
+        return (Light::AtRisk, Some(text::overdue_tasks(late)));
+    }
+    let mut milestones: Vec<&Task> = ws.tasks_of(project.id).filter(|t| t.milestone).collect();
+    milestones.sort_by_key(|m| query::deadline_order(m.due, m.due_time));
+    for milestone in milestones {
+        let (light, _) = light(ws, project, milestone, analysis, now);
+        if matches!(light, Light::Overdue | Light::AtRisk) {
+            return (
+                Light::AtRisk,
+                Some(format!("♦ {}: {}", milestone.title, light.name())),
+            );
+        }
+    }
+    (Light::OnPlan, None)
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     doc: &OpenDoc,
@@ -112,7 +154,14 @@ pub fn show(
         .map(|m| light(ws, project, m, &worked.analysis, now))
         .collect();
     if all.is_empty() {
-        ui.weak(text::t().no_milestones);
+        if widgets::empty_state(
+            ui,
+            crate::design::Icon::Milestone,
+            text::t().milestones_empty,
+            Some(text::t().first_milestone),
+        ) {
+            state.focus_new_milestone = true;
+        }
     } else {
         timeline(ui, project, &all, &lights, &worked, state, out, now.date());
         ui.add_space(12.0);
@@ -444,7 +493,7 @@ fn edit_date(
                 day,
                 time,
                 today,
-                project.reference.is_some(),
+                project.is_case(),
                 Some(caption.id),
             )
         })
@@ -485,18 +534,21 @@ fn new_milestone(
     today: Date,
 ) {
     ui.horizontal(|ui| {
-        ui.add(
+        let title = ui.add(
             egui::TextEdit::singleline(&mut state.forms.milestone_title)
                 .hint_text(text::t().title)
                 .desired_width(240.0),
         );
+        if std::mem::take(&mut state.focus_new_milestone) {
+            title.request_focus();
+        }
         date::deadline_input(
             ui,
             ("new-milestone", project.id),
             &mut state.forms.milestone_date,
             &mut state.forms.milestone_time,
             today,
-            project.reference.is_some(),
+            project.is_case(),
             None,
         );
         if ui.button(text::t().new_milestone).clicked() {

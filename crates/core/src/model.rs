@@ -49,6 +49,27 @@ pub struct Project {
     pub created: Timestamp,
 }
 
+impl Project {
+    /// Whether this is a case (Vorgang) and not a project (Phase 9f, the one rule for the
+    /// sidebar, overview, dialogs, export and deadlines with a time of day): a project carries
+    /// the kind "Projekt"/"Project" or none, and no reference. Everything else is a case – so a
+    /// refined kind ("SKA") stays a case, and files from before need no conversion.
+    pub fn is_case(&self) -> bool {
+        is_case(self.kind.as_deref(), self.reference.as_deref())
+    }
+}
+
+/// [`Project::is_case`] for a kind and reference as typed (a form not stored yet).
+pub fn is_case(kind: Option<&str>, reference: Option<&str>) -> bool {
+    let filled = |text: Option<&str>| {
+        text.map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_lowercase)
+    };
+    filled(reference).is_some()
+        || filled(kind).is_some_and(|kind| kind != "projekt" && kind != "project")
+}
+
 /// A piece of work inside a project. Tasks nest: `parent` makes it a subtask.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -279,6 +300,46 @@ impl std::fmt::Display for EntityKey {
 mod tests {
     use super::*;
     use crate::{CommentId, DependencyId, MilestoneId, PersonId, ProjectId, TaskId};
+
+    fn project(kind: Option<&str>, reference: Option<&str>) -> Project {
+        Project {
+            id: ProjectId::from_ulid(ulid::Ulid(1)),
+            title: "P".into(),
+            description: String::new(),
+            reference: reference.map(str::to_owned),
+            kind: kind.map(str::to_owned),
+            owner: None,
+            start: None,
+            due: None,
+            due_time: None,
+            status: ProjectStatus::Active,
+            template: false,
+            classification: crate::Classification::Open,
+            created: jiff::Timestamp::UNIX_EPOCH,
+        }
+    }
+
+    /// The one rule: a project has the kind "Projekt"/"Project" (any case) or none, and no
+    /// reference; everything else is a case.
+    #[test]
+    fn a_case_is_what_is_not_plainly_a_project() {
+        for (kind, reference, case) in [
+            (None, None, false),
+            (Some("Projekt"), None, false),
+            (Some("project"), None, false),
+            (Some("  "), Some(" "), false),
+            (Some("Vorgang"), None, true),
+            (Some("SKA"), None, true),
+            (None, Some("23/1234"), true),
+            (Some("Projekt"), Some("23/1234"), true),
+        ] {
+            assert_eq!(
+                project(kind, reference).is_case(),
+                case,
+                "{kind:?} {reference:?}"
+            );
+        }
+    }
 
     #[test]
     fn every_entity_round_trips_through_json() {

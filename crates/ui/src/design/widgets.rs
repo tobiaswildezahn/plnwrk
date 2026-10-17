@@ -377,7 +377,7 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, sentence: &str, action: Option<&str>
 
 /// A heading of a section (18 pt, semibold).
 pub fn subheading(ui: &mut Ui, text: &str) -> Response {
-    ui.label(egui::RichText::new(text).text_style(super::subheading()))
+    ui.label(super::subheading_text(ui, text))
 }
 
 /// Writes `text` centred at `pos` in the given style and colour (for painted views).

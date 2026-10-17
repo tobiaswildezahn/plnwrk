@@ -61,6 +61,9 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   häufigste Lücke – immer auch den **nächsten Fall hinter der Grenze** prüfen (die andere Seite
   einer Klemme, der Balken länger als die Ansicht). Regeln, die die App schon hat (z. B.
   `query::task_overdue`), nie in einer Ansicht nachbauen. Ergebnis kurz in Commit-Nachricht oder PLAN §9 („Gegenprobe: rot ohne X“).
+  Besteht eine Korrektur aus mehreren Teilen, **jeden Teil einzeln** ausbauen; decken sich
+  zwei gegenseitig (jeder allein bleibt grün), beide zusammen ausbauen und das so nennen.
+  Tastatur ist ein eigener Weg: Enter, Escape und Fokus bekommen eigene Tests.
   Ein grüner Test ohne Gegenprobe gilt nicht als Beleg. Prüf-Agenten arbeiten in eigener
   Arbeitskopie (`isolation: worktree`) und mit eigenen Dateinamen im Scratchpad.
 - Kein Proc-Makro, das verbotene Lints per `#[allow]` abschaltet (z. B. clap-derive).

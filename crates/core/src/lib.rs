@@ -22,7 +22,7 @@ pub use kinds::{
 };
 pub use model::{
     Comment, Dependency, ESTIMATE_MAX, Entity, EntityKey, EntityKind, LAG_MAX, Milestone, Person,
-    Project, Task,
+    Project, Task, is_case,
 };
 pub use policy::{Destination, NetworkPolicy};
 pub use rank::{Rank, RankError};

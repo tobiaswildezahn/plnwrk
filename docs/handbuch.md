@@ -71,8 +71,22 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 
 ## 3. Ansichten
 
-- **Übersicht:** alle Projekte und Vorgänge mit Fortschritt; darunter alles Überfällige.
-- **Liste:** Aufgaben mit Unteraufgaben; Doppelklick auf einen Titel benennt um.
+- **Übersicht:** oben **Heute und überfällig** – alles Überfällige und alles, was heute fällig
+  ist; ein Haken erledigt es gleich dort (Meilensteine und Aufgaben mit offenen Unteraufgaben
+  fragen nach). Darunter alle Projekte und Vorgänge als Karten mit **Ampel** (erreicht,
+  überfällig, gefährdet – mit Grund –, im Plan) und Fortschritt.
+- **Seitenleiste:** nach **Vorgängen** und **Projekten** getrennt. Ein Vorgang ist alles mit
+  Aktenzeichen oder einer eigenen Art (z. B. „SKA“); ein Projekt hat die Art „Projekt“ oder
+  keine. Beim Anlegen wählt man es oben im Dialog.
+- **Liste:** Aufgaben mit Unteraufgaben in Spalten (Frist, Zuständig, Status; in schmalen
+  Fenstern fallen sie von rechts weg). Doppelklick auf einen Titel benennt um. **+** für eine
+  Unteraufgabe erscheint an der Zeile unter dem Zeiger und an der gewählten Aufgabe. Eine neue
+  Aufgabe leuchtet kurz auf, damit man sie findet.
+- **Detailbereich** (rechts, wenn eine Aufgabe gewählt ist): in Gruppen **Zuordnung**,
+  **Termine**, **Unteraufgaben**, **Wartet auf**, **Notizen & Verlauf**; jede lässt sich
+  einklappen. Passt ein Termin nicht zu dem, worauf die Aufgabe wartet, steht das bei den
+  Terminen. Unter „Wartet auf“ sind Aufgaben, die einen Kreis ergäben, ausgegraut – mit dem
+  Grund beim Darüberfahren. **Aufgabe löschen** steht rot und abgesetzt ganz unten.
 - **Board:** Spalten Offen / In Arbeit / Blockiert / Prüfung / Erledigt über die ganze Breite
   (in schmalen Fenstern seitlich scrollen). Karten ziehen ändert den Status; eine Linie zeigt,
   wo die Karte landet. **+** an einer Spalte legt dort eine neue Aufgabe an (Enter).
@@ -127,8 +141,9 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   - **Tabelle:** Spalten unter **Zeitplan-Werkzeuge › Anzeigen** ab- und zuschalten; die
     Titelspalte am Rand breiter ziehen; Unteraufgaben mit dem Pfeil zuklappen. In schmalen
     Fenstern fallen Spalten von rechts weg.
-  - **Meilensteine** stehen zusätzlich in einer eigenen Zeile ganz oben; sie bleibt stehen, wenn
-    man durch viele Zeilen scrollt.
+  - **Datumsleiste und Meilensteine** bleiben oben stehen, wenn man durch viele Zeilen scrollt:
+    die Wochen und Tage, „Heute“ und die Projektfrist, darunter eine eigene Zeile mit allen
+    Meilensteinen.
   - **Mit der Tastatur:** Termine und Abhängigkeiten ändert man im Detailbereich der Aufgabe
     (Beginn, Frist, **Wartet auf**); Ziehen im Zeitplan ist der Weg mit der Maus.
   - **Als Tabelle exportieren (Excel):** speichert den Zeitplan als Datei, die Excel direkt

@@ -249,7 +249,6 @@ pub fn show(
         .items()
         .filter_map(|item| item.span().map(|span| (item.id, span)))
         .collect();
-    let title = |id: TaskId| ws.task(id).map_or("", |t| t.title.as_str());
     let unscheduled: Vec<&Task> = rows
         .iter()
         .map(|(t, _)| *t)
@@ -458,9 +457,14 @@ pub fn show(
         let small = egui::TextStyle::Small.resolve(ui.style());
         let x_of = |date: Date| area.left() + table + days_from(first, date) as f32 * day_width;
         let row_y = |i: usize| area.top() + HEADER + pin + i as f32 * ROW;
-        // The milestone row: under the time axis, or at the top of the view once the rows
-        // scrolled below it.
-        let pin_y = (area.top() + HEADER).max(ui.clip_rect().top());
+        // The time axis stays at the top of the view while the rows scroll (Phase 9f, Tobi:
+        // "Datumsleiste anheften"); the milestone row right under it.
+        let head = area.top().max(ui.clip_rect().top());
+        let pin_y = head + HEADER;
+        // The axis is painted after the rows, over those scrolled under it: what it says,
+        // collected here (x, distance from its top, alignment, text), and its lines.
+        let mut axis_texts: Vec<(f32, f32, egui::Align2, String)> = Vec::new();
+        let mut axis_lines: Vec<f32> = Vec::new();
         // The column with the titles stays at the left edge while scrolling sideways; what
         // lies under it is hidden and cannot be dragged.
         let left = ui.clip_rect().left().max(area.left());
@@ -502,13 +506,13 @@ pub fn show(
                     [pos2(x, area.top()), pos2(x, area.bottom())],
                     Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
                 );
-                painter.text(
-                    pos2(x + 3.0, area.top() + 2.0),
+                axis_lines.push(x);
+                axis_texts.push((
+                    x + 3.0,
+                    2.0,
                     egui::Align2::LEFT_TOP,
-                    text::month(day),
-                    small.clone(),
-                    visuals.weak_text_color(),
-                );
+                    text::month(day).to_string(),
+                ));
             }
             // "KW 42 · 12.10.2026" needs about 110 px: a week of at least 16 px days.
             if day_width >= 16.0 && week_starts {
@@ -516,42 +520,37 @@ pub fn show(
                     [pos2(x, area.top()), pos2(x, area.bottom())],
                     Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
                 );
-                painter.text(
-                    pos2(x + 3.0, area.top() + 2.0),
+                axis_lines.push(x);
+                axis_texts.push((
+                    x + 3.0,
+                    2.0,
                     egui::Align2::LEFT_TOP,
                     format!(
                         "{} · {}",
                         text::week(day.iso_week_date().week()),
                         dates::format(day)
                     ),
-                    small.clone(),
-                    visuals.weak_text_color(),
-                );
+                ));
             }
             // Two digits in the small size need about 16 px.
             if day_width >= 18.0 {
-                painter.text(
-                    pos2(x + day_width / 2.0, area.top() + HEADER - 3.0),
+                axis_texts.push((
+                    x + day_width / 2.0,
+                    HEADER - 3.0,
                     egui::Align2::CENTER_BOTTOM,
                     day.day().to_string(),
-                    small.clone(),
-                    visuals.weak_text_color(),
-                );
+                ));
             }
         }
-        let marker = |date: Date, color, label: &str| {
+        // Today and the project's deadline: a line through the rows, the name in the axis.
+        let mut marks: Vec<(f32, egui::Color32, &str)> = Vec::new();
+        let mut marker = |date: Date, color, label: &'static str| {
             let x = x_of(date) + day_width / 2.0;
             painter.line_segment(
                 [pos2(x, area.top() + HEADER), pos2(x, area.bottom())],
                 Stroke::new(1.5, color),
             );
-            painter.text(
-                pos2(x + 2.0, area.top() + HEADER),
-                egui::Align2::LEFT_TOP,
-                label,
-                small.clone(),
-                color,
-            );
+            marks.push((x, color, label));
         };
         if (0..days).contains(&days_from(first, today)) {
             marker(today, visuals.selection.stroke.color, text::t().today);
@@ -590,13 +589,9 @@ pub fn show(
             // the view and the bar lands right of the table.
             // Only when hardly anything of it is in view: a click on a bar (also one longer
             // than the view) must not move the chart.
-            // What the milestone row covers does not count as seen.
             let view = ui.clip_rect();
-            let open_top = if pinned.is_empty() {
-                view.top()
-            } else {
-                view.top().max(pin_y + pin)
-            };
+            // What the time axis and the milestone row cover does not count as seen.
+            let open_top = view.top().max(pin_y + pin);
             let view = Rect::from_min_max(pos2(view.left(), open_top), view.max);
             let seen = chart.intersect(view).intersect(bar);
             let hardly =
@@ -958,8 +953,8 @@ pub fn show(
             && let Some(at) = ui.input(|i| i.pointer.interact_pos())
         {
             let follows = may_follow(ws, from);
-            // Not onto a bar hidden under the milestone row.
-            let covered = |at: Pos2| !pinned.is_empty() && (pin_y..=pin_y + pin).contains(&at.y);
+            // Not onto a bar hidden under the time axis or the milestone row.
+            let covered = |at: Pos2| (head..=pin_y + pin).contains(&at.y);
             let target = boxes
                 .iter()
                 .filter(|_| !covered(at))
@@ -977,6 +972,52 @@ pub fn show(
             }
             if dropped && let Some((to, _)) = target {
                 out.push(link_intent(from, to));
+            }
+        }
+
+        // The time axis over the rows scrolled under it: lines, dates, and the names of today
+        // and the project's deadline (on a patch of their own, readable over the dates). It
+        // takes the pointer like the milestone row: a drag on it moves the view.
+        {
+            let band =
+                Rect::from_min_max(pos2(chart.left(), head), pos2(area.right(), head + HEADER));
+            painter.rect_filled(band, 0.0, visuals.panel_fill);
+            painter.hline(
+                band.x_range(),
+                band.bottom() - 0.5,
+                Stroke::new(1.0, palette.line),
+            );
+            let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
+            for x in &axis_lines {
+                painter.vline(*x, band.y_range(), line);
+            }
+            for (x, dy, align, said) in &axis_texts {
+                painter.text(
+                    pos2(*x, head + dy),
+                    *align,
+                    said,
+                    small.clone(),
+                    visuals.weak_text_color(),
+                );
+            }
+            for (x, color, label) in &marks {
+                painter.vline(
+                    *x,
+                    head + HEADER - 8.0..=head + HEADER,
+                    Stroke::new(1.5, *color),
+                );
+                let galley = painter.layout_no_wrap((*label).to_owned(), small.clone(), *color);
+                let at = pos2(x + 3.0, head + 2.0);
+                painter.rect_filled(
+                    Rect::from_min_size(at, galley.size()).expand(2.0),
+                    CornerRadius::same(radius::SMALL),
+                    visuals.panel_fill,
+                );
+                painter.galley(at, galley, *color);
+            }
+            let over = ui.interact(band, ui.id().with("time-axis"), Sense::click_and_drag());
+            if over.dragged() {
+                ui.scroll_with_delta(over.drag_delta());
             }
         }
 
@@ -1063,25 +1104,6 @@ pub fn show(
             pos2(left + table - 6.0, area.bottom()),
         );
         painter.rect_filled(column, 0.0, visuals.panel_fill);
-        // Headings in the row of the time axis.
-        let mut x = left + 4.0 + title_width;
-        painter.text(
-            pos2(left + 4.0, area.top() + HEADER - 3.0),
-            egui::Align2::LEFT_BOTTOM,
-            text::t().ribbon.task,
-            small.clone(),
-            visuals.weak_text_color(),
-        );
-        for column in &columns {
-            painter.text(
-                pos2(x, area.top() + HEADER - 3.0),
-                egui::Align2::LEFT_BOTTOM,
-                column.name(),
-                small.clone(),
-                visuals.weak_text_color(),
-            );
-            x += column.width();
-        }
         for (i, (task, depth)) in rows.iter().enumerate() {
             let y = row_y(i);
             let row = Rect::from_min_max(pos2(left, y), pos2(left + table - 6.0, y + ROW));
@@ -1170,6 +1192,36 @@ pub fn show(
                 x += column.width();
             }
         }
+        // The headings in the row of the time axis, over the titles scrolled under it.
+        {
+            let cell =
+                Rect::from_min_max(pos2(left, head), pos2(left + table - 6.0, head + HEADER));
+            painter.rect_filled(cell, 0.0, visuals.panel_fill);
+            painter.hline(
+                cell.x_range(),
+                cell.bottom() - 0.5,
+                Stroke::new(1.0, palette.line),
+            );
+            let mut x = left + 4.0 + title_width;
+            painter.text(
+                pos2(left + 4.0, head + HEADER - 3.0),
+                egui::Align2::LEFT_BOTTOM,
+                text::t().ribbon.task,
+                small.clone(),
+                visuals.weak_text_color(),
+            );
+            for column in &columns {
+                painter.text(
+                    pos2(x, head + HEADER - 3.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    column.name(),
+                    small.clone(),
+                    visuals.weak_text_color(),
+                );
+                x += column.width();
+            }
+            ui.interact(cell, ui.id().with("table-head"), Sense::click());
+        }
         // The milestone row's name, over the titles scrolled under it.
         if !pinned.is_empty() {
             let cell = Rect::from_min_max(pos2(left, pin_y), pos2(left + table - 6.0, pin_y + ROW));
@@ -1248,14 +1300,7 @@ pub fn show(
 
     // What cannot hold.
     for warning in &analysis.warnings {
-        let (task, line) = match *warning {
-            Warning::Violated { from, to } => (to, text::waits_too_short(title(from), title(to))),
-            Warning::Milestone { task, earliest } => (
-                task,
-                text::milestone_unreachable(title(task), &dates::format(earliest)),
-            ),
-            Warning::AfterProjectDue { task } => (task, text::after_project_due(title(task))),
-        };
+        let (task, line) = warning_said(ws, warning);
         if ui
             .link(RichText::new(format!("⚠ {line}")).color(ui.visuals().warn_fg_color))
             .clicked()
@@ -1280,6 +1325,28 @@ fn unscheduled_list(ui: &mut egui::Ui, tasks: &[&Task], out: &mut Vec<Intent>) {
             }
         }
     });
+}
+
+/// A warning of the plan as said in the app, and the task it is shown at (the schedule's list
+/// and the detail panel use this one wording).
+pub(crate) fn warning_said(ws: &plnwrk_core::Workspace, warning: &Warning) -> (TaskId, String) {
+    let title = |id: TaskId| ws.task(id).map_or("", |t| t.title.as_str());
+    match *warning {
+        Warning::Violated { from, to } => (to, text::waits_too_short(title(from), title(to))),
+        Warning::Milestone { task, earliest } => (
+            task,
+            text::milestone_unreachable(title(task), &dates::format(earliest)),
+        ),
+        Warning::AfterProjectDue { task } => (task, text::after_project_due(title(task))),
+    }
+}
+
+/// Whether a warning concerns `task` (either end of a dependency that does not hold).
+pub(crate) fn warning_concerns(warning: &Warning, task: TaskId) -> bool {
+    match *warning {
+        Warning::Violated { from, to } => from == task || to == task,
+        Warning::Milestone { task: at, .. } | Warning::AfterProjectDue { task: at } => at == task,
+    }
 }
 
 #[cfg(test)]

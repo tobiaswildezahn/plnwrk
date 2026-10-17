@@ -8,7 +8,8 @@ use crate::doc::OpenDoc;
 use crate::state::{Dialog, TemplateForm, View};
 use crate::{Intent, dates, design, text};
 
-const CARD_WIDTH: f32 = 270.0;
+/// Wider than before (Phase 9f): room for the light and the facts on one line each.
+const CARD_WIDTH: f32 = 320.0;
 
 pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     let ws = doc.session.workspace();
@@ -16,71 +17,177 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(text::t().overview);
         ui.add_space(8.0);
-        let cards = query::overview(ws, now);
-        if cards.is_empty() {
-            ui.label(text::t().nothing_yet);
-        }
-        ui.horizontal_wrapped(|ui| {
-            for card in &cards {
-                project_card(ui, card, now, out, None);
-            }
-        });
-        ui.add_space(16.0);
-        ui.heading(text::t().overdue);
+        // First what needs doing now: everything overdue, then what is due today – each
+        // ticked off right here (a milestone asks first, open subtasks too).
+        design::widgets::subheading(ui, text::t().today_and_overdue);
         let overdue = query::overdue(ws, now);
-        if overdue.is_empty() {
-            ui.weak(text::t().nothing_overdue);
+        let today = query::due_today(ws, now);
+        if overdue.is_empty() && today.is_empty() {
+            ui.weak(text::t().nothing_due);
         }
-        for item in overdue {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(text::deadline_state(item.due, item.due_time, now).0)
-                        .color(ui.visuals().error_fg_color),
-                );
-                let project = ws
-                    .project(item.project)
-                    .map(|p| p.title.as_str())
-                    .unwrap_or_default();
-                let label = if matches!(item.entity, EntityKey::Project(_)) {
-                    item.title.clone()
-                } else {
-                    format!("{} ({project})", item.title)
-                };
-                if ui.link(label).clicked() {
-                    out.push(Intent::Go(View::Project(item.project)));
-                    if let EntityKey::Task(task) = item.entity {
-                        out.push(Intent::Select(Some(task)));
-                    }
+        for (item, late) in overdue
+            .iter()
+            .map(|i| (i, true))
+            .chain(today.iter().map(|i| (i, false)))
+        {
+            due_row(ui, ws, item, late, now, out);
+        }
+        ui.add_space(16.0);
+        design::widgets::subheading(ui, text::t().projects);
+        let cards = query::overview(ws, now);
+        // Nothing yet: a symbol, a sentence, the one step that helps (Phase 9f).
+        if cards.is_empty()
+            && design::widgets::empty_state(
+                ui,
+                crate::design::Icon::Case,
+                text::t().nothing_yet,
+                Some(text::t().first_case),
+            )
+        {
+            out.push(Intent::Open(Dialog::NewProject(
+                crate::state::ProjectForm {
+                    kind: text::t().kinds[1].to_owned(),
+                    ..crate::state::ProjectForm::default()
+                },
+            )));
+        }
+        // In rows of as many as fit (egui does not wrap framed cards by itself).
+        for row in cards.chunks(per_row(ui)) {
+            ui.horizontal_top(|ui| {
+                for card in row {
+                    let light = ws.project(card.id).map(|project| {
+                        let worked = super::schedule::worked(ui, doc, project);
+                        super::milestones::project_light(ws, project, &worked.analysis, now)
+                    });
+                    project_card(ui, card, light, now, out, None);
                 }
             });
+            ui.add_space(8.0);
         }
     });
+}
+
+/// One line of "Heute und überfällig": a tick (tasks and milestones), how the deadline stands,
+/// and the title, which opens it.
+fn due_row(
+    ui: &mut egui::Ui,
+    ws: &plnwrk_core::Workspace,
+    item: &query::OverdueItem,
+    late: bool,
+    now: jiff::civil::DateTime,
+    out: &mut Vec<Intent>,
+) {
+    // Wraps in a narrow window rather than reach past it (and widen everything below).
+    ui.horizontal_wrapped(|ui| {
+        if let EntityKey::Task(task) = item.entity {
+            let mut done = false;
+            let name = text::mark_done(&item.title);
+            let tick = ui
+                .add(egui::Checkbox::without_text(&mut done))
+                .on_hover_text(&name);
+            tick.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, false, &name)
+            });
+            if tick.clicked() {
+                let params = serde_json::json!({"task": task.to_string(), "status": "done"});
+                let open = super::board::open_below(ws, task);
+                out.push(if open > 0 {
+                    Intent::Open(Dialog::CloseSubtasks { task, params, open })
+                } else {
+                    Intent::run("task.move", params)
+                });
+            }
+        }
+        let tone = if late {
+            design::widgets::Tone::Danger
+        } else {
+            design::widgets::Tone::Warning
+        };
+        design::widgets::chip(
+            ui,
+            tone,
+            &text::deadline_state(item.due, item.due_time, now).0,
+        );
+        let project = ws
+            .project(item.project)
+            .map(|p| p.title.as_str())
+            .unwrap_or_default();
+        let label = if matches!(item.entity, EntityKey::Project(_)) {
+            item.title.clone()
+        } else {
+            format!("{} ({project})", item.title)
+        };
+        if ui.link(label).clicked() {
+            out.push(Intent::Go(View::Project(item.project)));
+            if let EntityKey::Task(task) = item.entity {
+                out.push(Intent::Select(Some(task)));
+            }
+        }
+    });
+}
+
+/// The width that can be seen: what the layout offers can reach past the window (a long line
+/// above widens it), so it is measured against the visible part.
+fn room(ui: &egui::Ui) -> f32 {
+    ui.clip_rect().right().min(ui.max_rect().right()) - ui.cursor().left()
+}
+
+/// How many cards fit side by side (at least one).
+fn per_row(ui: &egui::Ui) -> usize {
+    // The card's frame adds 2 × 12 inside and its line; then the gap.
+    let card = CARD_WIDTH + 24.0 + 2.0 + ui.spacing().item_spacing.x;
+    ((room(ui) / card).floor() as usize).max(1)
 }
 
 /// One project card. `action`: an extra button below (for templates).
 fn project_card(
     ui: &mut egui::Ui,
     card: &ProjectCard,
+    light: Option<(super::milestones::Light, Option<String>)>,
     now: jiff::civil::DateTime,
     out: &mut Vec<Intent>,
     action: Option<(&str, Intent)>,
 ) {
     design::widgets::card(ui, |ui| {
-        ui.set_width(CARD_WIDTH);
+        // Narrower than a card: the card gives way (never cut off at the right).
+        ui.set_width(CARD_WIDTH.min(room(ui) - 26.0).max(160.0));
+        // Long titles and facts wrap inside the card instead of pushing it wider.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.vertical(|ui| {
             let mut line = Vec::new();
             if let Some(kind) = &card.kind {
-                line.push(kind.clone());
+                line.push(text::kind_shown(kind));
             }
             if let Some(reference) = &card.reference {
                 line.push(reference.clone());
             }
             line.push(text::project_status(card.status).to_owned());
-            ui.weak(line.join(" · "));
-            if ui
-                .link(RichText::new(&card.title).text_style(design::subheading()))
-                .clicked()
+            ui.horizontal(|ui| {
+                // The light as on the milestones, with its reason on hover and read out.
+                if let Some((light, why)) = &light {
+                    let chip = design::widgets::chip(ui, light.tone(), light.name());
+                    if let Some(why) = why {
+                        chip.on_hover_text(why);
+                    }
+                }
+                ui.weak(line.join(" · "));
+            });
+            // The reason, where the facts below do not say it already (overdue work does).
+            if let Some((_, Some(why))) = &light
+                && card.overdue_tasks == 0
             {
+                ui.label(RichText::new(why).color(design::palette(ui).warning));
+            }
+            // A link that wraps, read as a link (egui's `link` is read as a plain label here).
+            let title =
+                design::subheading_text(ui, &card.title).color(ui.visuals().hyperlink_color);
+            let link = ui
+                .add(egui::Label::new(title).sense(egui::Sense::click()).wrap())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            link.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Link, true, &card.title)
+            });
+            if link.clicked() {
                 out.push(Intent::Go(View::Project(card.id)));
             }
             if card.classification >= Classification::VsNfd {
@@ -153,26 +260,36 @@ pub fn templates(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
         ui.add_space(8.0);
         let cards = query::templates(ws, now);
         if cards.is_empty() {
-            ui.label(text::t().no_templates);
+            // How a template comes about is the step to take (no button can do it here).
+            design::widgets::empty_state(
+                ui,
+                crate::design::Icon::Board,
+                text::t().no_templates,
+                None,
+            );
         }
-        ui.horizontal_wrapped(|ui| {
-            for card in &cards {
-                let form = TemplateForm {
-                    template: Some(card.id),
-                    start: dates::format(today),
-                    ..TemplateForm::default()
-                };
-                project_card(
-                    ui,
-                    card,
-                    now,
-                    out,
-                    Some((
-                        text::t().from_template,
-                        Intent::Open(Dialog::FromTemplate(form)),
-                    )),
-                );
-            }
-        });
+        for row in cards.chunks(per_row(ui)) {
+            ui.horizontal_top(|ui| {
+                for card in row {
+                    let form = TemplateForm {
+                        template: Some(card.id),
+                        start: dates::format(today),
+                        ..TemplateForm::default()
+                    };
+                    project_card(
+                        ui,
+                        card,
+                        None,
+                        now,
+                        out,
+                        Some((
+                            text::t().from_template,
+                            Intent::Open(Dialog::FromTemplate(form)),
+                        )),
+                    );
+                }
+            });
+            ui.add_space(8.0);
+        }
     });
 }

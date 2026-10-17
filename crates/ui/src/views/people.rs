@@ -23,6 +23,17 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<I
     });
     ui.weak(text::t().i_am_hint);
     ui.add_space(8.0);
+    // Nobody yet: a symbol, a sentence, the step that helps (Phase 9f).
+    if people.is_empty()
+        && crate::design::widgets::empty_state(
+            ui,
+            crate::design::Icon::Person,
+            text::t().people_empty,
+            Some(text::t().add_person),
+        )
+    {
+        state.focus_new_person = true;
+    }
     egui::Grid::new("people")
         .num_columns(4)
         .striped(true)
@@ -41,13 +52,17 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<I
             }
         });
     ui.add_space(8.0);
+    let focus = std::mem::take(&mut state.focus_new_person);
     let form = &mut state.forms.person;
     ui.horizontal(|ui| {
-        ui.add(
+        let name = ui.add(
             egui::TextEdit::singleline(&mut form.name)
                 .hint_text(text::t().name)
                 .desired_width(180.0),
         );
+        if focus {
+            name.request_focus();
+        }
         ui.add(
             egui::TextEdit::singleline(&mut form.initials)
                 .hint_text(text::t().initials)

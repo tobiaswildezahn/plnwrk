@@ -96,6 +96,70 @@ mod queries {
         assert!(items.iter().all(|i| matches!(i.entity, EntityKey::Task(_))));
     }
 
+    /// Phase 9f: what is due today and not past yet – the counterpart of `overdue`, which takes
+    /// over once the time has passed; nothing done, nothing in templates, nothing tomorrow.
+    #[test]
+    fn due_today_is_what_overdue_does_not_have_yet() {
+        let (mut s, ids) = setup();
+        let project = ids.project.to_string();
+        for (title, due, extra) in [
+            ("Heute", "2026-10-14", json!({})),
+            ("Heute 15 Uhr", "2026-10-14T15:00", json!({})),
+            ("Heute 8 Uhr", "2026-10-14T08:00", json!({})),
+            ("Heute erledigt", "2026-10-14", json!({"status": "done"})),
+            ("Morgen", "2026-10-15", json!({})),
+        ] {
+            let mut params = json!({"project": project, "title": title, "due": due});
+            if let (Some(p), Some(e)) = (params.as_object_mut(), extra.as_object()) {
+                p.extend(e.clone());
+            }
+            s.run("task.create", &params, Origin::User).unwrap();
+        }
+        let now: jiff::civil::DateTime = "2026-10-14T09:00".parse().unwrap();
+        let today: Vec<String> = query::due_today(s.workspace(), now)
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        // Earliest first: a time of day before the whole day (the app's deadline order).
+        assert_eq!(today, ["Heute 15 Uhr", "Heute"]);
+        // The one at 8 is overdue at 9 – there, not here.
+        let overdue: Vec<String> = query::overdue(s.workspace(), now)
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        assert!(overdue.contains(&"Heute 8 Uhr".to_owned()), "{overdue:?}");
+        // A project due today is listed too; a template's task due today is not (review 9f).
+        s.run(
+            "project.update",
+            &json!({"project": project, "due": "2026-10-14"}),
+            Origin::User,
+        )
+        .unwrap();
+        let template = s
+            .run(
+                "project.create",
+                &json!({"title": "Muster", "template": true}),
+                Origin::User,
+            )
+            .unwrap();
+        let Some(EntityKey::Project(template)) = template.created.first() else {
+            panic!("a template")
+        };
+        s.run(
+            "task.create",
+            &json!({"project": template.to_string(), "title": "Muster heute", "due": "2026-10-14"}),
+            Origin::User,
+        )
+        .unwrap();
+        let today: Vec<String> = query::due_today(s.workspace(), now)
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        let name = s.workspace().project(ids.project).unwrap().title.clone();
+        assert!(today.contains(&name), "{today:?}");
+        assert!(!today.contains(&"Muster heute".to_owned()), "{today:?}");
+    }
+
     #[test]
     fn board_has_five_columns_in_order() {
         let (s, ids) = setup();
