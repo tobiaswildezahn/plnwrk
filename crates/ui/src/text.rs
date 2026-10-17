@@ -148,6 +148,10 @@ pub struct Texts {
     pub milestone_unmarked: &'static str,
     pub milestone_marked: &'static str,
     pub after_project_due_then: &'static str,
+    pub board_filter_everyone: &'static str,
+    pub board_filter_overdue: &'static str,
+    pub board_search: &'static str,
+    pub board_filter_reset: &'static str,
     pub light_reached: &'static str,
     pub light_overdue: &'static str,
     pub light_at_risk: &'static str,
@@ -411,6 +415,10 @@ pub static DE: Texts = Texts {
     milestone_unmarked: "ist danach kein Meilenstein mehr",
     milestone_marked: "wird ein Meilenstein",
     after_project_due_then: "Er liegt dann nach der Frist des Projekts.",
+    board_filter_everyone: "Alle",
+    board_filter_overdue: "Nur Überfälliges",
+    board_search: "Im Titel suchen",
+    board_filter_reset: "Filter aufheben",
     light_reached: "erreicht",
     light_overdue: "überfällig",
     light_at_risk: "gefährdet",
@@ -673,6 +681,10 @@ pub static EN: Texts = Texts {
     milestone_unmarked: "is no longer a milestone afterwards",
     milestone_marked: "becomes a milestone",
     after_project_due_then: "It then lies after the project's deadline.",
+    board_filter_everyone: "Everyone",
+    board_filter_overdue: "Only overdue",
+    board_search: "Search titles",
+    board_filter_reset: "Clear filter",
     light_reached: "reached",
     light_overdue: "overdue",
     light_at_risk: "at risk",
@@ -1168,6 +1180,41 @@ pub fn overtakes(titles: &[String]) -> String {
         (Language::English, _) => format!(
             "The milestones {} then lie before tasks they wait for.",
             quoted("“", "”")
+        ),
+    }
+}
+
+/// The "+" of a board column: a new task with this status.
+pub fn new_in_column(status: TaskStatus) -> String {
+    pick(
+        format!("Neue Aufgabe in „{}“", task_status(status)),
+        format!("New task in “{}”", task_status(status)),
+    )
+}
+
+/// A column heading: its name and how many cards (with a filter: shown of all).
+pub fn column_heading(status: TaskStatus, shown: usize, all: usize) -> String {
+    if shown == all {
+        format!("{} ({all})", task_status(status))
+    } else {
+        pick(
+            format!("{} ({shown} von {all})", task_status(status)),
+            format!("{} ({shown} of {all})", task_status(status)),
+        )
+    }
+}
+
+/// While a card is dragged to "Erledigt": it still waits for open work (a hint, not a stop).
+pub fn still_waits_for(open: usize) -> String {
+    match open {
+        1 => pick(
+            "⚠ Wartet noch auf 1 offene Aufgabe",
+            "⚠ Still waits for 1 open task",
+        )
+        .to_owned(),
+        n => pick(
+            format!("⚠ Wartet noch auf {n} offene Aufgaben"),
+            format!("⚠ Still waits for {n} open tasks"),
         ),
     }
 }

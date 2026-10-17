@@ -6048,8 +6048,9 @@ fn dragging_past_a_milestone_says_so_while_dragging() {
 /// Typed input that is not stored yet must count as unsaved (and be taken on saving and
 /// closing), or be named here with the reason it does not – a new input field cannot be
 /// forgotten (follow-up review 9d: the fourth field found missing by hand).
-const NOT_PENDING: [(&str, &str); 8] = [
+const NOT_PENDING: [(&str, &str); 9] = [
     ("new_task", "nothing exists yet: Enter creates it"),
+    ("board_new", "nothing exists yet: Enter creates it"),
     ("new_subtask", "nothing exists yet: Enter creates it"),
     ("detail_subtask", "nothing exists yet: Enter creates it"),
     (

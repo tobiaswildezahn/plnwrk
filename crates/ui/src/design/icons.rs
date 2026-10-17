@@ -58,6 +58,8 @@ pub enum Icon {
     Search,
     Settings,
     Warning,
+    /// High priority: a flag.
+    Priority,
     /// Done: a ticked circle.
     Done,
     Help,
@@ -65,7 +67,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every symbol, for tests and the overview.
-    pub const ALL: [Icon; 37] = [
+    pub const ALL: [Icon; 38] = [
         Icon::Plus,
         Icon::Minus,
         Icon::Close,
@@ -101,6 +103,7 @@ impl Icon {
         Icon::Search,
         Icon::Settings,
         Icon::Warning,
+        Icon::Priority,
         Icon::Done,
         Icon::Help,
     ];
@@ -280,6 +283,16 @@ impl Icon {
                 pen.closed(&[(12.0, 3.5), (21.0, 19.5), (3.0, 19.5)]);
                 pen.line(&[(12.0, 9.5), (12.0, 13.5)]);
                 pen.dot((12.0, 16.5), 1.3);
+            }
+            Icon::Priority => {
+                pen.line(&[(6.0, 3.5), (6.0, 20.5)]);
+                pen.closed(&[
+                    (6.0, 4.5),
+                    (18.5, 4.5),
+                    (15.0, 9.0),
+                    (18.5, 13.5),
+                    (6.0, 13.5),
+                ]);
             }
             Icon::Done => {
                 pen.circle((12.0, 12.0), 9.0);

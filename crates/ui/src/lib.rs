@@ -88,6 +88,7 @@ pub(crate) enum Then {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Clear {
     NewTask,
+    BoardNew,
     NewSubtask,
     Inline,
     DetailSubtask,
