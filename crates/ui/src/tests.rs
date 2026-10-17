@@ -3963,3 +3963,104 @@ fn the_first_click_after_a_dialog_counts() {
         );
     }
 }
+
+/// A project whose dates reach far beyond the window: from 60 days ago to 60 days ahead, with
+/// `extra` more tasks today. Shown in the schedule tab.
+fn wide_schedule(extra: usize) -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Weit");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let today = harness.state().doc().unwrap().session.clock().today();
+    let day = |days: i64| (today + jiff::Span::new().days(days)).to_string();
+    let mut all = vec![
+        ("Früher".to_owned(), day(-60), day(-58)),
+        ("Jetzt".to_owned(), day(0), day(2)),
+        ("Später".to_owned(), day(60), day(62)),
+    ];
+    all.extend((0..extra).map(|n| (format!("Zeile {n}"), day(0), day(1))));
+    for (title, start, due) in all {
+        harness.state_mut().apply(crate::Intent::run(
+            "task.create",
+            serde_json::json!({"project": project, "title": title, "start": start, "due": due}),
+        ));
+    }
+    harness.run();
+    click(&mut harness, text::t().schedule_tab);
+    harness.run();
+    harness
+}
+
+/// Turns the mouse wheel one notch down (towards the person) at this point of the chart.
+fn wheel(harness: &mut Harness<'_, PlnwrkApp>, at: egui::Pos2, modifiers: Modifiers) {
+    harness.hover_at(at);
+    harness.run();
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, -3.0),
+        phase: egui::TouchPhase::Move,
+        modifiers,
+    });
+    // egui scrolls smoothly, over many frames.
+    harness.run_steps(60);
+}
+
+#[test]
+fn the_wheel_moves_through_time_when_all_rows_fit() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt");
+    wheel(
+        &mut harness,
+        before.right_center() + egui::vec2(20.0, 0.0),
+        Modifiers::NONE,
+    );
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        after.left() < before.left() - 20.0,
+        "{before:?} → {after:?}"
+    );
+    assert!((after.top() - before.top()).abs() < 1.0);
+}
+
+#[test]
+fn the_wheel_moves_the_rows_when_they_do_not_fit_and_shift_moves_through_time() {
+    let mut harness = wide_schedule(40);
+    let before = bar(&harness, "Jetzt");
+    let at = before.right_center() + egui::vec2(20.0, 0.0);
+    wheel(&mut harness, at, Modifiers::NONE);
+    let rows = bar(&harness, "Jetzt");
+    assert!(rows.top() < before.top() - 20.0, "{before:?} → {rows:?}");
+    assert!((rows.left() - before.left()).abs() < 1.0);
+    wheel(&mut harness, at, Modifiers::SHIFT);
+    let time = bar(&harness, "Jetzt");
+    assert!(time.left() < rows.left() - 20.0, "{rows:?} → {time:?}");
+    assert!((time.top() - rows.top()).abs() < 1.0);
+}
+
+#[test]
+fn ctrl_and_the_wheel_zoom_around_the_pointer() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt");
+    // The pointer stands right of the bar; the day under it stays put.
+    let pointer = before.center().x + 40.0;
+    // Up, away from the person: zoom in.
+    harness.hover_at(egui::pos2(pointer, before.center().y));
+    harness.run();
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, 3.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::COMMAND,
+    });
+    harness.run_steps(60);
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        after.width() > before.width() * 1.3,
+        "zoomed in: {before:?} → {after:?}"
+    );
+    let scale = after.width() / before.width();
+    let expected = pointer - (pointer - before.left()) * scale;
+    assert!(
+        (after.left() - expected).abs() < 6.0,
+        "the day under the pointer stays: left {} expected {expected}",
+        after.left()
+    );
+}

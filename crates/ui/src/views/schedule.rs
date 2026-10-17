@@ -216,15 +216,26 @@ pub fn show(
     ui.data_mut(|d| d.insert_temp(opened, true));
     let scroll_salt = ("schedule-scroll", project.id);
     let scroll_id = ui.make_persistent_id(egui::IdSalt::new(scroll_salt));
-    let mut scroll = egui::ScrollArea::both()
+    let max_height = (ui.available_height() - 70.0).max(ROW * 4.0);
+    // The mouse wheel moves the rows while there are more than fit, otherwise through time
+    // (with only one direction left, egui turns the wheel sideways). Shift and the wheel, or a
+    // trackpad swiped sideways, always move through time.
+    let rows_fit = HEADER + rows.len() as f32 * ROW <= max_height;
+    let mut scroll = egui::ScrollArea::new([true, !rows_fit])
         .id_salt(scroll_salt)
         .auto_shrink([false, true])
-        .max_height((ui.available_height() - 70.0).max(ROW * 4.0));
+        .max_height(max_height);
     // The zoom level last drawn: a change keeps the same dates in view (the scroll offset is
     // in pixels, so it is scaled along).
     let drawn_id = egui::Id::new(("schedule-drawn-zoom", project.id));
     let drawn = ui.data(|d| d.get_temp::<usize>(drawn_id));
     ui.data_mut(|d| d.insert_temp(drawn_id, level));
+    // Where the zoom was asked for, from the left edge of the visible chart: the day there
+    // stays in place. The buttons keep the first day shown (the title column's edge).
+    let anchor_id = egui::Id::new(("schedule-zoom-anchor", project.id));
+    let anchor = ui
+        .data_mut(|d| d.remove_temp::<f32>(anchor_id))
+        .unwrap_or(LABELS);
     if first_time && (0..days).contains(&days_from(first, today)) {
         let offset = (days_from(first, today) - 7).max(0) as f32 * day_width;
         scroll = scroll.horizontal_scroll_offset(offset);
@@ -235,8 +246,13 @@ pub fn show(
             egui::scroll_area::State::load(ui.ctx(), scroll_id),
         )
     {
-        scroll = scroll.horizontal_scroll_offset(state.offset.x * day_width / before);
+        let from_labels = state.offset.x + anchor - LABELS;
+        scroll = scroll.horizontal_scroll_offset(
+            (LABELS + from_labels * day_width / before - anchor).max(0.0),
+        );
     }
+    let only_direction = ui.style().always_scroll_the_only_direction;
+    ui.style_mut().always_scroll_the_only_direction = true;
     scroll.show(ui, |ui| {
         let width = LABELS + days as f32 * day_width;
         let height = HEADER + rows.len() as f32 * ROW;
@@ -248,12 +264,19 @@ pub fn show(
             let zoom = ui.input(|i| i.zoom_delta());
             if (zoom - 1.0).abs() > f32::EPSILON {
                 let mut gathered = ui.data(|d| d.get_temp::<f32>(gesture_id)).unwrap_or(1.0) * zoom;
+                let before = level;
                 if gathered >= 1.25 {
                     level = (level + 1).min(ZOOM.len() - 1);
                     gathered = 1.0;
                 } else if gathered <= 0.8 {
                     level = level.saturating_sub(1);
                     gathered = 1.0;
+                }
+                if level != before
+                    && let Some(pointer) = hover.hover_pos()
+                {
+                    let anchor = pointer.x - ui.clip_rect().left();
+                    ui.data_mut(|d| d.insert_temp(anchor_id, anchor));
                 }
                 ui.data_mut(|d| d.insert_temp(gesture_id, gathered));
                 ui.ctx().request_repaint();
@@ -534,6 +557,7 @@ pub fn show(
             );
         }
     });
+    ui.style_mut().always_scroll_the_only_direction = only_direction;
 
     ui.data_mut(|d| d.insert_temp(zoom_id, level));
 
