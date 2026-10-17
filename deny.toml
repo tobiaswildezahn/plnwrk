@@ -6,6 +6,16 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Accepted on purpose, each with its reason; reviewed with every egui update.
+ignore = [
+  # 2026-10-17: zbus_names, zvariant and zvariant_derive are "unmaintained" (merged into
+  # zbus 6), not vulnerable. They come only through egui's Linux screen-reader bridge
+  # (eframe → accesskit_unix → atspi → zbus 5); there is no safe upgrade yet. Dropping them
+  # would mean no screen reader on Linux. Remove these lines once egui uses zbus 6.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant: unmaintained, only via accesskit_unix (zbus 5); no upgrade until egui moves to zbus 6" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names: unmaintained, only via accesskit_unix (zbus 5); no upgrade until egui moves to zbus 6" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: unmaintained, only via accesskit_unix (zbus 5); no upgrade until egui moves to zbus 6" },
+]
 
 [licenses]
 version = 2
