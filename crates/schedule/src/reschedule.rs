@@ -66,3 +66,36 @@ impl Reschedule {
         Value::Object(params)
     }
 }
+
+/// The milestones a `task.reschedule` with these parameters would overtake (see
+/// [`Plan::overtaken`]), read before it runs – for the app's message and the answer over MCP.
+/// Empty for parameters that do not read; running the command says what is wrong.
+pub fn overtaken_by(workspace: &Workspace, params: &Value, calendar: Calendar) -> Vec<TaskId> {
+    let read = |entry: &Value| -> Option<Move> {
+        let date = |key: &str| entry.get(key)?.as_str()?.parse::<Date>().ok();
+        Some(Move {
+            task: entry.get("task")?.as_str()?.parse().ok()?,
+            start: date("start"),
+            due: date("due"),
+        })
+    };
+    let moves: Option<Vec<Move>> = params
+        .get("moves")
+        .and_then(Value::as_array)
+        .and_then(|moves| moves.iter().map(read).collect());
+    let Some(moves) = moves else {
+        return Vec::new();
+    };
+    // Each project on its own (dependencies stay inside one).
+    let mut projects: Vec<_> = moves
+        .iter()
+        .filter_map(|m| workspace.task(m.task))
+        .map(|t| t.project)
+        .collect();
+    projects.sort();
+    projects.dedup();
+    projects
+        .into_iter()
+        .flat_map(|project| Plan::of(workspace, project, calendar).overtaken(&moves))
+        .collect()
+}

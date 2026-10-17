@@ -57,6 +57,52 @@ impl Session {
         &self.ws
     }
 
+    /// What `command` would change at milestones – run on a copy, nothing is kept. Empty for
+    /// commands that cannot touch an existing milestone, and for one that would be refused
+    /// (running it says why). Phase 9d: such changes are confirmed first.
+    pub fn milestone_changes(
+        &mut self,
+        command: &str,
+        params: &Value,
+    ) -> Vec<crate::milestones::MilestoneChange> {
+        if !crate::milestones::TOUCHING.contains(&command) {
+            return Vec::new();
+        }
+        // Without any milestone, only a command that makes one could change one: no copy.
+        if !self.ws.tasks().any(|t| t.milestone) && params.get("milestone").is_none() {
+            return Vec::new();
+        }
+        let Some(spec) = find(command) else {
+            return Vec::new();
+        };
+        let Runner::Edit(edit) = spec.run else {
+            return Vec::new();
+        };
+        if (spec.enabled)(self).is_err() {
+            return Vec::new();
+        }
+        let Ok(checked) = Params::check(params, spec.params) else {
+            return Vec::new();
+        };
+        let mut copy = self.ws.clone();
+        {
+            let mut tx = Tx::new(
+                &mut copy,
+                self.clock.as_ref(),
+                self.ids.as_mut(),
+                self.actor,
+            );
+            if edit(&mut tx, &checked).is_err() {
+                return Vec::new();
+            }
+            let _ = tx.finish();
+        }
+        if !copy.check().is_empty() {
+            return Vec::new();
+        }
+        crate::milestones::compare(&self.ws, &copy)
+    }
+
     /// Every change so far, oldest first.
     pub fn log(&self) -> &[Change] {
         &self.log

@@ -4,6 +4,7 @@ mod board;
 mod date;
 pub(crate) mod detail;
 mod dialogs;
+mod milestones;
 mod overview;
 mod people;
 mod project;

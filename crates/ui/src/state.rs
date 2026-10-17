@@ -144,6 +144,15 @@ pub enum Dialog {
     Unsaved(FileAction),
     /// Confirm deleting a task.
     DeleteTask(TaskId),
+    /// A change of milestones, asked before it is made (Phase 9d): the command as it would
+    /// run, and what it would change.
+    ConfirmMilestone {
+        command: &'static str,
+        params: serde_json::Value,
+        then: crate::Then,
+        clear: Option<crate::Clear>,
+        changes: Vec<plnwrk_engine::milestones::MilestoneChange>,
+    },
     /// A task goes to "done" on the board while subtasks are open: close them too?
     /// `params` are those of the `task.move` (without `close_subtasks`), `open` how many.
     CloseSubtasks {
@@ -501,6 +510,8 @@ pub struct Forms {
     pub milestone_title: String,
     pub milestone_date: String,
     pub milestone_time: String,
+    /// A milestone's date being changed on its card: the milestone, day and time as typed.
+    pub milestone_edit: Option<(TaskId, String, String)>,
     pub comment: String,
     pub person: PersonForm,
     pub task: Option<TaskDraft>,

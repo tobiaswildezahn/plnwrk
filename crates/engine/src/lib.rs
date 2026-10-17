@@ -7,6 +7,7 @@ pub mod commands;
 mod error;
 mod event;
 pub mod fixture;
+pub mod milestones;
 pub mod params;
 pub mod places;
 pub mod query;

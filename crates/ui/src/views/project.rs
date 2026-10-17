@@ -34,7 +34,7 @@ pub fn show(
     match state.tab {
         Tab::List => list(ui, doc, project, state, out),
         Tab::Board => board::show(ui, doc, project, state, out),
-        Tab::Milestones => milestones(ui, doc, project, state, out),
+        Tab::Milestones => super::milestones::show(ui, doc, project, state, out),
         Tab::Schedule => super::schedule::show(ui, doc, project, state, out),
     }
 }
@@ -381,108 +381,6 @@ fn list(
                 then: Then::Nothing,
                 clear: Some(Clear::NewTask),
             });
-        }
-    });
-}
-
-fn milestones(
-    ui: &mut egui::Ui,
-    doc: &OpenDoc,
-    project: &Project,
-    state: &mut State,
-    out: &mut Vec<Intent>,
-) {
-    let ws = doc.session.workspace();
-    let now = doc.session.clock().now_local();
-    let mut all: Vec<&Task> = ws.tasks_of(project.id).filter(|t| t.milestone).collect();
-    all.sort_by(|a, b| {
-        plnwrk_engine::query::deadline_order(a.due, a.due_time)
-            .cmp(&plnwrk_engine::query::deadline_order(b.due, b.due_time))
-            .then(a.title.cmp(&b.title))
-    });
-    if all.is_empty() {
-        ui.weak(text::t().no_milestones);
-    }
-    egui::Grid::new("milestones")
-        .num_columns(4)
-        .striped(true)
-        .show(ui, |ui| {
-            for milestone in all {
-                let state_now = query::milestone_state_in(project, milestone, now);
-                let mut reached = milestone.status == TaskStatus::Done;
-                if ui.checkbox(&mut reached, text::t().reached).changed() {
-                    let status = if reached {
-                        TaskStatus::Done
-                    } else {
-                        TaskStatus::Todo
-                    };
-                    out.push(Intent::run(
-                        "task.set_status",
-                        json!({"task": milestone.id.to_string(), "status": status.name()}),
-                    ));
-                }
-                ui.label(
-                    milestone
-                        .due
-                        .map(|day| dates::format_deadline(day, milestone.due_time))
-                        .unwrap_or_default(),
-                );
-                let label = RichText::new(format!(
-                    "♦ {} ({})",
-                    milestone.title,
-                    text::milestone_state(state_now)
-                ));
-                let label = if state_now == query::MilestoneState::Missed {
-                    label.color(ui.visuals().error_fg_color)
-                } else {
-                    label
-                };
-                if ui
-                    .selectable_label(state.selected == Some(milestone.id), label)
-                    .clicked()
-                {
-                    out.push(Intent::Select(Some(milestone.id)));
-                }
-                if icon_button(ui, Icon::Delete, text::t().delete_milestone).clicked() {
-                    out.push(Intent::Open(crate::state::Dialog::DeleteTask(milestone.id)));
-                }
-                ui.end_row();
-            }
-        });
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut state.forms.milestone_title)
-                .hint_text(text::t().title)
-                .desired_width(240.0),
-        );
-        date::deadline_input(
-            ui,
-            ("new-milestone", project.id),
-            &mut state.forms.milestone_date,
-            &mut state.forms.milestone_time,
-            now.date(),
-            project.reference.is_some(),
-            None,
-        );
-        if ui.button(text::t().new_milestone).clicked() {
-            match dates::parse_deadline(&state.forms.milestone_date, &state.forms.milestone_time) {
-                Ok(Some(due)) => out.push(Intent::Run {
-                    command: "task.create",
-                    params: json!({
-                        "project": project.id.to_string(),
-                        "title": state.forms.milestone_title.trim(),
-                        "milestone": true,
-                        "due": dates::deadline_param(Some(due)),
-                    }),
-                    then: Then::Nothing,
-                    clear: Some(Clear::Milestone),
-                }),
-                Ok(None) => {
-                    state.message = Some(crate::state::Message::error(text::t().date_needed));
-                }
-                Err(message) => state.message = Some(crate::state::Message::error(message)),
-            }
         }
     });
 }

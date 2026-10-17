@@ -30,7 +30,11 @@ AI. Dates are YYYY-MM-DD, deadlines optionally YYYY-MM-DDTHH:MM. Changing a task
 moves the tasks that wait for it later as needed (every day counts); together with other \
 fields that is two undo steps. \"undo\" takes back your own last step, as long as the file was \
 not changed elsewhere since (never a change made in the app). Files \
-classified VS-NfD and encrypted files are never opened.";
+classified VS-NfD and encrypted files are never opened. Milestones are fixed dates: a change of one (date, title, status, deletion, marking) is \
+refused until the person said yes in the chat; ask first (what changes, old → new), then repeat \
+the call with \"confirmed\": true. Milestones never move along: if new dates put a task \
+after a milestone that waits for it, the answer names that milestone under \
+milestones_overtaken – tell the person.";
 
 /// JSON-RPC error codes.
 const PARSE_ERROR: i64 = -32700;

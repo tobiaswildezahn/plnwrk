@@ -388,6 +388,39 @@ impl Plan {
         seen
     }
 
+    /// A milestone on `span` that comes before what it waits for allows: the earliest day it
+    /// could be.
+    fn milestone_early(
+        &self,
+        item: &Item,
+        span: (Date, Date),
+        spans: &BTreeMap<TaskId, (Date, Date)>,
+    ) -> Option<Date> {
+        let length = self.duration(item, span);
+        self.required(item, spans, length)
+            .filter(|earliest| self.too_early(item, span, *earliest))
+    }
+
+    /// The milestones that would come before what they wait for once `moves` are made, and do
+    /// not now. Milestones never move along ([`Plan::push`]), so moving what they wait for can
+    /// overtake them – the warning of [`Plan::analyse`], new through these moves.
+    pub fn overtaken(&self, moves: &[Move]) -> Vec<TaskId> {
+        let changes: BTreeMap<TaskId, Move> = moves.iter().map(|m| (m.task, *m)).collect();
+        let (now, then) = (self.spans(&BTreeMap::new()), self.spans(&changes));
+        let early = |spans: &BTreeMap<TaskId, (Date, Date)>, item: &Item| {
+            spans
+                .get(&item.id)
+                .and_then(|span| self.milestone_early(item, *span, spans))
+        };
+        self.order
+            .iter()
+            .filter_map(|id| self.items.get(id))
+            .filter(|item| item.milestone && !item.done && !changes.contains_key(&item.id))
+            .filter(|item| early(&then, item).is_some() && early(&now, item).is_none())
+            .map(|item| item.id)
+            .collect()
+    }
+
     /// The critical path and what cannot hold, for the dates as they are.
     pub fn analyse(&self) -> Analysis {
         let cal = &self.calendar;
@@ -404,9 +437,7 @@ impl Plan {
             }
             let length = self.duration(item, *span);
             if item.milestone {
-                if let Some(earliest) = self.required(item, &spans, length)
-                    && self.too_early(item, *span, earliest)
-                {
+                if let Some(earliest) = self.milestone_early(item, *span, &spans) {
                     analysis.warnings.push(Warning::Milestone {
                         task: item.id,
                         earliest,
@@ -501,9 +532,15 @@ impl Plan {
                 continue;
             }
             let float = if item.milestone {
-                // A milestone does not move: its float is how much later what it waits for
-                // could end. Waiting for nothing, it has none to lose.
-                self.required(item, &spans, length)
+                // A milestone does not move: its float is how much later what it still waits
+                // for could end. Finished work cannot end later; waiting for nothing open, it
+                // has none to lose.
+                self.links
+                    .iter()
+                    .filter(|l| l.to == item.id)
+                    .filter(|l| self.items.get(&l.from).is_some_and(|from| !from.done))
+                    .filter_map(|l| self.requires(l, item, &spans, length))
+                    .max()
                     .map(|earliest| cal.between(earliest, cal.previous_working(span.1)))
             } else {
                 Some(cal.between(span.0, self.start_of(item, end, length)))
@@ -676,6 +713,94 @@ mod tests {
         );
         // Room enough: the successor stays.
         assert_eq!(p.push(moved(1, "2026-10-13", "2026-10-15")).len(), 1);
+    }
+
+    /// A move that puts what a milestone waits for after it overtakes the milestone (Phase 9d,
+    /// Tobi: a hint when moving). The same day is allowed; the next working day is not.
+    #[test]
+    fn a_move_past_a_milestone_overtakes_it() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-14"),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 2)],
+        );
+        assert!(
+            p.overtaken(&[moved(1, "2026-10-14", "2026-10-16")])
+                .is_empty()
+        );
+        assert_eq!(
+            p.overtaken(&[moved(1, "2026-10-15", "2026-10-19")]),
+            vec![id(2)]
+        );
+        // The milestone moved itself: asked about on its own, not counted here.
+        let own = Move {
+            task: id(2),
+            start: None,
+            due: Some(d("2026-10-13")),
+        };
+        assert!(p.overtaken(&[own]).is_empty());
+        // Done: nothing to overtake.
+        let mut reached = milestone(2, "2026-10-16");
+        reached.done = true;
+        let p = plan(
+            vec![task(1, "2026-10-12", "2026-10-14"), reached],
+            vec![fs(1, 2)],
+        );
+        assert!(
+            p.overtaken(&[moved(1, "2026-10-15", "2026-10-19")])
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn only_newly_overtaken_milestones_count_and_chains_too() {
+        // Already behind it: a further move is not news.
+        let p = plan(
+            vec![
+                task(1, "2026-10-15", "2026-10-19"),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 2)],
+        );
+        assert!(
+            p.overtaken(&[moved(1, "2026-10-16", "2026-10-20")])
+                .is_empty()
+        );
+        // Through a chain: 1 pushes 3, which then ends after the milestone 2 waiting for 3.
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-13"),
+                task(3, "2026-10-14", "2026-10-15"),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 3), fs(3, 2)],
+        );
+        let moves = p.push(moved(1, "2026-10-14", "2026-10-16"));
+        assert!(moves.len() > 1, "{moves:?}");
+        assert_eq!(p.overtaken(&moves), vec![id(2)]);
+    }
+
+    /// A milestone's slack counts only what it still waits for (review 9d): finished work ending
+    /// the day before does not make it tight when the open work has room.
+    #[test]
+    fn a_milestones_slack_counts_only_open_work() {
+        let mut finished = task(1, "2026-10-12", "2026-10-15");
+        finished.done = true;
+        let p = plan(
+            vec![
+                finished.clone(),
+                task(3, "2026-10-05", "2026-10-06"),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 2), fs(3, 2)],
+        );
+        let slack = p.analyse().float.get(&id(2)).copied();
+        assert!(slack.is_some_and(|days| days >= 7), "{slack:?}");
+        // Only finished work: none to lose.
+        let p = plan(vec![finished, milestone(2, "2026-10-16")], vec![fs(1, 2)]);
+        assert_eq!(p.analyse().float.get(&id(2)), None);
     }
 
     #[test]

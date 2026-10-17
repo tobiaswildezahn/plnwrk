@@ -368,6 +368,53 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         }
                     });
                 }
+                Dialog::ConfirmMilestone {
+                    command,
+                    params,
+                    then,
+                    clear,
+                    changes,
+                } => {
+                    ui.heading(text::t().confirm_milestone_title);
+                    ui.weak(text::t().confirm_milestone_hint);
+                    ui.add_space(space::S);
+                    for change in changes.iter() {
+                        w::subheading(ui, &format!("♦ {}", change.title));
+                        for line in milestone_lines(change) {
+                            ui.label(line);
+                        }
+                        if change.late_predecessors > 0 {
+                            w::field_error(ui, &text::late_predecessors(change.late_predecessors));
+                        }
+                        if change.after_project_due {
+                            w::field_error(ui, text::t().after_project_due_then);
+                        }
+                        ui.add_space(space::S);
+                    }
+                    let along = if *command == "task.reschedule" {
+                        crate::along_of(params)
+                    } else {
+                        0
+                    };
+                    if along > 0 {
+                        ui.label(text::moves_along(along));
+                        ui.add_space(space::S);
+                    }
+                    ui.horizontal(|ui| {
+                        if w::button(ui, Kind::Primary, text::t().change_button).clicked() {
+                            out.push(Intent::CloseDialog);
+                            out.push(Intent::Confirmed(Box::new(Intent::Run {
+                                command,
+                                params: params.clone(),
+                                then: *then,
+                                clear: *clear,
+                            })));
+                        }
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
+                            out.push(Intent::DeclineMilestone);
+                        }
+                    });
+                }
                 Dialog::DeleteTask(task) => {
                     ui.heading(text::t().delete_task);
                     let title = doc
@@ -379,12 +426,12 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     ui.add_space(space::S);
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Destructive, text::t().delete).clicked() {
-                            out.push(Intent::Run {
+                            out.push(Intent::Confirmed(Box::new(Intent::Run {
                                 command: "task.delete",
                                 params: json!({"task": task.to_string()}),
                                 then: Then::Nothing,
                                 clear: Some(Clear::Dialog),
-                            });
+                            })));
                         }
                         if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);
@@ -393,8 +440,13 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 }
             }
         });
+    // Escape or a click beside it: for a milestone the same as "Abbrechen" (the typed value
+    // goes back to the stored one).
     if response.should_close() && !matches!(dialog, Dialog::Unsaved(_)) {
-        out.push(Intent::CloseDialog);
+        out.push(match dialog {
+            Dialog::ConfirmMilestone { .. } => Intent::DeclineMilestone,
+            _ => Intent::CloseDialog,
+        });
     }
     if let Some(error) = message {
         state.message = Some(Message::error(error));
@@ -491,4 +543,42 @@ fn focus_once(response: &egui::Response, serial: u64) {
         response.request_focus();
         response.ctx.data_mut(|d| d.insert_temp(id, true));
     }
+}
+
+/// What changes at a milestone, one line each: "Termin: 24.10.2026 → 18.10.2026".
+fn milestone_lines(change: &plnwrk_engine::milestones::MilestoneChange) -> Vec<String> {
+    use plnwrk_engine::milestones::Field;
+    let t = text::t();
+    let day = |d: Option<jiff::civil::Date>| d.map_or_else(|| "–".to_owned(), crate::dates::format);
+    let deadline = |d: Option<(jiff::civil::Date, Option<jiff::civil::Time>)>| {
+        d.map_or_else(
+            || "–".to_owned(),
+            |(day, time)| crate::dates::format_deadline(day, time),
+        )
+    };
+    change
+        .fields
+        .iter()
+        .map(|field| match field {
+            Field::Title { old, new } => format!("{}: {old} → {new}", t.title),
+            Field::Start { old, new } => format!("{}: {} → {}", t.start, day(*old), day(*new)),
+            Field::Due { old, new } => {
+                format!(
+                    "{}: {} → {}",
+                    t.milestone_date,
+                    deadline(*old),
+                    deadline(*new)
+                )
+            }
+            Field::Status { old, new } => format!(
+                "{}: {} → {}",
+                t.status,
+                text::task_status(*old),
+                text::task_status(*new)
+            ),
+            Field::Deleted => t.milestone_deleted.to_owned(),
+            Field::Unmarked => t.milestone_unmarked.to_owned(),
+            Field::Marked => t.milestone_marked.to_owned(),
+        })
+        .collect()
 }

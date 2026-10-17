@@ -126,13 +126,11 @@ pub struct Texts {
     pub new_task_hint: &'static str,
     pub new_subtask_hint: &'static str,
     pub add_subtask: &'static str,
-    pub delete_milestone: &'static str,
     pub close_details: &'static str,
     pub rename_hint: &'static str,
     pub no_tasks: &'static str,
     pub new_milestone: &'static str,
     pub no_milestones: &'static str,
-    pub reached: &'static str,
     pub subtasks: &'static str,
     pub comments: &'static str,
     pub new_comment_hint: &'static str,
@@ -142,6 +140,25 @@ pub struct Texts {
     pub by_ai: &'static str,
     pub delete_task: &'static str,
     pub delete_task_question: &'static str,
+    pub confirm_milestone_title: &'static str,
+    pub confirm_milestone_hint: &'static str,
+    pub change_button: &'static str,
+    pub milestone_date: &'static str,
+    pub milestone_deleted: &'static str,
+    pub milestone_unmarked: &'static str,
+    pub milestone_marked: &'static str,
+    pub after_project_due_then: &'static str,
+    pub light_reached: &'static str,
+    pub light_overdue: &'static str,
+    pub light_at_risk: &'static str,
+    pub light_on_plan: &'static str,
+    pub reach_button: &'static str,
+    pub reopen_button: &'static str,
+    pub change_date: &'static str,
+    pub project_due_mark: &'static str,
+    pub predecessor_late: &'static str,
+    pub no_assignee: &'static str,
+    pub timeline_hint: &'static str,
     pub close_subtasks_title: &'static str,
     pub whole_project: &'static str,
     pub float_hint: &'static str,
@@ -373,13 +390,11 @@ pub static DE: Texts = Texts {
     new_task_hint: "Neue Aufgabe … (Enter)",
     new_subtask_hint: "Neue Unteraufgabe … (Enter)",
     add_subtask: "Unteraufgabe hinzufügen",
-    delete_milestone: "Meilenstein löschen",
     close_details: "Details schließen",
     rename_hint: "Doppelklick: umbenennen",
     no_tasks: "Noch keine Aufgaben.",
     new_milestone: "+ Meilenstein",
     no_milestones: "Noch keine Meilensteine.",
-    reached: "erreicht",
     subtasks: "Unteraufgaben",
     comments: "Kommentare",
     new_comment_hint: "Kommentar schreiben …",
@@ -388,6 +403,25 @@ pub static DE: Texts = Texts {
     by_ai: "durch KI",
     delete_task: "Aufgabe löschen",
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
+    confirm_milestone_title: "Meilenstein ändern?",
+    confirm_milestone_hint: "Meilensteine sind feste Termine. Jede Änderung wird bestätigt.",
+    change_button: "Ändern",
+    milestone_date: "Termin",
+    milestone_deleted: "wird gelöscht",
+    milestone_unmarked: "ist danach kein Meilenstein mehr",
+    milestone_marked: "wird ein Meilenstein",
+    after_project_due_then: "Er liegt dann nach der Frist des Projekts.",
+    light_reached: "erreicht",
+    light_overdue: "überfällig",
+    light_at_risk: "gefährdet",
+    light_on_plan: "im Plan",
+    reach_button: "Erreicht",
+    reopen_button: "Wieder öffnen",
+    change_date: "Termin ändern",
+    project_due_mark: "Projektfrist",
+    predecessor_late: "Ein Vorgänger ist überfällig.",
+    no_assignee: "niemand",
+    timeline_hint: "Raute anklicken wählt aus, ziehen ändert den Termin (mit Rückfrage).",
     close_subtasks_title: "Unteraufgaben auch erledigen?",
     whole_project: "Ganzes Projekt",
     float_hint: "So viele Tage kann sich die Aufgabe verschieben, ohne dass sich das Ende verschiebt.",
@@ -618,13 +652,11 @@ pub static EN: Texts = Texts {
     new_task_hint: "New task … (Enter)",
     new_subtask_hint: "New subtask … (Enter)",
     add_subtask: "Add subtask",
-    delete_milestone: "Delete milestone",
     close_details: "Close details",
     rename_hint: "Double-click: rename",
     no_tasks: "No tasks yet.",
     new_milestone: "+ Milestone",
     no_milestones: "No milestones yet.",
-    reached: "reached",
     subtasks: "Subtasks",
     comments: "Comments",
     new_comment_hint: "Write a comment …",
@@ -633,6 +665,25 @@ pub static EN: Texts = Texts {
     by_ai: "by AI",
     delete_task: "Delete task",
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
+    confirm_milestone_title: "Change a milestone?",
+    confirm_milestone_hint: "Milestones are fixed dates. Every change is confirmed.",
+    change_button: "Change",
+    milestone_date: "Date",
+    milestone_deleted: "is deleted",
+    milestone_unmarked: "is no longer a milestone afterwards",
+    milestone_marked: "becomes a milestone",
+    after_project_due_then: "It then lies after the project's deadline.",
+    light_reached: "reached",
+    light_overdue: "overdue",
+    light_at_risk: "at risk",
+    light_on_plan: "on track",
+    reach_button: "Reached",
+    reopen_button: "Reopen",
+    change_date: "Change date",
+    project_due_mark: "Project deadline",
+    predecessor_late: "A task it waits for is overdue.",
+    no_assignee: "nobody",
+    timeline_hint: "Click a diamond to choose it, drag it to change the date (asked first).",
     close_subtasks_title: "Close the subtasks too?",
     whole_project: "Whole project",
     float_hint: "By this many days the task can slip without the end slipping.",
@@ -1046,7 +1097,81 @@ pub fn span_with_weekdays(from: jiff::civil::Date, to: jiff::civil::Date) -> Str
     }
 }
 
+/// Tasks a milestone waits for that end after its new date.
+pub fn late_predecessors(count: usize) -> String {
+    match count {
+        1 => pick(
+            "1 Aufgabe, auf die er wartet, endet danach.",
+            "1 task it waits for ends after it.",
+        )
+        .to_owned(),
+        n => pick(
+            format!("{n} Aufgaben, auf die er wartet, enden danach."),
+            format!("{n} tasks it waits for end after it."),
+        ),
+    }
+}
+
 /// How many tasks that wait move along with a change: "+2 Aufgaben verschieben sich".
+pub fn reached_on(day: Option<&str>) -> String {
+    match day {
+        Some(day) => pick(format!("erreicht am {day}"), format!("reached on {day}")),
+        None => pick("erreicht", "reached").to_owned(),
+    }
+}
+
+pub fn open_predecessors(count: usize) -> String {
+    match count {
+        0 => pick("Wartet auf nichts Offenes", "Waits for nothing open").to_owned(),
+        1 => pick("Wartet auf 1 offene Aufgabe", "Waits for 1 open task").to_owned(),
+        n => pick(
+            format!("Wartet auf {n} offene Aufgaben"),
+            format!("Waits for {n} open tasks"),
+        ),
+    }
+}
+
+/// Why a milestone is at risk: little slack before it.
+pub fn little_slack(days: i32) -> String {
+    match (language(), days) {
+        (Language::German, 1) => "Nur 1 Tag Spielraum bis hierhin.".to_owned(),
+        (Language::German, n) if n <= 0 => "Kein Spielraum bis hierhin.".to_owned(),
+        (Language::German, n) => format!("Nur {n} Tage Spielraum bis hierhin."),
+        (Language::English, 1) => "Only 1 day of slack up to here.".to_owned(),
+        (Language::English, n) if n <= 0 => "No slack up to here.".to_owned(),
+        (Language::English, n) => format!("Only {n} days of slack up to here."),
+    }
+}
+
+/// Milestones a move puts before what they wait for (they never move along).
+pub fn overtakes(titles: &[String]) -> String {
+    let quoted = |open: &str, close: &str| {
+        titles
+            .iter()
+            .map(|t| format!("{open}{t}{close}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match (language(), titles.len()) {
+        (Language::German, 1) => format!(
+            "Danach liegt der Meilenstein {} vor einer Aufgabe, auf die er wartet.",
+            quoted("„", "“")
+        ),
+        (Language::German, _) => format!(
+            "Danach liegen die Meilensteine {} vor Aufgaben, auf die sie warten.",
+            quoted("„", "“")
+        ),
+        (Language::English, 1) => format!(
+            "The milestone {} then lies before a task it waits for.",
+            quoted("“", "”")
+        ),
+        (Language::English, _) => format!(
+            "The milestones {} then lie before tasks they wait for.",
+            quoted("“", "”")
+        ),
+    }
+}
+
 pub fn moves_along(count: usize) -> String {
     match count {
         1 => pick("+1 Aufgabe verschiebt sich", "+1 task moves along").to_owned(),

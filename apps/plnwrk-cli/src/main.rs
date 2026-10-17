@@ -81,7 +81,13 @@ fn cli() -> Command {
                         .required(true)
                         .help("Command id, e.g. task.create"),
                 )
-                .arg(params_arg()),
+                .arg(params_arg())
+                .arg(
+                    Arg::new("confirmed")
+                        .long("confirmed")
+                        .action(ArgAction::SetTrue)
+                        .help("A change of a milestone was confirmed by the person (asked first)"),
+                ),
         )
         .subcommand(
             Command::new("query")
@@ -217,6 +223,15 @@ fn run_command(matches: &ArgMatches) -> Result<Output, Failure> {
             created: Vec::new(),
         }
     } else {
+        // A change of a milestone only when confirmed (plan §6.3, as over MCP).
+        let milestones = session.milestone_changes(command, &params);
+        if !milestones.is_empty() && !matches.get_flag("confirmed") {
+            return Err(Failure(json!({
+                "error": "milestone_not_confirmed",
+                "message": "this changes a milestone; ask the person first, then repeat with --confirmed",
+                "milestones": milestones,
+            })));
+        }
         session.run(command, &params, Origin::User)?
     };
     let changed = outcome.change.is_some() || upgraded;

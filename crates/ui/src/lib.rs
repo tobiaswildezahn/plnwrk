@@ -151,6 +151,11 @@ pub(crate) enum Intent {
     /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
     /// the browser.
     ExportSchedule(ProjectId),
+    /// Carry out this intent: its question was answered with yes (milestones, deleting).
+    Confirmed(Box<Intent>),
+    /// The change of a milestone is not made: the question closes and what was typed for it
+    /// goes back to the stored values.
+    DeclineMilestone,
     /// Something for the schedule of a project: zoom level, today, the whole project.
     Schedule(ProjectId, state::ScheduleRequest),
     /// Show or hide a column of the schedule's table.
@@ -193,6 +198,12 @@ pub struct PlnwrkApp {
     autosave: autosave::Autosave,
     /// Browser: the recovery copy in the browser's storage.
     browser_copy: browser_copy::BrowserCopy,
+    /// The intent being carried out was confirmed already (a question about milestones or
+    /// deleting was answered with yes).
+    confirmed: bool,
+    /// What waits for the answer to a question about a milestone (closing, saving, opening,
+    /// exporting): carried out once it is answered, either way.
+    after_answer: Option<Intent>,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -247,6 +258,8 @@ impl PlnwrkApp {
             leave_warning: false,
             autosave: autosave::Autosave::default(),
             browser_copy: browser_copy::BrowserCopy::default(),
+            confirmed: false,
+            after_answer: None,
         }
     }
 
@@ -294,7 +307,8 @@ impl PlnwrkApp {
                     .as_ref()
                     .is_some_and(state::TaskDraft::is_pending)
                 || self.inline_pending().is_some()
-                || self.project_pending().is_some())
+                || self.project_pending().is_some()
+                || self.milestone_edit_pending())
     }
 
     /// A project form with typed changes: the project and the form, brought up to date with
@@ -326,6 +340,21 @@ impl PlnwrkApp {
             Some(_) => {}
             None => self.state.forms.project = None,
         }
+    }
+
+    /// A milestone's date typed on its card and not taken yet.
+    fn milestone_edit_pending(&self) -> bool {
+        let Some((id, day, time)) = &self.state.forms.milestone_edit else {
+            return false;
+        };
+        let Some(task) = self
+            .doc
+            .as_ref()
+            .and_then(|d| d.session.workspace().task(*id))
+        else {
+            return false;
+        };
+        *day != dates::format_opt(task.due) || *time != dates::format_time_opt(task.due_time)
     }
 
     /// A title typed in the list and not taken yet: the task and the new title.
@@ -378,6 +407,26 @@ impl PlnwrkApp {
                 }
             }
         }
+        // A milestone's date typed on its card: taken like "Übernehmen" (which asks first), or
+        // put back and named.
+        if self.milestone_edit_pending()
+            && let Some((id, day, time)) = self.state.forms.milestone_edit.take()
+        {
+            let start = self
+                .doc
+                .as_ref()
+                .and_then(|d| d.session.workspace().task(id))
+                .and_then(|t| t.start);
+            match dates::parse_deadline(&day, &time) {
+                Ok(Some((due, due_time))) => {
+                    self.reschedule(id, start.filter(|s| *s <= due), Some(due), Some(due_time));
+                }
+                Ok(None) => {
+                    refused.push(format!("{} {}", text::t().not_taken, text::t().date_needed))
+                }
+                Err(reason) => refused.push(format!("{} {reason}", text::t().not_taken)),
+            }
+        }
         let project_warning = (!refused.is_empty()).then(|| refused.join(" · "));
         if let Some(text) = &project_warning {
             self.state.message = Some(Message::error(text.clone()));
@@ -427,7 +476,10 @@ impl PlnwrkApp {
                 .as_ref()
                 .and_then(|d| d.session.workspace().task(task.id))
                 .cloned();
-            if !taken {
+            if !taken && self.asking_milestone() {
+                // A milestone: asked first. What was typed stays in the field until the answer
+                // ("Abbrechen" puts the stored value back); nothing was refused.
+            } else if !taken {
                 // Refused (e.g. empty title): back to what is stored, and say so.
                 let reason = self
                     .state
@@ -471,11 +523,32 @@ impl PlnwrkApp {
             return true;
         }
         self.flush_draft();
+        // A typed milestone date is asked about first; the window stays open for the answer,
+        // then closing goes on.
+        if self.asking_milestone() {
+            self.after_answer = Some(Intent::File(FileAction::Quit));
+            return false;
+        }
         if !self.has_unsaved_changes() {
             return true;
         }
         self.state.open_dialog(Dialog::Unsaved(FileAction::Quit));
         false
+    }
+
+    /// After the answer about a milestone: what waited for it goes on.
+    fn carry_on(&mut self) {
+        if !self.asking_milestone()
+            && let Some(next) = self.after_answer.take()
+        {
+            self.apply(next);
+        }
+    }
+
+    /// Whether the question about a change of a milestone is open – e.g. after a typed date
+    /// was taken on the way to saving or closing; that waits for the answer.
+    fn asking_milestone(&self) -> bool {
+        matches!(self.state.dialog, Some(Dialog::ConfirmMilestone { .. }))
     }
 
     /// Last chance when the app ends without asking (e.g. "Beenden" in the Dock, logging out):
@@ -486,6 +559,8 @@ impl PlnwrkApp {
         if self.state.quitting {
             return None; // the person decided (saved or discarded)
         }
+        // A typed change of a milestone is not kept here: it would need the person's yes,
+        // and there is no one left to ask.
         self.flush_draft();
         let doc = self.doc.as_ref()?;
         if !doc.is_dirty() {
@@ -666,6 +741,19 @@ impl PlnwrkApp {
             } => {
                 self.run(command, &params, then, clear);
             }
+            Intent::Confirmed(intent) => {
+                self.confirmed = true;
+                self.apply(*intent);
+                self.confirmed = false;
+                self.carry_on();
+            }
+            Intent::DeclineMilestone => {
+                self.state.close_dialog();
+                // What was typed for it is dropped: the fields show the stored values again.
+                self.state.forms.task = None;
+                self.state.forms.inline = None;
+                self.carry_on();
+            }
             Intent::Go(view) => {
                 self.flush_draft();
                 self.state.view = view;
@@ -810,6 +898,38 @@ impl PlnwrkApp {
             self.state.message = Some(Message::error(text::t().vs_blocked));
             return false;
         }
+        // Every change of a milestone is asked first (plan §6.3), whichever view sent it: the
+        // command is tried on a copy, and if it touches a milestone it waits for the answer.
+        if !self.confirmed
+            && let Some(spec) = plnwrk_engine::command::find(command)
+        {
+            let changes = doc.session.milestone_changes(command, params);
+            if !changes.is_empty() {
+                self.state.open_dialog(Dialog::ConfirmMilestone {
+                    command: spec.id,
+                    params: params.clone(),
+                    then,
+                    clear,
+                    changes,
+                });
+                return false;
+            }
+        }
+        // New dates: what moves along and which milestones they overtake, said once it is done
+        // (read before, from the dates as they are).
+        let news = (command == "task.reschedule").then(|| {
+            let along = along_of(params);
+            let overtaken: Vec<String> = plnwrk_schedule::overtaken_by(
+                doc.session.workspace(),
+                params,
+                plnwrk_schedule::Calendar::standard(),
+            )
+            .into_iter()
+            .filter_map(|id| doc.session.workspace().task(id))
+            .map(|t| t.title.clone())
+            .collect();
+            (along, overtaken)
+        });
         match doc.session.run(command, params, Origin::User) {
             Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {
                 // Last line for a way not foreseen above: taken back at once, and the file can
@@ -821,7 +941,21 @@ impl PlnwrkApp {
                 false
             }
             Ok(outcome) => {
-                self.state.message = None;
+                self.state.message = match news {
+                    Some((along, overtaken)) if !overtaken.is_empty() => {
+                        let said = if along > 0 {
+                            format!("{} ", text::moved_along(along))
+                        } else {
+                            String::new()
+                        };
+                        Some(Message::error(format!(
+                            "{said}⚠ {}",
+                            text::overtakes(&overtaken)
+                        )))
+                    }
+                    Some((along, _)) if along > 0 => Some(Message::info(text::moved_along(along))),
+                    _ => None,
+                };
                 if let (Then::ShowProject, Some(EntityKey::Project(id))) =
                     (then, outcome.created.first())
                 {
@@ -879,11 +1013,8 @@ impl PlnwrkApp {
             return false;
         }
         let params = reschedule.params(due_time);
-        let taken = self.run("task.reschedule", &params, Then::Nothing, None);
-        if taken && along > 0 {
-            self.state.message = Some(Message::info(text::moved_along(along)));
-        }
-        taken
+        // What moved along (and what it overtook) is said by `run`.
+        self.run("task.reschedule", &params, Then::Nothing, None)
     }
 
     /// Saves the schedule of `project` as a table. Classified content carries the marking;
@@ -891,6 +1022,10 @@ impl PlnwrkApp {
     fn export_schedule(&mut self, project: ProjectId) {
         // Typed but not taken yet: part of what is exported, as when saving.
         self.flush_draft();
+        if self.asking_milestone() {
+            self.after_answer = Some(Intent::ExportSchedule(project));
+            return;
+        }
         let Some(doc) = &self.doc else { return };
         let ws = doc.session.workspace();
         let Some(project) = ws.project(project) else {
@@ -972,11 +1107,26 @@ impl PlnwrkApp {
         }
         // Typed text counts like any change: stored first, so saving includes it and leaving
         // asks about it. Not when the person chose to discard.
+        let shown = self.state.message.clone();
         let warning = if force { None } else { self.flush_draft() };
+        // A typed milestone date is asked about first: saving, opening or closing waits for
+        // the answer and goes on after it.
+        if self.asking_milestone() {
+            self.after_answer = Some(Intent::File(action));
+            return;
+        }
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
             self.state.open_dialog(Dialog::Unsaved(action));
             return;
         }
+        // A warning from what was just taken (e.g. a milestone overtaken) stays in view after
+        // "Gespeichert.".
+        let saving = matches!(action, FileAction::Save | FileAction::SaveAs);
+        let earlier = self
+            .state
+            .message
+            .clone()
+            .filter(|m| m.error && Some(m) != shown.as_ref());
         match action {
             FileAction::New => self.replace(OpenDoc::new()),
             FileAction::Sample => match OpenDoc::sample() {
@@ -1008,6 +1158,12 @@ impl PlnwrkApp {
         // "Gespeichert." must not hide that a typed date was not taken.
         if let Some(warning) = warning {
             self.state.message = Some(Message::error(warning));
+        } else if saving
+            && let Some(earlier) = earlier
+            && let Some(now) = &self.state.message
+            && now.text != earlier.text
+        {
+            self.state.message = Some(Message::error(format!("{} {}", now.text, earlier.text)));
         }
     }
 
@@ -1045,6 +1201,10 @@ impl PlnwrkApp {
     /// Saves with a new protection; if that fails or is cancelled, the old one stays.
     fn change_protection(&mut self, protection: plnwrk_store::Protection, done: &str) {
         let warning = self.flush_draft();
+        // Not carried on afterwards: the passphrase is not kept while waiting.
+        if self.asking_milestone() {
+            return;
+        }
         let Some(doc) = &mut self.doc else { return };
         let old = doc.set_protection(protection);
         if self.save(false) {
@@ -1322,3 +1482,12 @@ impl eframe::App for PlnwrkApp {
 mod model_tests;
 #[cfg(test)]
 mod tests;
+
+/// How many tasks move along in the parameters of `task.reschedule` (the first move is the
+/// task itself).
+pub(crate) fn along_of(params: &Value) -> usize {
+    params
+        .get("moves")
+        .and_then(Value::as_array)
+        .map_or(0, |moves| moves.len().saturating_sub(1))
+}

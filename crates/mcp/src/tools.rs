@@ -74,13 +74,14 @@ pub fn list() -> Value {
         {
             "name": "run_command",
             "title": "Change a plnwrk file",
-            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (every calendar day counts, weekends and holidays too), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD.",
+            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (every calendar day counts, weekends and holidays too), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD. A change of a milestone (its date, title, status, deletion, or making a task one or not) is refused until the person confirmed it in the chat: ask first, then repeat with \"confirmed\": true.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "file": file,
                     "command": {"type": "string", "description": "Command id, e.g. task.update."},
-                    "params": {"type": "object", "description": "Parameters as in the command's schema."}
+                    "params": {"type": "object", "description": "Parameters as in the command's schema."},
+                    "confirmed": {"type": "boolean", "description": "true only after the person said yes in the chat to this change of a milestone (see the refusal without it)."}
                 },
                 "required": ["file", "command"],
                 "additionalProperties": false
@@ -90,13 +91,14 @@ pub fn list() -> Value {
         {
             "name": "move_task",
             "title": "Move a task by days",
-            "description": "Moves a task's start and deadline by a number of days (negative: earlier), keeping its length and the time of its deadline; every day counts, a week is 7 days. What waits for it moves along in the same step, as with task.update. Saved at once; one undo step.",
+            "description": "Moves a task's start and deadline by a number of days (negative: earlier), keeping its length and the time of its deadline; every day counts, a week is 7 days. What waits for it moves along in the same step, as with task.update. Saved at once; one undo step. Moving a milestone needs \"confirmed\": true after the person said yes in the chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "file": file,
                     "task": {"type": "string", "description": "Id of the task (from overview or a query)."},
-                    "days": {"type": "integer", "minimum": -3650, "maximum": 3650, "description": "Days to move by, e.g. 7 for a week."}
+                    "days": {"type": "integer", "minimum": -3650, "maximum": 3650, "description": "Days to move by, e.g. 7 for a week."},
+                    "confirmed": {"type": "boolean", "description": "true only after the person said yes in the chat to this change of a milestone (see the refusal without it)."}
                 },
                 "required": ["file", "task", "days"],
                 "additionalProperties": false
@@ -112,8 +114,8 @@ pub fn call(name: &str, arguments: &Map<String, Value>, kept: &mut Kept) -> Answ
         "overview" => &["file"],
         "query" => &["file", "name", "params"],
         "search_commands" => &["words"],
-        "run_command" => &["file", "command", "params"],
-        "move_task" => &["file", "task", "days"],
+        "run_command" => &["file", "command", "params", "confirmed"],
+        "move_task" => &["file", "task", "days", "confirmed"],
         _ => return Err(format!("There is no tool {name:?}.")),
     };
     if let Some(unknown) = arguments.keys().find(|k| !allowed.contains(&k.as_str())) {
@@ -205,15 +207,16 @@ fn read(arguments: &Map<String, Value>, answer: impl FnOnce(&Session) -> Answer)
 fn run(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
     let command = text(arguments, "command")?;
     let params = object(arguments, "params")?;
+    let confirmed = confirmed(arguments)?;
     // Refused before the file is even opened: nothing classified may enter it.
     if params::asks_for_classified(&params) {
         return Err(Refusal::ClassifiedCommand.message());
     }
     change(arguments, kept, |session| {
         if command == "task.update" {
-            update_task(session, params)
+            update_task(session, params, confirmed)
         } else {
-            step(session, &command, &params).map(|outcome| vec![outcome])
+            step(session, &command, &params, confirmed).map(|outcome| vec![outcome])
         }
     })
 }
@@ -221,6 +224,7 @@ fn run(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
 /// Moves a task by whole days (start and deadline, the time of day kept); what waits for it
 /// moves along as with any date change.
 fn move_task(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
+    let confirmed = confirmed(arguments)?;
     let task = arguments
         .get("task")
         .ok_or("task is missing.")
@@ -257,7 +261,7 @@ fn move_task(arguments: &Map<String, Value>, kept: &mut Kept) -> Answer {
             };
             fields.insert("due".to_owned(), Value::String(due));
         }
-        update_task(session, Value::Object(fields))
+        update_task(session, Value::Object(fields), confirmed)
     })
 }
 
@@ -300,16 +304,109 @@ fn change(
     Ok(json!({"steps": steps, "saved": changed || upgraded}))
 }
 
-/// Runs one command as made by an AI.
-fn step(session: &mut Session, command: &str, params: &Value) -> Answer {
+/// Whether the person confirmed a change of milestones (`"confirmed": true`).
+fn confirmed(arguments: &Map<String, Value>) -> Result<bool, String> {
+    match arguments.get("confirmed") {
+        None | Some(Value::Bool(false)) => Ok(false),
+        Some(Value::Bool(true)) => Ok(true),
+        Some(_) => Err("confirmed must be true or false.".to_owned()),
+    }
+}
+
+/// Runs one command as made by an AI. A change of milestones runs only when the person
+/// confirmed it in the chat (decision 2026-10-17); otherwise the refusal says what would change
+/// and what to do.
+fn step(session: &mut Session, command: &str, params: &Value, confirmed: bool) -> Answer {
+    let milestones = session.milestone_changes(command, params);
+    if !milestones.is_empty() && !confirmed {
+        return Err(milestone_refusal(&milestones));
+    }
+    // Milestones new dates would overtake (they never move along), read before running.
+    let overtaken: Vec<Value> = if command == "task.reschedule" {
+        let ws = session.workspace();
+        plnwrk_schedule::overtaken_by(ws, params, Calendar::standard())
+            .into_iter()
+            .filter_map(|id| ws.task(id))
+            .map(|t| json!({"task": t.id.to_string(), "title": t.title}))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let outcome = session
         .run(command, params, Origin::Assistant)
         .map_err(error)?;
     let mut answer = serde_json::to_value(&outcome).map_err(|e| e.to_string())?;
     if let (Some(seq), Some(fields)) = (outcome.change, answer.as_object_mut()) {
         describe(session, seq, fields);
+        if !overtaken.is_empty() {
+            // Said in the answer, so the person hears of it in the chat.
+            fields.insert("milestones_overtaken".to_owned(), Value::Array(overtaken));
+        }
+        if !milestones.is_empty() {
+            // Named in the answer, so the change stays visible in the chat.
+            fields.insert(
+                "milestone_changes".to_owned(),
+                serde_json::to_value(&milestones).map_err(|e| e.to_string())?,
+            );
+        }
     }
     Ok(answer)
+}
+
+/// The refusal of an unconfirmed change of milestones: what would change, and what to do.
+fn milestone_refusal(changes: &[plnwrk_engine::milestones::MilestoneChange]) -> String {
+    use plnwrk_engine::milestones::Field;
+    let opt = |d: Option<String>| d.unwrap_or_else(|| "none".to_owned());
+    let lines: Vec<String> = changes
+        .iter()
+        .map(|change| {
+            let fields: Vec<String> = change
+                .fields
+                .iter()
+                .map(|field| match field {
+                    Field::Title { old, new } => format!("title {old:?} → {new:?}"),
+                    Field::Start { old, new } => format!(
+                        "start {} → {}",
+                        opt(old.map(|d| d.to_string())),
+                        opt(new.map(|d| d.to_string()))
+                    ),
+                    Field::Due { old, new } => {
+                        let due = |d: &Option<(jiff::civil::Date, Option<jiff::civil::Time>)>| {
+                            opt(d.map(|(day, time)| match time {
+                                Some(t) => format!("{day} {:02}:{:02}", t.hour(), t.minute()),
+                                None => day.to_string(),
+                            }))
+                        };
+                        format!("date {} → {}", due(old), due(new))
+                    }
+                    Field::Status { old, new } => {
+                        format!("status {} → {}", old.name(), new.name())
+                    }
+                    Field::Deleted => "deleted".to_owned(),
+                    Field::Unmarked => "no longer a milestone".to_owned(),
+                    Field::Marked => "becomes a milestone".to_owned(),
+                })
+                .collect();
+            let mut line = format!("milestone {:?}: {}", change.title, fields.join(", "));
+            if change.late_predecessors > 0 {
+                line.push_str(&format!(
+                    "; {} task(s) it waits for would end after it",
+                    change.late_predecessors
+                ));
+            }
+            if change.after_project_due {
+                line.push_str("; it would lie after the project's deadline");
+            }
+            line
+        })
+        .collect();
+    format!(
+        "Not done: this changes a milestone ({}). Milestones are fixed dates, and every change \
+         of one needs the person's confirmation. Ask the person in the chat first – say exactly \
+         what changes (old → new) and what follows – and only after a clear yes repeat this call \
+         with \"confirmed\": true. Do not set it without asking.",
+        lines.join("; ")
+    )
 }
 
 /// Adds to an answer what change `seq` did, so the model can tell the person exactly: every
@@ -370,9 +467,13 @@ fn entity(entity: &Entity, what: &str) -> Value {
 /// Dates alone are one `task.reschedule` (one step). Together with other fields, the whole
 /// update runs first as it was asked (taken as one, or refused as a whole), then the
 /// successors move in a second step. Dates given as they are move nothing.
-fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, String> {
+fn update_task(
+    session: &mut Session,
+    params: Value,
+    confirmed: bool,
+) -> Result<Vec<Value>, String> {
     let plain = |session: &mut Session, params: &Value| {
-        step(session, "task.update", params).map(|outcome| vec![outcome])
+        step(session, "task.update", params, confirmed).map(|outcome| vec![outcome])
     };
     let Value::Object(fields) = &params else {
         return plain(session, &params);
@@ -419,7 +520,12 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
         let time = fields
             .contains_key("due")
             .then(|| due.and_then(|(_, time)| time));
-        let moved = step(session, "task.reschedule", &reschedule.params(time))?;
+        let moved = step(
+            session,
+            "task.reschedule",
+            &reschedule.params(time),
+            confirmed,
+        )?;
         return Ok(with_along(vec![moved], reschedule.along()));
     }
     let mut steps = plain(session, &params)?;
@@ -438,7 +544,12 @@ fn update_task(session: &mut Session, params: Value) -> Result<Vec<Value>, Strin
     };
     if after.along() > 0 {
         too_many(&after)?;
-        steps.push(step(session, "task.reschedule", &after.params(None))?);
+        steps.push(step(
+            session,
+            "task.reschedule",
+            &after.params(None),
+            confirmed,
+        )?);
     }
     Ok(with_along(steps, after.along()))
 }

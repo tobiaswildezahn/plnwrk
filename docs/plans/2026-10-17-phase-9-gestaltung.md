@@ -370,6 +370,12 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
   - Optionen für „Wartet auf“, die einen Kreis ergäben, ausgegraut mit Begründung statt
     unsichtbar;
   - Terminkonflikt markiert.
+- **Zeitplan: angeheftete Datumsleiste** (Tobi, 2026-10-17: „ja, Datumsleiste anheften in 9f“):
+  - Die Zeitachse (Kalenderwochen, Monate, Tagesziffern) und die Spaltenköpfe der Tabelle
+    bleiben stehen, wenn die Zeilen scrollen, wie eine fixierte Zeile in Excel;
+  - die Meilenstein-Zeile aus 9d sitzt direkt darunter und bleibt ebenfalls stehen;
+  - Heute- und Projektfrist-Beschriftung wandern mit in die angeheftete Leiste (sie ragen bisher
+    in die erste Zeile).
 - **Leerzustände überall:** Symbol, ein Satz, eine Aktion.
 - **Statuszeile:** nur noch für Speichern/Wiederherstellung; Fehler gehören an den Ort.
 
@@ -400,6 +406,16 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
      übersichtlich?“ und „Wie wirkt es?“ (je Note 1–5).
    - Ziel: Aufgabe ohne Hilfe gelöst, beide Noten ≥ 4.
    - Ergebnis in PLAN §9.
+5. **Übersicht: Block „Überholte Meilensteine“** (Tobi, 2026-10-17: „ja, Überblick-Block in
+   9g“):
+   - oben in der Übersicht, über allen Projekten: jeder offene Meilenstein, der vor einer
+     Aufgabe liegt, auf die er wartet – mit Projekt, Termin und der Aufgabe, die ihn überholt;
+   - ein Klick öffnet den Meilenstein (Detailbereich), von dort Termin ändern (mit Rückfrage)
+     oder die Aufgabe zurückschieben;
+   - **eine Regel:** die Meilenstein-Warnung aus `Plan::analyse` (dieselbe wie „überholt“ beim
+     Verschieben und „gefährdet“ auf der Karte), nicht nachgebaut; auch über MCP abfragbar
+     (`query`), damit Claude sie morgens nennen kann;
+   - leer: der Block erscheint nicht.
 
 ## 10. Reihenfolge und Lieferung
 
@@ -414,7 +430,7 @@ Merge nach Tobis „ja, merge“. Jede Teilphase ist für sich nutzbar.
 | **9d** | Meilenstein-Ansicht (Zeitstrahl, Ampel, Countdown) · Bestätigung jeder Meilenstein-Änderung (App + MCP) | Meilensteine als Management-Sicht |
 | **9e** | Board neu (Spaltenbreite, Karten, Filter, Warnungen) | Kanban wie in Planner/Trello |
 | **9f** | Dialoge, Start, Übersicht, Liste, Detailbereich, Leerzustände | Erster Eindruck stimmt |
-| **9g** | Klickpfad-Szenarien vervollständigen · Durchlauf von Hand · Wiederholungstest · Version 0.2.0 | Messbarer Beleg „10× besser“ |
+| **9g** | Klickpfad-Szenarien vervollständigen · Durchlauf von Hand · Wiederholungstest · Übersicht-Block „Überholte Meilensteine“ · Version 0.2.0 | Messbarer Beleg „10× besser“ |
 
 ## 11. Was dem Builder überlassen ist
 
