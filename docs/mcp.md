@@ -5,6 +5,7 @@ lesen und ändern, etwa so:
 
 - „Was ist in ~/Dokumente/Abteilung.plnwrk überfällig?“
 - „Verschiebe alle überfälligen Aufgaben um eine Woche.“
+- „Welche Meilensteine sind überholt, und was hält sie auf?“
 - „Lege im Projekt Digitalfunk eine Aufgabe ‚Funkprobe Wache 12‘ mit Frist 20.11. an.“
 
 ## Was Claude darf – und was nicht
@@ -102,7 +103,9 @@ steht „durch KI“.
 - **Protokoll:** MCP über stdio, zeilenweises JSON-RPC 2.0 (`crates/mcp`), ohne `rmcp`.
   Unterstützte Protokollversionen: `2025-06-18`, `2025-03-26`, `2024-11-05`.
 - **Werkzeuge:** `overview`, `query` (alle Abfragen der Engine, z. B. `overdue` und `due_today`
-  für die Lage am Morgen), `search_commands` (sucht auch
+  für die Lage am Morgen, dazu `overtaken_milestones` aus dem Zeitplan: der Übersicht-Block
+  „Überholte Meilensteine“ mit Projekt, Termin, frühestem Tag und dem, was aufhält, der
+  nächste zuerst), `search_commands` (sucht auch
   in den Feldbeschreibungen; nennt unter `in_the_app` den Platz im Menüband, z. B.
   „Start › Neu“, damit Claude sagen kann, wo man klickt – Tabelle `plnwrk_engine::places`,
   ein Test hält sie gleich mit dem Menüband), `run_command` (alle Befehle) und `move_task`

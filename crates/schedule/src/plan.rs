@@ -74,6 +74,19 @@ pub enum Warning {
     AfterProjectDue { task: TaskId },
 }
 
+/// A milestone that comes before what it waits for ([`Warning::Milestone`]), with the tasks
+/// that hold it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overtaking {
+    pub milestone: TaskId,
+    /// Its date.
+    pub date: Date,
+    /// The earliest day it could be.
+    pub earliest: Date,
+    /// What it waits for that ends too late for it.
+    pub by: Vec<TaskId>,
+}
+
 /// The critical path and the warnings of a plan.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Analysis {
@@ -421,6 +434,42 @@ impl Plan {
             .collect()
     }
 
+    /// The milestones that come before what they wait for – the warning of
+    /// [`Plan::analyse`] – each with the tasks that hold it back (Phase 9g: the overview block
+    /// "Überholte Meilensteine" and the MCP query). One rule: the same milestones, in the same
+    /// order, as the warnings.
+    pub fn overtaking(&self) -> Vec<Overtaking> {
+        let spans = self.spans(&BTreeMap::new());
+        self.analyse()
+            .warnings
+            .into_iter()
+            .filter_map(|warning| {
+                let Warning::Milestone { task, earliest } = warning else {
+                    return None;
+                };
+                let item = self.items.get(&task)?;
+                let span = *spans.get(&task)?;
+                let length = self.duration(item, span);
+                let by = self
+                    .links
+                    .iter()
+                    .filter(|l| l.to == task)
+                    .filter(|l| {
+                        self.requires(l, item, &spans, length)
+                            .is_some_and(|required| self.too_early(item, span, required))
+                    })
+                    .map(|l| l.from)
+                    .collect();
+                Some(Overtaking {
+                    milestone: task,
+                    date: span.0,
+                    earliest,
+                    by,
+                })
+            })
+            .collect()
+    }
+
     /// The critical path and what cannot hold, for the dates as they are.
     pub fn analyse(&self) -> Analysis {
         let cal = &self.calendar;
@@ -752,6 +801,39 @@ mod tests {
             p.overtaken(&[moved(1, "2026-10-15", "2026-10-19")])
                 .is_empty()
         );
+    }
+
+    /// Phase 9g: an overtaken milestone names what holds it back – the late one of what it waits
+    /// for, not the one in time (ending on its day is in time) – and nothing for one that holds.
+    #[test]
+    fn an_overtaken_milestone_names_what_holds_it_back() {
+        let p = plan(
+            vec![
+                task(1, "2026-10-12", "2026-10-16"),
+                task(3, "2026-10-14", "2026-10-19"),
+                milestone(2, "2026-10-16"),
+                task(4, "2026-10-12", "2026-10-13"),
+                milestone(5, "2026-10-14"),
+            ],
+            vec![fs(1, 2), fs(3, 2), fs(4, 5)],
+        );
+        assert_eq!(
+            p.overtaking(),
+            vec![Overtaking {
+                milestone: id(2),
+                date: d("2026-10-16"),
+                earliest: d("2026-10-19"),
+                by: vec![id(3)],
+            }]
+        );
+        // Reached: nothing to say.
+        let mut reached = milestone(2, "2026-10-16");
+        reached.done = true;
+        let p = plan(
+            vec![task(3, "2026-10-14", "2026-10-19"), reached],
+            vec![fs(3, 2)],
+        );
+        assert!(p.overtaking().is_empty());
     }
 
     #[test]
@@ -1432,6 +1514,39 @@ mod tests {
             };
             prop_assert_eq!(slipped(float), before, "float {} of {:?} is too much", float, target.id);
             prop_assert_ne!(slipped(float + 1), before, "float {} of {:?} is too little", float, target.id);
+        }
+
+        /// Phase 9g: `overtaking` says exactly the milestone warnings of `analyse` (one rule), and
+        /// what it names is the cause – without those dependencies the milestone holds.
+        #[test]
+        fn overtaking_is_the_milestone_warning_and_names_its_cause((items, links) in random_plan(), every in any::<bool>()) {
+            let cal = if every { Calendar::every_day() } else { Calendar::hamburg() };
+            let p = Plan::new(cal, items.clone(), links.clone(), None);
+            let warned: Vec<(TaskId, Date)> = p
+                .analyse()
+                .warnings
+                .into_iter()
+                .filter_map(|w| match w {
+                    Warning::Milestone { task, earliest } => Some((task, earliest)),
+                    _ => None,
+                })
+                .collect();
+            let overtaking = p.overtaking();
+            let said: Vec<(TaskId, Date)> = overtaking.iter().map(|o| (o.milestone, o.earliest)).collect();
+            prop_assert_eq!(said, warned);
+            for o in &overtaking {
+                prop_assert!(!o.by.is_empty(), "{:?} names nothing", o.milestone);
+                let kept: Vec<Link> = links
+                    .iter()
+                    .filter(|l| !(l.to == o.milestone && o.by.contains(&l.from)))
+                    .cloned()
+                    .collect();
+                let without = Plan::new(cal, items.clone(), kept, None).overtaking();
+                prop_assert!(
+                    without.iter().all(|w| w.milestone != o.milestone),
+                    "{:?} still overtaken without {:?}", o.milestone, o.by
+                );
+            }
         }
 
         #[test]

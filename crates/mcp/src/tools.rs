@@ -11,6 +11,13 @@ use serde_json::{Map, Value, json};
 
 use crate::files::{self, Changing, Kept, Refusal};
 
+/// Queries that need the schedule (layer 2), so they live here and not in the engine's
+/// registry: name and summary.
+const SCHEDULE_QUERIES: [(&str, &str); 1] = [(
+    "overtaken_milestones",
+    "open milestones that come before what they wait for, in projects whose deadlines count, soonest first: project, date, the earliest day it could be and the tasks that hold it back; the overview block \"Überholte Meilensteine\" in the app",
+)];
+
 /// A tool's answer: data for the model, or why it failed (shown to the model as an error).
 pub type Answer = Result<Value, String>;
 
@@ -22,11 +29,15 @@ pub fn list() -> Value {
     });
     let queries: Vec<Value> = query_registry()
         .iter()
-        .map(|q| Value::from(q.name))
+        .map(|q| q.name)
+        .chain(SCHEDULE_QUERIES.iter().map(|(name, _)| *name))
+        .map(Value::from)
         .collect();
     let query_list: Vec<String> = query_registry()
         .iter()
-        .map(|q| format!("{} ({})", q.name, q.summary))
+        .map(|q| (q.name, q.summary))
+        .chain(SCHEDULE_QUERIES.iter().copied())
+        .map(|(name, summary)| format!("{name} ({summary})"))
         .collect();
     json!([
         {
@@ -131,6 +142,12 @@ pub fn call(name: &str, arguments: &Map<String, Value>, kept: &mut Kept) -> Answ
         "query" => {
             let query = text(arguments, "name")?;
             let params = object(arguments, "params")?;
+            if query == "overtaken_milestones" {
+                if params.as_object().is_some_and(|p| !p.is_empty()) {
+                    return Err("overtaken_milestones takes no parameters.".to_owned());
+                }
+                return read(arguments, |session| Ok(overtaken_milestones(session)));
+            }
             read(arguments, |session| {
                 session.query(&query, &params).map_err(error)
             })
@@ -571,4 +588,30 @@ fn too_many(reschedule: &Reschedule) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// The overview block "Überholte Meilensteine" as data: the one rule of the schedule.
+fn overtaken_milestones(session: &Session) -> Value {
+    let ws = session.workspace();
+    let title = |id: TaskId| ws.task(id).map_or("", |t| t.title.as_str());
+    Value::from(
+        plnwrk_schedule::overtaken_milestones(ws, Calendar::standard())
+            .into_iter()
+            .map(|(project, o)| {
+                json!({
+                    "project": project.to_string(),
+                    "project_title": ws.project(project).map_or("", |p| p.title.as_str()),
+                    "milestone": o.milestone.to_string(),
+                    "title": title(o.milestone),
+                    "date": o.date.to_string(),
+                    "earliest": o.earliest.to_string(),
+                    "by": o.by.iter().map(|id| json!({
+                        "task": id.to_string(),
+                        "title": title(*id),
+                        "due": ws.task(*id).and_then(|t| t.due).map(|d| d.to_string()),
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
 }

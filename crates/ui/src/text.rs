@@ -161,6 +161,7 @@ pub struct Texts {
     pub cases_heading: &'static str,
     pub projects_heading: &'static str,
     pub today_and_overdue: &'static str,
+    pub overtaken_milestones: &'static str,
     pub nothing_due: &'static str,
     pub new_file_explained: &'static str,
     pub sample_explained: &'static str,
@@ -448,6 +449,7 @@ pub static DE: Texts = Texts {
     cases_heading: "Vorgänge",
     projects_heading: "Projekte",
     today_and_overdue: "Heute und überfällig",
+    overtaken_milestones: "Überholte Meilensteine",
     nothing_due: "Heute ist nichts fällig, und nichts ist überfällig.",
     new_file_explained: "Eine leere Datei für eigene Vorgänge und Projekte. Sie gehört dir und bleibt auf diesem Gerät.",
     sample_explained: "Ein Projekt und ein Vorgang mit Aufgaben, Fristen und Meilensteinen – zum Ausprobieren, nichts geht kaputt.",
@@ -734,6 +736,7 @@ pub static EN: Texts = Texts {
     cases_heading: "Cases",
     projects_heading: "Projects",
     today_and_overdue: "Today and overdue",
+    overtaken_milestones: "Overtaken milestones",
     nothing_due: "Nothing is due today, and nothing is overdue.",
     new_file_explained: "An empty file for your own cases and projects. It is yours and stays on this device.",
     sample_explained: "A project and a case with tasks, deadlines and milestones – to try things out, nothing breaks.",
@@ -1340,6 +1343,23 @@ pub fn waits_too_short(from: &str, to: &str) -> String {
             quoted(from)
         ),
         format!("{} starts before {} allows.", quoted(to), quoted(from)),
+    )
+}
+
+/// The chip of an overtaken milestone in the overview: the earliest day it could be.
+pub fn earliest_on(day: &str) -> String {
+    pick(
+        format!("frühestens {day}"),
+        format!("{day} at the earliest"),
+    )
+}
+
+/// The rest of its line: its own date and what holds it back.
+pub fn overtaken_by(date: &str, by: &[String]) -> String {
+    let names = by.iter().map(|t| quoted(t)).collect::<Vec<_>>().join(", ");
+    pick(
+        format!("am {date} – wartet auf {names}"),
+        format!("on {date} – waits for {names}"),
     )
 }
 

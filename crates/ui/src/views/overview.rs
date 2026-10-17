@@ -17,6 +17,7 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(text::t().overview);
         ui.add_space(8.0);
+        overtaken(ui, doc, out);
         // First what needs doing now: everything overdue, then what is due today – each
         // ticked off right here (a milestone asks first, open subtasks too).
         design::widgets::subheading(ui, text::t().today_and_overdue);
@@ -65,6 +66,57 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
             ui.add_space(8.0);
         }
     });
+}
+
+/// "Überholte Meilensteine" (Phase 9g), above everything: every open milestone that comes
+/// before what it waits for, over all projects – the schedule's warning, not built again
+/// (`plnwrk_schedule::overtaken_milestones`, also an MCP query). Not there while all hold.
+fn overtaken(ui: &mut egui::Ui, doc: &OpenDoc, out: &mut Vec<Intent>) {
+    let ws = doc.session.workspace();
+    // Worked out once per change of the file, like the plan of the schedule.
+    let id = egui::Id::new("overview-overtaken");
+    let key = (doc.recovery_key().to_owned(), doc.session.log().len());
+    type Kept = (
+        (String, usize),
+        std::sync::Arc<Vec<(plnwrk_core::ProjectId, plnwrk_schedule::Overtaking)>>,
+    );
+    let all = match ui.data(|d| d.get_temp::<Kept>(id)) {
+        Some((kept, all)) if kept == key => all,
+        _ => {
+            let all = std::sync::Arc::new(plnwrk_schedule::overtaken_milestones(
+                ws,
+                plnwrk_schedule::Calendar::standard(),
+            ));
+            ui.data_mut(|d| d.insert_temp(id, (key, std::sync::Arc::clone(&all))));
+            all
+        }
+    };
+    if all.is_empty() {
+        return;
+    }
+    design::widgets::subheading(ui, text::t().overtaken_milestones);
+    let title = |task| ws.task(task).map_or("", |t| t.title.as_str());
+    for (project, overtaking) in all.iter() {
+        ui.horizontal_wrapped(|ui| {
+            design::widgets::chip(
+                ui,
+                design::widgets::Tone::Danger,
+                &text::earliest_on(&dates::format(overtaking.earliest)),
+            );
+            let label = format!(
+                "{} ({})",
+                title(overtaking.milestone),
+                ws.project(*project).map_or("", |p| p.title.as_str())
+            );
+            if ui.link(label).clicked() {
+                out.push(Intent::Go(View::Project(*project)));
+                out.push(Intent::Select(Some(overtaking.milestone)));
+            }
+            let by: Vec<String> = overtaking.by.iter().map(|t| title(*t).to_owned()).collect();
+            ui.label(text::overtaken_by(&dates::format(overtaking.date), &by));
+        });
+    }
+    ui.add_space(16.0);
 }
 
 /// One line of "Heute und überfällig": a tick (tasks and milestones), how the deadline stands,

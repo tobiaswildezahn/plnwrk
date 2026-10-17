@@ -8405,3 +8405,97 @@ fn a_field_message_moved_to_the_bar_asks_for_a_frame() {
     assert!(harness.query_by_label("Nirgends gezeichnet.").is_some());
     assert!(bar_shown(&harness));
 }
+
+/// The sample with "Einbau Wache 11" waiting before the milestone "Inbetriebnahme" and moved
+/// after it: the milestone is overtaken.
+fn sample_with_overtaken_milestone() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness_with_sample();
+    let install = task_named(harness.state(), "Einbau Wache 11").unwrap();
+    let milestone = task_named(harness.state(), "Inbetriebnahme").unwrap();
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": install.id.to_string(), "to": milestone.id.to_string()}),
+    ));
+    let later =
+        |d: Option<jiff::civil::Date>| d.map(|d| d.saturating_add(jiff::Span::new().days(60)));
+    harness.state_mut().apply(crate::Intent::Reschedule {
+        task: install.id,
+        start: later(install.start),
+        due: later(install.due),
+        due_time: None,
+    });
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Overview));
+    harness.run();
+    harness
+}
+
+/// Phase 9g (plan §9.5): "Überholte Meilensteine" stands in the overview with the milestone,
+/// its project, the earliest day and what holds it back; a click opens the milestone. Not
+/// there while every milestone holds, nor for an archived project.
+#[test]
+fn the_overview_names_overtaken_milestones() {
+    let harness = harness_with_sample();
+    assert!(
+        harness
+            .query_by_label(text::t().overtaken_milestones)
+            .is_none(),
+        "the sample holds"
+    );
+    let mut harness = sample_with_overtaken_milestone();
+    let milestone = task_named(harness.state(), "Inbetriebnahme").unwrap();
+    assert!(
+        harness
+            .query_by_label(text::t().overtaken_milestones)
+            .is_some()
+    );
+    let line = "Inbetriebnahme (Digitalfunk Umrüstung Wachen)";
+    assert!(harness.query_by_label(line).is_some());
+    let by = text::overtaken_by(
+        &crate::dates::format(milestone.due.unwrap()),
+        &["Einbau Wache 11".to_owned()],
+    );
+    assert!(harness.query_by_label(&by).is_some(), "{by}");
+    // The same rule as the schedule's warning (its earliest day).
+    let project = milestone.project;
+    let plan = plnwrk_schedule::Plan::of(
+        harness.state().doc().unwrap().session.workspace(),
+        project,
+        plnwrk_schedule::Calendar::standard(),
+    );
+    let earliest = plan
+        .analyse()
+        .warnings
+        .into_iter()
+        .find_map(|w| match w {
+            plnwrk_schedule::Warning::Milestone { task, earliest } if task == milestone.id => {
+                Some(earliest)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        harness
+            .query_by_label(&text::earliest_on(&crate::dates::format(earliest)))
+            .is_some()
+    );
+    click(&mut harness, line);
+    let app = harness.state();
+    assert_eq!(app.state.view, crate::state::View::Project(project));
+    assert_eq!(app.state.selected, Some(milestone.id));
+    // Archived: its deadlines no longer count, and the block goes.
+    harness.state_mut().apply(crate::Intent::run(
+        "project.update",
+        serde_json::json!({"project": project.to_string(), "status": "archived"}),
+    ));
+    harness
+        .state_mut()
+        .apply(crate::Intent::Go(crate::state::View::Overview));
+    harness.run();
+    assert!(
+        harness
+            .query_by_label(text::t().overtaken_milestones)
+            .is_none()
+    );
+}
