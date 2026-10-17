@@ -21,7 +21,7 @@ lesen und ändern, etwa so:
   Nur Termine: ein Rückgängig-Schritt. Termine zusammen mit anderen Feldern (z. B. Titel): zwei
   Schritte, erst die Änderung, dann der Schub. Termine, die gleich bleiben, schieben nichts.
 - **Meilensteine nur nach Rückfrage:** Ändert ein Aufruf einen Meilenstein (Termin, Titel,
-  Status, kein Meilenstein mehr, Löschen – auch über mitrutschende Nachfolger), lehnt plnwrk ihn
+  Status, kein Meilenstein mehr, Löschen), lehnt plnwrk ihn
   ab und nennt, was sich ändern würde. Claude fragt dich dann im Chat und wiederholt den Aufruf
   erst nach deinem Ja mit `"confirmed": true`; die Antwort nennt dann unter
   `milestone_changes`, was sich geändert hat. Einen Meilenstein anlegen fragt nicht nach,

@@ -87,9 +87,11 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
     noch 2 Tage Spielraum – der Grund steht auf der Karte) oder **im Plan**.
   - **Erreicht**, **Termin ändern**, **Löschen** stehen auf der Karte.
   - **Jede Änderung eines Meilensteins fragt nach** – Termin, Titel, Status, „kein Meilenstein
-    mehr“, Löschen, auch wenn ein Meilenstein nur mitrutschen würde. Der Dialog nennt alt → neu
-    und was daraus folgt (Vorgänger, die erst später fertig werden; Termin nach dem
-    Projektende). **Abbrechen** lässt alles wie es war. Neu anlegen und Rückgängig fragen nicht.
+    mehr“, Löschen. Meilensteine rutschen nie von selbst mit, wenn sich eine Aufgabe davor
+    verschiebt – sie sind feste Termine. Der Dialog nennt alt → neu und was daraus folgt
+    (Vorgänger, die erst später fertig werden; Termin nach dem Projektende; Aufgaben, die danach
+    mitrutschen). **Abbrechen** oder Esc lässt alles, wie es war. Neu anlegen und Rückgängig
+    fragen nicht.
 - **Zeitplan:** links eine Tabelle (Aufgabe, Beginn, Frist, Zuständig), rechts Balken von Beginn
   bis Frist.
   - **Navigation:** **Heute** springt zum heutigen Tag, **Ganzes Projekt** zeigt alles auf einen
