@@ -436,7 +436,10 @@ impl PlnwrkApp {
                 .as_ref()
                 .and_then(|d| d.session.workspace().task(task.id))
                 .cloned();
-            if !taken {
+            if !taken && self.asking_milestone() {
+                // A milestone: asked first. What was typed stays in the field until the answer
+                // ("Abbrechen" puts the stored value back); nothing was refused.
+            } else if !taken {
                 // Refused (e.g. empty title): back to what is stored, and say so.
                 let reason = self
                     .state
@@ -480,11 +483,21 @@ impl PlnwrkApp {
             return true;
         }
         self.flush_draft();
+        // A typed milestone date is asked about first; the window stays open for the answer.
+        if self.asking_milestone() {
+            return false;
+        }
         if !self.has_unsaved_changes() {
             return true;
         }
         self.state.open_dialog(Dialog::Unsaved(FileAction::Quit));
         false
+    }
+
+    /// Whether the question about a change of a milestone is open – e.g. after a typed date
+    /// was taken on the way to saving or closing; that waits for the answer.
+    fn asking_milestone(&self) -> bool {
+        matches!(self.state.dialog, Some(Dialog::ConfirmMilestone { .. }))
     }
 
     /// Last chance when the app ends without asking (e.g. "Beenden" in the Dock, logging out):
@@ -495,6 +508,8 @@ impl PlnwrkApp {
         if self.state.quitting {
             return None; // the person decided (saved or discarded)
         }
+        // A typed change of a milestone is not kept here: it would need the person's yes,
+        // and there is no one left to ask.
         self.flush_draft();
         let doc = self.doc.as_ref()?;
         if !doc.is_dirty() {
@@ -676,9 +691,23 @@ impl PlnwrkApp {
                 self.run(command, &params, then, clear);
             }
             Intent::Confirmed(intent) => {
+                // New dates said yes to: what moved along is said too, as without the question.
+                let along = match intent.as_ref() {
+                    Intent::Run {
+                        command: "task.reschedule",
+                        params,
+                        ..
+                    } => along_of(params),
+                    _ => 0,
+                };
+                let steps = |app: &Self| app.doc.as_ref().map_or(0, |d| d.session.log().len());
+                let before = steps(self);
                 self.confirmed = true;
                 self.apply(*intent);
                 self.confirmed = false;
+                if along > 0 && steps(self) > before {
+                    self.state.message = Some(Message::info(text::moved_along(along)));
+                }
             }
             Intent::DeclineMilestone => {
                 self.state.close_dialog();
@@ -928,6 +957,9 @@ impl PlnwrkApp {
     fn export_schedule(&mut self, project: ProjectId) {
         // Typed but not taken yet: part of what is exported, as when saving.
         self.flush_draft();
+        if self.asking_milestone() {
+            return;
+        }
         let Some(doc) = &self.doc else { return };
         let ws = doc.session.workspace();
         let Some(project) = ws.project(project) else {
@@ -1010,6 +1042,11 @@ impl PlnwrkApp {
         // Typed text counts like any change: stored first, so saving includes it and leaving
         // asks about it. Not when the person chose to discard.
         let warning = if force { None } else { self.flush_draft() };
+        // A typed milestone date is asked about first: saving, opening or closing waits for
+        // the answer (and is chosen again afterwards).
+        if self.asking_milestone() {
+            return;
+        }
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
             self.state.open_dialog(Dialog::Unsaved(action));
             return;
@@ -1082,6 +1119,9 @@ impl PlnwrkApp {
     /// Saves with a new protection; if that fails or is cancelled, the old one stays.
     fn change_protection(&mut self, protection: plnwrk_store::Protection, done: &str) {
         let warning = self.flush_draft();
+        if self.asking_milestone() {
+            return;
+        }
         let Some(doc) = &mut self.doc else { return };
         let old = doc.set_protection(protection);
         if self.save(false) {
@@ -1359,3 +1399,12 @@ impl eframe::App for PlnwrkApp {
 mod model_tests;
 #[cfg(test)]
 mod tests;
+
+/// How many tasks move along in the parameters of `task.reschedule` (the first move is the
+/// task itself).
+pub(crate) fn along_of(params: &Value) -> usize {
+    params
+        .get("moves")
+        .and_then(Value::as_array)
+        .map_or(0, |moves| moves.len().saturating_sub(1))
+}

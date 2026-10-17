@@ -105,19 +105,28 @@ pub fn history(log: &[Change], key: EntityKey) -> Vec<HistoryEntry> {
 }
 
 /// When `task` last became done (or was created done), as the log says; `None` if it never
-/// did there – an older file may not hold it. Asked only of a task that is done now.
+/// did there, or if it came done out of converting an older file (`workspace.upgrade`) – that
+/// day is not when it was reached. Asked only of a task that is done now.
 pub fn done_at(log: &[Change], task: TaskId) -> Option<Timestamp> {
     let done = |entity: &Entity| matches!(entity, Entity::Task(t) if t.status == TaskStatus::Done);
     let key = EntityKey::Task(task);
-    log.iter().rev().find_map(|change| {
-        change
-            .events
-            .iter()
-            .filter(|e| e.key() == key)
-            .any(|event| match event {
-                Event::Put { before, after } => done(after) && !before.as_deref().is_some_and(done),
-                Event::Remove { .. } => false,
-            })
-            .then_some(change.at)
-    })
+    log.iter()
+        .rev()
+        .find_map(|change| {
+            let became =
+                change
+                    .events
+                    .iter()
+                    .filter(|e| e.key() == key)
+                    .find(|event| match event {
+                        Event::Put { before, after } => {
+                            done(after) && !before.as_deref().is_some_and(done)
+                        }
+                        Event::Remove { .. } => false,
+                    })?;
+            let converted = matches!(became, Event::Put { before: None, .. })
+                && change.command == crate::commands::workspace::UPGRADE.id;
+            Some((!converted).then_some(change.at))
+        })
+        .flatten()
 }

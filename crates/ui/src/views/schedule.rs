@@ -590,7 +590,15 @@ pub fn show(
             // the view and the bar lands right of the table.
             // Only when hardly anything of it is in view: a click on a bar (also one longer
             // than the view) must not move the chart.
-            let seen = chart.intersect(ui.clip_rect()).intersect(bar);
+            // What the milestone row covers does not count as seen.
+            let view = ui.clip_rect();
+            let open_top = if pinned.is_empty() {
+                view.top()
+            } else {
+                view.top().max(pin_y + pin)
+            };
+            let view = Rect::from_min_max(pos2(view.left(), open_top), view.max);
+            let seen = chart.intersect(view).intersect(bar);
             let hardly =
                 seen.width() <= 0.0 || seen.height() <= 0.0 || seen.width() < bar.width().min(24.0);
             if newly_chosen && state.selected == Some(task.id) && hardly {
@@ -966,7 +974,15 @@ pub fn show(
                 band.bottom() - 0.5,
                 Stroke::new(1.0, palette.line),
             );
-            ui.interact(band, ui.id().with("milestone-row"), Sense::click());
+            // It takes the pointer: nothing hidden under it can be dragged through it (a drag
+            // on it moves the view, as on the empty chart).
+            let over = ui.interact(band, ui.id().with("milestone-row"), Sense::click_and_drag());
+            if over.dragged() {
+                ui.scroll_with_delta(over.drag_delta());
+            }
+            // Names only where they do not run into the one before (the spoken name and the
+            // tooltip always have it).
+            let mut name_end = f32::NEG_INFINITY;
             for (task, due) in &pinned {
                 let c = pos2(x_of(*due) + day_width / 2.0, pin_y + ROW / 2.0);
                 let done = task.status == TaskStatus::Done;
@@ -990,13 +1006,18 @@ pub fn show(
                     pos2(c.x - 7.0, c.y),
                 ];
                 painter.add(Shape::convex_polygon(diamond, fill, ring));
-                painter.text(
-                    pos2(c.x + 11.0, c.y),
-                    egui::Align2::LEFT_CENTER,
-                    &task.title,
-                    small.clone(),
-                    visuals.weak_text_color(),
-                );
+                if c.x - 8.0 > name_end {
+                    let name = painter.text(
+                        pos2(c.x + 11.0, c.y),
+                        egui::Align2::LEFT_CENTER,
+                        &task.title,
+                        small.clone(),
+                        visuals.weak_text_color(),
+                    );
+                    name_end = name.right();
+                } else {
+                    name_end = name_end.max(c.x + 8.0);
+                }
                 let hit = Rect::from_center_size(c, vec2(18.0, 18.0)).intersect(band);
                 if hit.width() <= 0.0 {
                     continue;

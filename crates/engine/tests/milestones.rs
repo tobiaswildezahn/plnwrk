@@ -98,6 +98,15 @@ mod milestones {
                 "task.reschedule",
                 json!({"moves": [{"task": milestone, "start": null, "due": "2026-10-25"}]}),
             ),
+            // Only the start, only the time of day (review 9d).
+            (
+                "task.update",
+                json!({"task": milestone, "start": "2026-10-21"}),
+            ),
+            (
+                "task.update",
+                json!({"task": milestone, "due": "2026-10-24T10:00"}),
+            ),
         ];
         for (command, params) in cases {
             let changes = s.milestone_changes(command, &params);
@@ -109,6 +118,12 @@ mod milestones {
     fn what_is_not_a_change_of_a_milestone_asks_nothing() {
         let (mut s, work, milestone) = setup();
         let person = create(&mut s, "person.create", json!({"name": "Anna Berg"}));
+        let project = project_of(&s, &work);
+        let sub = create(
+            &mut s,
+            "task.create",
+            json!({"project": project, "title": "Teil", "parent": work}),
+        );
         let cases: Vec<(&str, Value)> = vec![
             // Ordinary tasks, the milestone's assignee and description, new milestones.
             ("task.update", json!({"task": work, "due": "2026-10-30"})),
@@ -132,6 +147,9 @@ mod milestones {
             // Refused commands say why when run; here they ask nothing.
             ("task.update", json!({"task": milestone, "title": ""})),
             ("task.update", json!({"task": "nope", "title": "x"})),
+            // Would break a rule (a subtask cannot be a milestone): refused when run, with the
+            // real reason – not a question first (review 9d).
+            ("task.update", json!({"task": sub, "milestone": true})),
         ];
         for (command, params) in cases {
             let changes = s.milestone_changes(command, &params);
@@ -223,5 +241,86 @@ mod milestones {
         let day = plnwrk_engine::query::done_at(s.log(), done)
             .map(|t| t.to_zoned(jiff::tz::TimeZone::UTC).date().day());
         assert_eq!(day, Some(13));
+    }
+    fn project_of(s: &Session, task: &str) -> String {
+        let id: plnwrk_core::TaskId = task.parse().unwrap();
+        s.workspace().task(id).unwrap().project.to_string()
+    }
+
+    /// What follows is named only when it follows from this change (review 9d): a new title of
+    /// a milestone that already lies after the project's deadline, or before a late task,
+    /// names nothing; a new date does.
+    #[test]
+    fn what_follows_is_named_only_when_the_date_changes() {
+        let (mut s, _, milestone) = setup();
+        s.run(
+            "task.update",
+            &json!({"task": milestone, "due": "2026-11-05"}),
+            Origin::User,
+        )
+        .unwrap();
+        let renamed = s.milestone_changes(
+            "task.update",
+            &json!({"task": milestone, "title": "Abgabe neu"}),
+        );
+        assert!(!renamed[0].after_project_due);
+        let moved = s.milestone_changes(
+            "task.update",
+            &json!({"task": milestone, "due": "2026-11-06"}),
+        );
+        assert!(moved[0].after_project_due);
+        let earlier = s.milestone_changes(
+            "task.update",
+            &json!({"task": milestone, "due": "2026-10-18", "title": "Abgabe neu"}),
+        );
+        assert_eq!(earlier[0].late_predecessors, 1);
+        assert_eq!(renamed[0].late_predecessors, 0);
+    }
+
+    /// Without any milestone in the file, only making one asks (review 9d: no copy needed
+    /// for the rest).
+    #[test]
+    fn without_milestones_only_making_one_asks() {
+        let mut s = session();
+        let project = create(&mut s, "project.create", json!({"title": "P"}));
+        let task = create(
+            &mut s,
+            "task.create",
+            json!({"project": project, "title": "Aufgabe", "due": "2026-10-20"}),
+        );
+        let marked = s.milestone_changes("task.update", &json!({"task": task, "milestone": true}));
+        assert!(matches!(marked[0].fields.as_slice(), [Field::Marked]));
+        let dated = s.milestone_changes("task.update", &json!({"task": task, "due": "2026-10-21"}));
+        assert!(dated.is_empty());
+    }
+
+    /// A milestone reached in an older file (format 1) and converted on opening: the day of
+    /// converting is not the day it was reached, so none is named (review 9d).
+    #[test]
+    fn a_milestone_reached_in_an_older_file_has_no_day() {
+        let mut s = session();
+        let project = create(&mut s, "project.create", json!({"title": "P"}));
+        let mut ws = s.workspace().clone();
+        let id = plnwrk_core::MilestoneId::from_ulid(ulid::Ulid(77));
+        ws.put(plnwrk_core::Entity::Milestone(plnwrk_core::Milestone {
+            id,
+            project: project.parse().unwrap(),
+            title: "Alt".to_owned(),
+            date: jiff::civil::date(2025, 3, 1),
+            status: plnwrk_core::MilestoneStatus::Reached,
+        }));
+        let mut old = Session::with_workspace(
+            ws,
+            s.log().to_vec(),
+            Box::new(FixedClock::at("2026-10-14").unwrap()),
+            Box::new(SequentialIds::default()),
+        );
+        assert!(old.upgrade().unwrap());
+        let task = plnwrk_core::TaskId::from_ulid(id.ulid());
+        assert_eq!(
+            old.workspace().task(task).unwrap().status,
+            plnwrk_core::TaskStatus::Done
+        );
+        assert_eq!(plnwrk_engine::query::done_at(old.log(), task), None);
     }
 }

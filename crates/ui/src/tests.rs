@@ -5464,7 +5464,9 @@ fn day_from_today(harness: &Harness<'_, PlnwrkApp>, days: i64) -> String {
 /// - "B" (in 20 days) waits for "Bau", which ends the day before: 1 day of slack, at risk;
 /// - "C" (in 24 days) waits for "Bau 2", ending 3 days before: on plan (just past the line);
 /// - "D" 3 days ago, not reached: overdue;
-/// - "E" reached.
+/// - "E" reached;
+/// - "F" (in 22 days) waits only for "Fertig", done, ending the day before: on plan – finished
+///   work cannot be late (review 9d).
 fn milestones_in_every_light() -> Harness<'static, PlnwrkApp> {
     let mut harness = with_project("Lichter");
     let project = projects(harness.state()).first().unwrap().id.to_string();
@@ -5482,6 +5484,8 @@ fn milestones_in_every_light() -> Harness<'static, PlnwrkApp> {
         ("C", 24, true, "todo"),
         ("D", -3, true, "todo"),
         ("E", 5, true, "done"),
+        ("Fertig", 21, false, "done"),
+        ("F", 22, true, "todo"),
     ];
     for (title, days, milestone, status) in tasks {
         let due = day_from_today(&harness, days);
@@ -5491,7 +5495,12 @@ fn milestones_in_every_light() -> Harness<'static, PlnwrkApp> {
                                "milestone": milestone, "status": status}),
         ));
     }
-    for (from, to) in [("Vorarbeit", "A"), ("Bau", "B"), ("Bau 2", "C")] {
+    for (from, to) in [
+        ("Vorarbeit", "A"),
+        ("Bau", "B"),
+        ("Bau 2", "C"),
+        ("Fertig", "F"),
+    ] {
         let from = task_named(harness.state(), from).unwrap().id.to_string();
         let to = task_named(harness.state(), to).unwrap().id.to_string();
         harness.state_mut().apply(crate::Intent::run(
@@ -5520,6 +5529,7 @@ fn every_milestone_shows_its_light_derived_from_the_plan() {
         ("C", t.light_on_plan),
         ("D", t.light_overdue),
         ("E", t.light_reached),
+        ("F", t.light_on_plan),
     ] {
         let node = diamond(&harness, title);
         let spoken = egui_kittest::kittest::NodeT::accesskit_node(&node)
@@ -5542,21 +5552,23 @@ fn every_milestone_card_says_what_is_left_and_what_it_waits_for() {
     let today = harness.state().doc().unwrap().session.clock().today();
     let reached = text::reached_on(Some(&crate::dates::format(today)));
     assert!(harness.query_by_label(&reached).is_some(), "{reached}");
-    // A, B and C wait for one open task each; D and E for nothing, and say nothing about it.
+    // A, B and C wait for one open task each; F only for finished work; D and E for nothing,
+    // and say nothing about it.
     assert_eq!(
         harness
             .query_all_by_label(&text::open_predecessors(1))
             .count(),
         3
     );
-    assert!(
+    assert_eq!(
         harness
-            .query_by_label(&text::open_predecessors(0))
-            .is_none()
+            .query_all_by_label(&text::open_predecessors(0))
+            .count(),
+        1
     );
     // Nobody in charge is said too.
     let nobody = format!("{}: {}", text::t().assignee, text::t().no_assignee);
-    assert_eq!(harness.query_all_by_label(&nobody).count(), 5);
+    assert_eq!(harness.query_all_by_label(&nobody).count(), 6);
 }
 
 /// One milestone "Abnahme" in 10 days, in the tab Meilensteine.
@@ -5697,4 +5709,224 @@ fn the_milestones_stay_in_view_in_their_own_row() {
         .click();
     harness.run();
     assert_eq!(harness.state().state.selected, Some(id));
+}
+
+/// Review 9d (B1): a milestone date typed and the window closed – the question comes first,
+/// the window stays open, and what was typed is still there; nothing is lost silently.
+#[test]
+fn closing_the_window_asks_about_a_typed_milestone_date_first() {
+    let mut harness = milestone_chosen();
+    type_into(&mut harness, text::t().due, "20.12.2026", false);
+    let may_close = harness.state_mut().close_requested();
+    assert!(!may_close);
+    // At once, before the next frame: the question, not the one about saving.
+    assert!(asking(&harness), "the question, not the one about saving");
+    harness.run();
+    assert!(asking(&harness));
+    let shown = harness
+        .get_by_label(text::t().due)
+        .value()
+        .unwrap_or_default();
+    assert_eq!(shown, "20.12.2026");
+    // Nothing refused: no "Nicht übernommen" (K1).
+    let message = harness.state().state.message.clone();
+    assert!(
+        message
+            .as_ref()
+            .is_none_or(|m| !m.text.contains(text::t().not_taken)),
+        "{message:?}"
+    );
+    click(&mut harness, text::t().change_button);
+    assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-20");
+}
+
+/// Review 9d (K1): choosing another task with a typed milestone date asks; no error.
+#[test]
+fn choosing_elsewhere_with_a_typed_milestone_date_asks_without_an_error() {
+    let mut harness = milestone_chosen();
+    type_into(&mut harness, text::t().due, "20.12.2026", false);
+    harness.state_mut().apply(crate::Intent::Select(None));
+    harness.run();
+    assert!(asking(&harness));
+    let message = harness.state().state.message.clone();
+    assert!(
+        message
+            .as_ref()
+            .is_none_or(|m| !m.text.contains(text::t().not_taken)),
+        "{message:?}"
+    );
+}
+
+/// Review 9d (K2): Escape is "Abbrechen": the stored date comes back.
+#[test]
+fn escape_on_the_milestone_question_is_cancel() {
+    let mut harness = milestone_chosen();
+    type_into(&mut harness, text::t().due, "20.12.2026", true);
+    assert!(asking(&harness));
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(!asking(&harness));
+    let shown = harness
+        .get_by_label(text::t().due)
+        .value()
+        .unwrap_or_default();
+    assert_eq!(shown, "15.12.2026");
+    assert!(
+        harness
+            .state()
+            .state
+            .forms
+            .task
+            .as_ref()
+            .is_none_or(|d| d.due == "15.12.2026")
+    );
+}
+
+/// The wide schedule with a milestone "Ziel" in 10 days, its rows scrolled down: the pinned row
+/// lies over some of them. Returns the pinned row's rect and a row hidden under it.
+fn rows_under_the_milestone_row() -> (Harness<'static, PlnwrkApp>, egui::Rect, String) {
+    let mut harness = wide_schedule(40);
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let due = day_from_today(&harness, 10);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Ziel", "due": due, "milestone": true}),
+    ));
+    harness.run();
+    let at = bar(&harness, "Jetzt").center() + egui::vec2(120.0, 0.0);
+    for _ in 0..3 {
+        wheel(&mut harness, at, Modifiers::NONE);
+    }
+    let band = harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with("♦ Ziel: ")))
+        .rect();
+    let hidden = (0..40)
+        .map(|n| format!("Zeile {n}"))
+        .find(|title| {
+            let start = format!("{title}: ");
+            harness
+                .query_all_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+                .any(|n| (n.rect().center().y - band.center().y).abs() < 6.0)
+        })
+        .expect("a row under the milestone row");
+    (harness, band, hidden)
+}
+
+/// Review 9d (F1): a bar hidden under the pinned row cannot be dragged through it.
+#[test]
+fn a_bar_under_the_milestone_row_cannot_be_dragged_through_it() {
+    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let id = task_named(harness.state(), &hidden).unwrap().id;
+    let before = dates_of(&harness, id);
+    // On the pinned row, over the hidden bar, away from the diamond.
+    let start = format!("{hidden}: ");
+    let x = harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+        .rect()
+        .center()
+        .x;
+    let ziel = band.center().x;
+    assert!(
+        (x - ziel).abs() > 30.0,
+        "the hidden bar lies apart from the diamond"
+    );
+    drag(
+        &mut harness,
+        egui::pos2(x, band.center().y),
+        egui::vec2(66.0, 0.0),
+    );
+    assert_eq!(dates_of(&harness, id), before);
+}
+
+/// Review 9d (K3): a task chosen elsewhere whose row lies under the pinned row comes into view.
+#[test]
+fn a_chosen_task_under_the_milestone_row_comes_into_view() {
+    let (mut harness, band, hidden) = rows_under_the_milestone_row();
+    let id = task_named(harness.state(), &hidden).unwrap().id;
+    harness.state_mut().apply(crate::Intent::Select(Some(id)));
+    harness.run_steps(30);
+    let start = format!("{hidden}: ");
+    let bar = harness
+        .get_by(|n| n.label().is_some_and(|l| l.starts_with(&start)))
+        .rect();
+    assert!(bar.top() >= band.bottom() - 1.0, "{bar:?} under {band:?}");
+}
+
+/// Review 9d (K5): the question says what moves along, and so does the answer.
+#[test]
+fn the_milestone_question_names_what_moves_along() {
+    let mut harness = one_milestone();
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    let due = day_from_today(&harness, 11);
+    harness.state_mut().apply(crate::Intent::run(
+        "task.create",
+        serde_json::json!({"project": project, "title": "Nach", "due": due}),
+    ));
+    harness.run();
+    let nach = task_named(harness.state(), "Nach").unwrap().id;
+    let abnahme = task_named(harness.state(), "Abnahme").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": abnahme.to_string(), "to": nach.to_string()}),
+    ));
+    // The milestone two days later: "Nach" waits for it and moves along.
+    let later = day_from_today(&harness, 12)
+        .parse::<jiff::civil::Date>()
+        .unwrap();
+    harness.state_mut().apply(crate::Intent::Reschedule {
+        task: abnahme,
+        start: None,
+        due: Some(later),
+        due_time: None,
+    });
+    harness.run();
+    assert!(asking(&harness));
+    assert!(harness.query_by_label(&text::moves_along(1)).is_some());
+    click(&mut harness, text::t().change_button);
+    let message = harness.state().state.message.clone().map(|m| m.text);
+    assert_eq!(message, Some(text::moved_along(1)));
+}
+
+/// Review 9d (K6): the date field on the card has its name and takes Enter.
+#[test]
+fn the_date_on_a_milestone_card_is_typed_and_taken_with_enter() {
+    let mut harness = one_milestone();
+    click(&mut harness, text::t().change_date);
+    let later = day_from_today(&harness, 14)
+        .parse::<jiff::civil::Date>()
+        .unwrap();
+    type_into(
+        &mut harness,
+        text::t().milestone_date,
+        &crate::dates::format(later),
+        true,
+    );
+    assert!(asking(&harness));
+    click(&mut harness, text::t().change_button);
+    assert_eq!(
+        task_named(harness.state(), "Abnahme").unwrap().due,
+        Some(later)
+    );
+}
+
+/// Review 9d (B1): saving with a typed milestone date asks first and saves nothing meanwhile
+/// (not the file without the date, as if it were taken).
+#[test]
+fn saving_waits_for_the_answer_about_a_typed_milestone_date() {
+    let (mut harness, path) = saved_sample_with_task("ms-save", "♦ Inbetriebnahme");
+    let stored = std::fs::read(&path).unwrap();
+    // Another change waiting to be saved: saving now would write the file.
+    let other = task_named(harness.state(), "Einbau Wache 11").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": other.to_string(), "title": "Einbau Wache 12"}),
+    ));
+    harness.run();
+    type_into(&mut harness, text::t().due, "20.12.2026", false);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::S);
+    harness.run();
+    assert!(asking(&harness));
+    assert_eq!(std::fs::read(&path).unwrap(), stored, "nothing saved yet");
+    click(&mut harness, text::t().change_button);
+    assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-20");
 }

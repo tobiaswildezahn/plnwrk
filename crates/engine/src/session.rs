@@ -68,6 +68,10 @@ impl Session {
         if !crate::milestones::TOUCHING.contains(&command) {
             return Vec::new();
         }
+        // Without any milestone, only a command that makes one could change one: no copy.
+        if !self.ws.tasks().any(|t| t.milestone) && params.get("milestone").is_none() {
+            return Vec::new();
+        }
         let Some(spec) = find(command) else {
             return Vec::new();
         };

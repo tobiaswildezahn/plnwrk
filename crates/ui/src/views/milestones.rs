@@ -84,8 +84,13 @@ pub fn light(
     if waits_for(ws, milestone).any(|t| query::task_overdue(Some(project), t, now)) {
         return (Light::AtRisk, Some(text::t().predecessor_late.to_owned()));
     }
+    // The slack counts only while something it waits for is still open: the plan keeps
+    // finished work in place, but it can no longer be late (review 9d).
+    let open = waits_for(ws, milestone).any(|t| t.status != TaskStatus::Done);
     match analysis.float.get(&milestone.id) {
-        Some(&days) if days <= AT_RISK_SLACK => (Light::AtRisk, Some(text::little_slack(days))),
+        Some(&days) if open && days <= AT_RISK_SLACK => {
+            (Light::AtRisk, Some(text::little_slack(days)))
+        }
         _ => (Light::OnPlan, None),
     }
 }
@@ -162,11 +167,12 @@ fn timeline(
     let p = palette(ui);
     let small = egui::TextStyle::Small.resolve(ui.style());
     let width = ui.available_width().max(200.0);
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 92.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 100.0), Sense::hover());
     let inner = rect.shrink2(vec2(12.0, 0.0));
     let day_px = inner.width() / days as f32;
     let x_of = |date: Date| inner.left() + (days_from(first, date) as f32 + 0.5) * day_px;
-    let axis = rect.top() + 46.0;
+    // Room above for two rows of names, below for the dates and the marks' names.
+    let axis = rect.top() + 52.0;
     let painter = ui.painter_at(rect);
     painter.hline(inner.x_range(), axis, Stroke::new(1.0, p.line));
     // Today and the project's deadline as marks with their name below.
@@ -244,7 +250,14 @@ fn timeline(
         let left = (c.x - name.size().x / 2.0)
             .min(rect.right() - name.size().x)
             .max(rect.left());
-        let row = usize::from(left <= ends[0] + 8.0 && left > ends[1] + 8.0);
+        // The first row where it fits; where neither does, the one it overlaps least.
+        let row = if left > ends[0] + 8.0 {
+            0
+        } else if left > ends[1] + 8.0 {
+            1
+        } else {
+            usize::from(ends[1] < ends[0])
+        };
         if let Some(end) = ends.get_mut(row) {
             *end = left + name.size().x;
         }
@@ -426,18 +439,25 @@ fn edit_date(
     let Some((_, day, time)) = state.forms.milestone_edit.as_mut() else {
         return;
     };
-    date::deadline_input(
-        ui,
-        ("edit-milestone", milestone.id),
-        day,
-        time,
-        today,
-        project.reference.is_some(),
-        None,
-    );
-    let (mut apply, mut cancel) = (false, false);
+    let input = ui
+        .horizontal(|ui| {
+            let caption = ui.label(text::t().milestone_date);
+            date::deadline_input(
+                ui,
+                ("edit-milestone", milestone.id),
+                day,
+                time,
+                today,
+                project.reference.is_some(),
+                Some(caption.id),
+            )
+        })
+        .inner;
+    // Enter in the field takes it, as "Übernehmen".
+    let entered = input.response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let (mut apply, mut cancel) = (entered, false);
     ui.horizontal(|ui| {
-        apply = widgets::button(ui, Kind::Primary, text::t().apply).clicked();
+        apply |= widgets::button(ui, Kind::Primary, text::t().apply).clicked();
         cancel = widgets::button(ui, Kind::Quiet, text::t().cancel).clicked();
     });
     if cancel {

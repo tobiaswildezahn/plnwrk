@@ -107,7 +107,11 @@ pub fn compare(before: &Workspace, after: &Workspace) -> Vec<MilestoneChange> {
         if fields.is_empty() {
             continue;
         }
-        let new_due = new.and_then(|t| t.due);
+        // What follows is named only when the date changes: a new title of a milestone that
+        // lies after the project's deadline already does not put it there.
+        let new_due = new
+            .filter(|_| fields.iter().any(|f| matches!(f, Field::Due { .. })))
+            .and_then(|t| t.due);
         let late_predecessors = new_due.map_or(0, |due| {
             after
                 .dependencies()

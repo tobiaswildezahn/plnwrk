@@ -391,6 +391,15 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         }
                         ui.add_space(space::S);
                     }
+                    let along = if *command == "task.reschedule" {
+                        crate::along_of(params)
+                    } else {
+                        0
+                    };
+                    if along > 0 {
+                        ui.label(text::moves_along(along));
+                        ui.add_space(space::S);
+                    }
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Primary, text::t().change_button).clicked() {
                             out.push(Intent::CloseDialog);
@@ -431,8 +440,13 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                 }
             }
         });
+    // Escape or a click beside it: for a milestone the same as "Abbrechen" (the typed value
+    // goes back to the stored one).
     if response.should_close() && !matches!(dialog, Dialog::Unsaved(_)) {
-        out.push(Intent::CloseDialog);
+        out.push(match dialog {
+            Dialog::ConfirmMilestone { .. } => Intent::DeclineMilestone,
+            _ => Intent::CloseDialog,
+        });
     }
     if let Some(error) = message {
         state.message = Some(Message::error(error));
