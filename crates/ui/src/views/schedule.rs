@@ -193,7 +193,13 @@ pub fn show(
         if super::icon_button(ui, Icon::ZoomIn, text::t().zoom_in).clicked() {
             level = (level + 1).min(ZOOM.len() - 1);
         }
-        if ui.button(text::t().export_schedule).clicked() {
+        if crate::design::widgets::button(
+            ui,
+            crate::design::widgets::Kind::Secondary,
+            text::t().export_schedule,
+        )
+        .clicked()
+        {
             out.push(Intent::ExportSchedule(project.id));
         }
         ui.weak(text::t().critical_hint);
@@ -347,7 +353,8 @@ pub fn show(
                     visuals.weak_text_color(),
                 );
             }
-            if day_width >= 10.0 && week_starts {
+            // "KW 42 · 12.10.2026" needs about 110 px: a week of at least 16 px days.
+            if day_width >= 16.0 && week_starts {
                 painter.line_segment(
                     [pos2(x, area.top()), pos2(x, area.bottom())],
                     Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),

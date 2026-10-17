@@ -319,7 +319,9 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
                     response.widget_info(|| {
                         WidgetInfo::selected(WidgetType::RadioButton, enabled, selected, *label)
                     });
-                    hand(ui, &response);
+                    if !selected {
+                        hand(ui, &response);
+                    }
                     if response.clicked() && !selected {
                         *value = *option;
                         changed = true;

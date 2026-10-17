@@ -4126,3 +4126,28 @@ fn a_pinch_zooms_anywhere_in_the_schedule() {
         );
     }
 }
+
+/// A dialog over the schedule takes the pinch: the schedule behind it does not zoom.
+#[test]
+fn a_pinch_over_a_dialog_does_not_zoom_the_schedule() {
+    let mut harness = wide_schedule(0);
+    let before = bar(&harness, "Jetzt");
+    let task = task_named(harness.state(), "Jetzt").unwrap().id;
+    harness
+        .state_mut()
+        .state
+        .open_dialog(crate::state::Dialog::DeleteTask(task));
+    harness.run();
+    // Below the rows, where the schedule would zoom without the dialog.
+    harness.hover_at(before.center() + egui::vec2(0.0, 300.0));
+    harness.run();
+    harness.event(egui::Event::Zoom(1.5));
+    harness.run();
+    harness.state_mut().state.close_dialog();
+    harness.run();
+    let after = bar(&harness, "Jetzt");
+    assert!(
+        (after.width() - before.width()).abs() < 0.5,
+        "{before:?} → {after:?}"
+    );
+}

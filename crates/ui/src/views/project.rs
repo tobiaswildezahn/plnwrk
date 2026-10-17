@@ -125,7 +125,12 @@ fn head(
                     Err(message) => error = Some(message),
                 }
             }
-            cancel = ui.button(text::t().cancel).clicked();
+            cancel = crate::design::widgets::button(
+                ui,
+                crate::design::widgets::Kind::Secondary,
+                text::t().cancel,
+            )
+            .clicked();
         });
         if let Some(message) = error {
             state.message = Some(crate::state::Message::error(message));

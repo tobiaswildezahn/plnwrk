@@ -50,6 +50,8 @@ fn pairs(p: &Palette) -> Vec<(String, Color32, Color32, f64)> {
         ("accent on accent_soft", p.accent, p.accent_soft, 4.5),
         ("text on info_soft", p.text, p.info_soft, 4.5),
         ("accent on info_soft", p.accent, p.info_soft, 4.5),
+        // The lines of the chosen schedule row cross days off.
+        ("accent on shade", p.accent, p.shade, 3.0),
         ("on_accent on accent_fill", p.on_accent, p.accent_fill, 4.5),
         (
             "on_accent on accent_hover",
@@ -151,7 +153,7 @@ fn sources() -> Vec<(std::path::PathBuf, String)> {
 
 /// Colour values: built from numbers, or egui's named colours.
 fn forbidden_colour(line: &str) -> bool {
-    const FORBIDDEN: [&str; 26] = [
+    const FORBIDDEN: [&str; 29] = [
         "Color32::from_",
         "Color32::RED",
         "Color32::GREEN",
@@ -176,6 +178,9 @@ fn forbidden_colour(line: &str) -> bool {
         "ecolor::",
         "gamma_multiply",
         "linear_multiply",
+        "lerp_to_gamma",
+        ".blend(",
+        ".additive()",
         "as Color32",
         "Color32 as",
     ];
@@ -251,6 +256,7 @@ fn the_guards_find_what_they_forbid() {
         "let c = egui::Color32::from_rgb(1, 2, 3);",
         "Color32::from_gray(9)",
         "epaint::Color32::RED",
+        "a.lerp_to_gamma(b, 0.5)",
     ] {
         assert!(forbidden_colour(line), "{line}");
     }
