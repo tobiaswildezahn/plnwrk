@@ -1206,6 +1206,9 @@ fn a_task_becomes_a_milestone_but_not_a_subtask() {
         .get_by_role_and_label(egui::accesskit::Role::CheckBox, text::t().milestone)
         .click();
     harness.run();
+    // Making it a milestone is a change of milestones: confirmed first.
+    assert!(!task_named(harness.state(), "Übergabe").unwrap().milestone);
+    click(&mut harness, text::t().change_button);
     assert!(task_named(harness.state(), "Übergabe").unwrap().milestone);
     // The list marks it.
     assert!(harness.query_by_label("♦ Übergabe").is_some());
@@ -5299,4 +5302,149 @@ fn views_ask_the_engine_what_is_overdue() {
         }
     }
     assert!(found.is_empty(), "{found:#?}");
+}
+
+// ---- Phase 9d: every change of a milestone is confirmed ----
+
+fn asking(harness: &Harness<'_, PlnwrkApp>) -> bool {
+    matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::ConfirmMilestone { .. })
+    )
+}
+
+fn milestone(harness: &Harness<'_, PlnwrkApp>) -> Task {
+    task_named(harness.state(), "Inbetriebnahme").unwrap()
+}
+
+/// The sample's project with its milestone "Inbetriebnahme" (15.12.2026) chosen.
+fn milestone_chosen() -> Harness<'static, PlnwrkApp> {
+    let mut harness = harness_with_sample();
+    harness
+        .get_all_by_label("Digitalfunk Umrüstung Wachen")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    let id = milestone(&harness).id;
+    harness.state_mut().apply(crate::Intent::Select(Some(id)));
+    harness.run();
+    harness
+}
+
+#[test]
+fn every_way_to_change_a_milestone_asks_first() {
+    // The palette: status done.
+    let mut harness = milestone_chosen();
+    let before = milestone(&harness);
+    palette(&mut harness, "status erledigt");
+    assert!(asking(&harness), "palette");
+    assert_eq!(milestone(&harness), before, "nothing changed yet");
+    click(&mut harness, text::t().cancel);
+    assert!(!asking(&harness));
+    assert_eq!(milestone(&harness), before);
+
+    // The detail panel: a typed date, taken when the field is left.
+    type_into(&mut harness, text::t().due, "20.12.2026", true);
+    assert!(asking(&harness), "detail panel");
+    assert_eq!(milestone(&harness), before);
+    click(&mut harness, text::t().change_button);
+    assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-20");
+
+    // The schedule: dragging its diamond a week later.
+    click(&mut harness, text::t().schedule_tab);
+    click(&mut harness, text::t().whole_project);
+    let before = milestone(&harness);
+    let diamond = bar(&harness, "Inbetriebnahme").center();
+    drag(&mut harness, diamond, egui::vec2(60.0, 0.0));
+    assert!(asking(&harness), "schedule");
+    assert_eq!(milestone(&harness), before);
+    click(&mut harness, text::t().cancel);
+    assert_eq!(milestone(&harness), before);
+
+    // The board: its card to "Erledigt" (the column's heading carries its count; the
+    // details closed, so all columns are in view).
+    harness.state_mut().state.select(None);
+    click(&mut harness, text::t().board);
+    // One task of the sample is done already.
+    let column = format!("{} (1)", text::task_status(TaskStatus::Done));
+    drag_card(&mut harness, "♦ Inbetriebnahme", &column);
+    assert!(asking(&harness), "board");
+    assert_eq!(milestone(&harness), before);
+    click(&mut harness, text::t().cancel);
+
+    // Deleting: the question about deleting is the confirmation – one question, not two.
+    let id = milestone(&harness).id;
+    harness.state_mut().apply(crate::Intent::Select(Some(id)));
+    harness.run();
+    click(&mut harness, text::t().delete_task);
+    assert!(matches!(
+        harness.state().state.dialog,
+        Some(crate::state::Dialog::DeleteTask(_))
+    ));
+    click(&mut harness, text::t().delete);
+    assert!(!asking(&harness));
+    assert!(task_named(harness.state(), "Inbetriebnahme").is_none());
+}
+
+#[test]
+fn the_question_names_old_new_and_what_follows() {
+    let mut harness = milestone_chosen();
+    type_into(&mut harness, text::t().due, "20.01.2027", true);
+    assert!(asking(&harness));
+    let line = shown_texts(&harness)
+        .into_iter()
+        .find(|t| t.contains(" → "))
+        .expect("a line old → new");
+    assert!(line.starts_with(text::t().milestone_date), "{line}");
+    assert!(
+        line.contains("15.12.2026") && line.contains("20.01.2027"),
+        "{line}"
+    );
+    // After the project's deadline (15.12.2026).
+    assert!(
+        harness
+            .query_by_label(text::t().after_project_due_then)
+            .is_some()
+    );
+}
+
+#[test]
+fn cancelling_puts_the_typed_value_back_and_loses_nothing_else() {
+    let mut harness = milestone_chosen();
+    type_into(&mut harness, text::t().due, "20.12.2026", true);
+    assert!(asking(&harness));
+    click(&mut harness, text::t().cancel);
+    // The field shows the stored date again; nothing typed waits to be saved.
+    let shown = harness
+        .get_by_label(text::t().due)
+        .value()
+        .unwrap_or_default();
+    assert_eq!(shown, "15.12.2026");
+    assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-15");
+}
+
+#[test]
+fn undo_redo_and_new_milestones_ask_nothing() {
+    let mut harness = milestone_chosen();
+    type_into(&mut harness, text::t().due, "20.12.2026", true);
+    click(&mut harness, text::t().change_button);
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    harness.run();
+    assert!(!asking(&harness), "undo");
+    assert_eq!(milestone(&harness).due.unwrap().to_string(), "2026-12-15");
+    harness
+        .state_mut()
+        .apply(crate::Intent::run("redo", serde_json::json!({})));
+    harness.run();
+    assert!(!asking(&harness), "redo");
+    // A new milestone in the tab Meilensteine.
+    click(&mut harness, text::t().milestones);
+    harness.state_mut().state.forms.milestone_title = "Abnahme".to_owned();
+    harness.state_mut().state.forms.milestone_date = "30.11.2026".to_owned();
+    click(&mut harness, text::t().new_milestone);
+    assert!(!asking(&harness), "creating");
+    assert!(task_named(harness.state(), "Abnahme").is_some_and(|t| t.milestone));
 }

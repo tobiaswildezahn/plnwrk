@@ -151,6 +151,11 @@ pub(crate) enum Intent {
     /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
     /// the browser.
     ExportSchedule(ProjectId),
+    /// Carry out this intent: its question was answered with yes (milestones, deleting).
+    Confirmed(Box<Intent>),
+    /// The change of a milestone is not made: the question closes and what was typed for it
+    /// goes back to the stored values.
+    DeclineMilestone,
     /// Something for the schedule of a project: zoom level, today, the whole project.
     Schedule(ProjectId, state::ScheduleRequest),
     /// Show or hide a column of the schedule's table.
@@ -193,6 +198,9 @@ pub struct PlnwrkApp {
     autosave: autosave::Autosave,
     /// Browser: the recovery copy in the browser's storage.
     browser_copy: browser_copy::BrowserCopy,
+    /// The intent being carried out was confirmed already (a question about milestones or
+    /// deleting was answered with yes).
+    confirmed: bool,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -247,6 +255,7 @@ impl PlnwrkApp {
             leave_warning: false,
             autosave: autosave::Autosave::default(),
             browser_copy: browser_copy::BrowserCopy::default(),
+            confirmed: false,
         }
     }
 
@@ -666,6 +675,20 @@ impl PlnwrkApp {
             } => {
                 self.run(command, &params, then, clear);
             }
+            Intent::Confirmed(intent) => {
+                self.confirmed = true;
+                self.apply(*intent);
+                self.confirmed = false;
+            }
+            Intent::DeclineMilestone => {
+                self.state.close_dialog();
+                // What was typed for it is dropped: the fields show the stored values again.
+                self.state.forms.task = None;
+                self.state.forms.inline = None;
+                self.state.forms.milestone_title.clear();
+                self.state.forms.milestone_date.clear();
+                self.state.forms.milestone_time.clear();
+            }
             Intent::Go(view) => {
                 self.flush_draft();
                 self.state.view = view;
@@ -809,6 +832,23 @@ impl PlnwrkApp {
         if self.state.browser && plnwrk_engine::params::asks_for_classified(params) {
             self.state.message = Some(Message::error(text::t().vs_blocked));
             return false;
+        }
+        // Every change of a milestone is asked first (plan §6.3), whichever view sent it: the
+        // command is tried on a copy, and if it touches a milestone it waits for the answer.
+        if !self.confirmed
+            && let Some(spec) = plnwrk_engine::command::find(command)
+        {
+            let changes = doc.session.milestone_changes(command, params);
+            if !changes.is_empty() {
+                self.state.open_dialog(Dialog::ConfirmMilestone {
+                    command: spec.id,
+                    params: params.clone(),
+                    then,
+                    clear,
+                    changes,
+                });
+                return false;
+            }
         }
         match doc.session.run(command, params, Origin::User) {
             Ok(_) if self.state.browser && !browser_may_hold(doc.session.workspace()) => {

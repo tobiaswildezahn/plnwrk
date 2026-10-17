@@ -142,6 +142,14 @@ pub struct Texts {
     pub by_ai: &'static str,
     pub delete_task: &'static str,
     pub delete_task_question: &'static str,
+    pub confirm_milestone_title: &'static str,
+    pub confirm_milestone_hint: &'static str,
+    pub change_button: &'static str,
+    pub milestone_date: &'static str,
+    pub milestone_deleted: &'static str,
+    pub milestone_unmarked: &'static str,
+    pub milestone_marked: &'static str,
+    pub after_project_due_then: &'static str,
     pub close_subtasks_title: &'static str,
     pub whole_project: &'static str,
     pub float_hint: &'static str,
@@ -388,6 +396,14 @@ pub static DE: Texts = Texts {
     by_ai: "durch KI",
     delete_task: "Aufgabe löschen",
     delete_task_question: "Die Aufgabe wird mit allen Unteraufgaben und Kommentaren gelöscht (rückgängig machbar).",
+    confirm_milestone_title: "Meilenstein ändern?",
+    confirm_milestone_hint: "Meilensteine sind feste Termine. Jede Änderung wird bestätigt.",
+    change_button: "Ändern",
+    milestone_date: "Termin",
+    milestone_deleted: "wird gelöscht",
+    milestone_unmarked: "ist danach kein Meilenstein mehr",
+    milestone_marked: "wird ein Meilenstein",
+    after_project_due_then: "Er liegt dann nach der Frist des Projekts.",
     close_subtasks_title: "Unteraufgaben auch erledigen?",
     whole_project: "Ganzes Projekt",
     float_hint: "So viele Tage kann sich die Aufgabe verschieben, ohne dass sich das Ende verschiebt.",
@@ -633,6 +649,14 @@ pub static EN: Texts = Texts {
     by_ai: "by AI",
     delete_task: "Delete task",
     delete_task_question: "The task is deleted with all its subtasks and comments (can be undone).",
+    confirm_milestone_title: "Change a milestone?",
+    confirm_milestone_hint: "Milestones are fixed dates. Every change is confirmed.",
+    change_button: "Change",
+    milestone_date: "Date",
+    milestone_deleted: "is deleted",
+    milestone_unmarked: "is no longer a milestone afterwards",
+    milestone_marked: "becomes a milestone",
+    after_project_due_then: "It then lies after the project's deadline.",
     close_subtasks_title: "Close the subtasks too?",
     whole_project: "Whole project",
     float_hint: "By this many days the task can slip without the end slipping.",
@@ -1043,6 +1067,21 @@ pub fn span_with_weekdays(from: jiff::civil::Date, to: jiff::civil::Date) -> Str
         day(to)
     } else {
         format!("{} – {}", day(from), day(to))
+    }
+}
+
+/// Tasks a milestone waits for that end after its new date.
+pub fn late_predecessors(count: usize) -> String {
+    match count {
+        1 => pick(
+            "1 Aufgabe, auf die er wartet, endet danach.",
+            "1 task it waits for ends after it.",
+        )
+        .to_owned(),
+        n => pick(
+            format!("{n} Aufgaben, auf die er wartet, enden danach."),
+            format!("{n} tasks it waits for end after it."),
+        ),
     }
 }
 
