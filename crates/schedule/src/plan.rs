@@ -532,9 +532,15 @@ impl Plan {
                 continue;
             }
             let float = if item.milestone {
-                // A milestone does not move: its float is how much later what it waits for
-                // could end. Waiting for nothing, it has none to lose.
-                self.required(item, &spans, length)
+                // A milestone does not move: its float is how much later what it still waits
+                // for could end. Finished work cannot end later; waiting for nothing open, it
+                // has none to lose.
+                self.links
+                    .iter()
+                    .filter(|l| l.to == item.id)
+                    .filter(|l| self.items.get(&l.from).is_some_and(|from| !from.done))
+                    .filter_map(|l| self.requires(l, item, &spans, length))
+                    .max()
                     .map(|earliest| cal.between(earliest, cal.previous_working(span.1)))
             } else {
                 Some(cal.between(span.0, self.start_of(item, end, length)))
@@ -774,6 +780,27 @@ mod tests {
         let moves = p.push(moved(1, "2026-10-14", "2026-10-16"));
         assert!(moves.len() > 1, "{moves:?}");
         assert_eq!(p.overtaken(&moves), vec![id(2)]);
+    }
+
+    /// A milestone's slack counts only what it still waits for (review 9d): finished work ending
+    /// the day before does not make it tight when the open work has room.
+    #[test]
+    fn a_milestones_slack_counts_only_open_work() {
+        let mut finished = task(1, "2026-10-12", "2026-10-15");
+        finished.done = true;
+        let p = plan(
+            vec![
+                finished.clone(),
+                task(3, "2026-10-05", "2026-10-06"),
+                milestone(2, "2026-10-16"),
+            ],
+            vec![fs(1, 2), fs(3, 2)],
+        );
+        let slack = p.analyse().float.get(&id(2)).copied();
+        assert!(slack.is_some_and(|days| days >= 7), "{slack:?}");
+        // Only finished work: none to lose.
+        let p = plan(vec![finished, milestone(2, "2026-10-16")], vec![fs(1, 2)]);
+        assert_eq!(p.analyse().float.get(&id(2)), None);
     }
 
     #[test]

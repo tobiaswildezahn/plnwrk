@@ -275,6 +275,15 @@ mod milestones {
         );
         assert_eq!(earlier[0].late_predecessors, 1);
         assert_eq!(renamed[0].late_predecessors, 0);
+        // A task becoming a milestone after the project's deadline: named too.
+        let project = project_of(&s, &milestone);
+        let late = create(
+            &mut s,
+            "task.create",
+            json!({"project": project, "title": "Spät", "due": "2026-11-10"}),
+        );
+        let marked = s.milestone_changes("task.update", &json!({"task": late, "milestone": true}));
+        assert!(marked[0].after_project_due, "{marked:?}");
     }
 
     /// Without any milestone in the file, only making one asks (review 9d: no copy needed

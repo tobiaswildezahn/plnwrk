@@ -84,13 +84,9 @@ pub fn light(
     if waits_for(ws, milestone).any(|t| query::task_overdue(Some(project), t, now)) {
         return (Light::AtRisk, Some(text::t().predecessor_late.to_owned()));
     }
-    // The slack counts only while something it waits for is still open: the plan keeps
-    // finished work in place, but it can no longer be late (review 9d).
-    let open = waits_for(ws, milestone).any(|t| t.status != TaskStatus::Done);
+    // The milestone's slack from the plan: only what it still waits for counts there.
     match analysis.float.get(&milestone.id) {
-        Some(&days) if open && days <= AT_RISK_SLACK => {
-            (Light::AtRisk, Some(text::little_slack(days)))
-        }
+        Some(&days) if days <= AT_RISK_SLACK => (Light::AtRisk, Some(text::little_slack(days))),
         _ => (Light::OnPlan, None),
     }
 }

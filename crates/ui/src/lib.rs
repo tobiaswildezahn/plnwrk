@@ -201,6 +201,9 @@ pub struct PlnwrkApp {
     /// The intent being carried out was confirmed already (a question about milestones or
     /// deleting was answered with yes).
     confirmed: bool,
+    /// What waits for the answer to a question about a milestone (closing, saving, opening,
+    /// exporting): carried out once it is answered, either way.
+    after_answer: Option<Intent>,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -256,6 +259,7 @@ impl PlnwrkApp {
             autosave: autosave::Autosave::default(),
             browser_copy: browser_copy::BrowserCopy::default(),
             confirmed: false,
+            after_answer: None,
         }
     }
 
@@ -303,7 +307,8 @@ impl PlnwrkApp {
                     .as_ref()
                     .is_some_and(state::TaskDraft::is_pending)
                 || self.inline_pending().is_some()
-                || self.project_pending().is_some())
+                || self.project_pending().is_some()
+                || self.milestone_edit_pending())
     }
 
     /// A project form with typed changes: the project and the form, brought up to date with
@@ -335,6 +340,21 @@ impl PlnwrkApp {
             Some(_) => {}
             None => self.state.forms.project = None,
         }
+    }
+
+    /// A milestone's date typed on its card and not taken yet.
+    fn milestone_edit_pending(&self) -> bool {
+        let Some((id, day, time)) = &self.state.forms.milestone_edit else {
+            return false;
+        };
+        let Some(task) = self
+            .doc
+            .as_ref()
+            .and_then(|d| d.session.workspace().task(*id))
+        else {
+            return false;
+        };
+        *day != dates::format_opt(task.due) || *time != dates::format_time_opt(task.due_time)
     }
 
     /// A title typed in the list and not taken yet: the task and the new title.
@@ -385,6 +405,26 @@ impl PlnwrkApp {
                     refused.push(format!("{} {reason}", text::t().not_taken));
                     self.state.forms.project = None;
                 }
+            }
+        }
+        // A milestone's date typed on its card: taken like "Übernehmen" (which asks first), or
+        // put back and named.
+        if self.milestone_edit_pending()
+            && let Some((id, day, time)) = self.state.forms.milestone_edit.take()
+        {
+            let start = self
+                .doc
+                .as_ref()
+                .and_then(|d| d.session.workspace().task(id))
+                .and_then(|t| t.start);
+            match dates::parse_deadline(&day, &time) {
+                Ok(Some((due, due_time))) => {
+                    self.reschedule(id, start.filter(|s| *s <= due), Some(due), Some(due_time));
+                }
+                Ok(None) => {
+                    refused.push(format!("{} {}", text::t().not_taken, text::t().date_needed))
+                }
+                Err(reason) => refused.push(format!("{} {reason}", text::t().not_taken)),
             }
         }
         let project_warning = (!refused.is_empty()).then(|| refused.join(" · "));
@@ -483,8 +523,10 @@ impl PlnwrkApp {
             return true;
         }
         self.flush_draft();
-        // A typed milestone date is asked about first; the window stays open for the answer.
+        // A typed milestone date is asked about first; the window stays open for the answer,
+        // then closing goes on.
         if self.asking_milestone() {
+            self.after_answer = Some(Intent::File(FileAction::Quit));
             return false;
         }
         if !self.has_unsaved_changes() {
@@ -492,6 +534,15 @@ impl PlnwrkApp {
         }
         self.state.open_dialog(Dialog::Unsaved(FileAction::Quit));
         false
+    }
+
+    /// After the answer about a milestone: what waited for it goes on.
+    fn carry_on(&mut self) {
+        if !self.asking_milestone()
+            && let Some(next) = self.after_answer.take()
+        {
+            self.apply(next);
+        }
     }
 
     /// Whether the question about a change of a milestone is open – e.g. after a typed date
@@ -694,12 +745,14 @@ impl PlnwrkApp {
                 self.confirmed = true;
                 self.apply(*intent);
                 self.confirmed = false;
+                self.carry_on();
             }
             Intent::DeclineMilestone => {
                 self.state.close_dialog();
                 // What was typed for it is dropped: the fields show the stored values again.
                 self.state.forms.task = None;
                 self.state.forms.inline = None;
+                self.carry_on();
             }
             Intent::Go(view) => {
                 self.flush_draft();
@@ -970,6 +1023,7 @@ impl PlnwrkApp {
         // Typed but not taken yet: part of what is exported, as when saving.
         self.flush_draft();
         if self.asking_milestone() {
+            self.after_answer = Some(Intent::ExportSchedule(project));
             return;
         }
         let Some(doc) = &self.doc else { return };
@@ -1053,16 +1107,26 @@ impl PlnwrkApp {
         }
         // Typed text counts like any change: stored first, so saving includes it and leaving
         // asks about it. Not when the person chose to discard.
+        let shown = self.state.message.clone();
         let warning = if force { None } else { self.flush_draft() };
         // A typed milestone date is asked about first: saving, opening or closing waits for
-        // the answer (and is chosen again afterwards).
+        // the answer and goes on after it.
         if self.asking_milestone() {
+            self.after_answer = Some(Intent::File(action));
             return;
         }
         if action.replaces_doc() && !force && self.has_unsaved_changes() {
             self.state.open_dialog(Dialog::Unsaved(action));
             return;
         }
+        // A warning from what was just taken (e.g. a milestone overtaken) stays in view after
+        // "Gespeichert.".
+        let saving = matches!(action, FileAction::Save | FileAction::SaveAs);
+        let earlier = self
+            .state
+            .message
+            .clone()
+            .filter(|m| m.error && Some(m) != shown.as_ref());
         match action {
             FileAction::New => self.replace(OpenDoc::new()),
             FileAction::Sample => match OpenDoc::sample() {
@@ -1094,6 +1158,12 @@ impl PlnwrkApp {
         // "Gespeichert." must not hide that a typed date was not taken.
         if let Some(warning) = warning {
             self.state.message = Some(Message::error(warning));
+        } else if saving
+            && let Some(earlier) = earlier
+            && let Some(now) = &self.state.message
+            && now.text != earlier.text
+        {
+            self.state.message = Some(Message::error(format!("{} {}", now.text, earlier.text)));
         }
     }
 
@@ -1131,6 +1201,7 @@ impl PlnwrkApp {
     /// Saves with a new protection; if that fails or is cancelled, the old one stays.
     fn change_protection(&mut self, protection: plnwrk_store::Protection, done: &str) {
         let warning = self.flush_draft();
+        // Not carried on afterwards: the passphrase is not kept while waiting.
         if self.asking_milestone() {
             return;
         }

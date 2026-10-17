@@ -701,15 +701,23 @@ pub fn show(
             let reschedule = landing.and_then(|(from, to)| {
                 plnwrk_schedule::Reschedule::of(ws, task.id, from, to, Calendar::standard())
             });
-            let along = reschedule.as_ref().map_or(0, |r| r.along());
-            // Milestones it would overtake (they stay where they are): said while dragging.
-            let overtaken: Vec<String> = reschedule
-                .map(|r| r.overtaken(ws, Calendar::standard()))
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|id| ws.task(id))
-                .map(|t| t.title.clone())
-                .collect();
+            // What follows from where it would land, said in the preview and in the spoken
+            // name alike: what moves along, and milestones it would overtake (they stay).
+            let mut follows = Vec::new();
+            if let Some(reschedule) = &reschedule {
+                if reschedule.along() > 0 {
+                    follows.push(text::moves_along(reschedule.along()));
+                }
+                let overtaken: Vec<String> = plan
+                    .overtaken(&reschedule.moves)
+                    .into_iter()
+                    .filter_map(|id| ws.task(id))
+                    .map(|t| t.title.clone())
+                    .collect();
+                if !overtaken.is_empty() {
+                    follows.push(format!("⚠ {}", text::overtakes(&overtaken)));
+                }
+            }
             let shown = landed.map_or(bar, |span| bar_of(task.milestone, span, y));
             // The one rule of the app (list, details, overview): with a deadline and its time,
             // not in finished, archived projects or templates.
@@ -784,12 +792,7 @@ pub fn show(
                 && let Some(at) = ui.input(|i| i.pointer.interact_pos())
             {
                 let mut lines = vec![text::span_with_weekdays(from, to)];
-                if along > 0 {
-                    lines.push(text::moves_along(along));
-                }
-                if !overtaken.is_empty() {
-                    lines.push(format!("⚠ {}", text::overtakes(&overtaken)));
-                }
+                lines.extend(follows.iter().cloned());
                 preview = Some((at, lines.join("\n")));
             }
             let (from, to) = landed.unwrap_or((start, end));
@@ -809,11 +812,8 @@ pub fn show(
             if show_critical {
                 name.push_str(&format!(", {}", text::t().critical_short));
             }
-            if along > 0 {
-                name.push_str(&format!(", {}", text::moves_along(along)));
-            }
-            if !overtaken.is_empty() {
-                name.push_str(&format!(", {}", text::overtakes(&overtaken)));
+            for follow in &follows {
+                name.push_str(&format!(", {follow}"));
             }
             let enabled = ui.is_enabled();
             response.widget_info(|| {
@@ -958,8 +958,11 @@ pub fn show(
             && let Some(at) = ui.input(|i| i.pointer.interact_pos())
         {
             let follows = may_follow(ws, from);
+            // Not onto a bar hidden under the milestone row.
+            let covered = |at: Pos2| !pinned.is_empty() && (pin_y..=pin_y + pin).contains(&at.y);
             let target = boxes
                 .iter()
+                .filter(|_| !covered(at))
                 .find(|(id, rect)| **id != from && rect.expand(4.0).contains(at))
                 .map(|(id, rect)| (*id, *rect))
                 .filter(|(id, _)| follows(*id));

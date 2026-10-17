@@ -91,7 +91,8 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
     verschiebt – sie sind feste Termine. Der Dialog nennt alt → neu und was daraus folgt
     (Vorgänger, die erst später fertig werden; Termin nach dem Projektende; Aufgaben, die danach
     mitrutschen). **Abbrechen** oder Esc lässt alles, wie es war. Neu anlegen und Rückgängig
-    fragen nicht.
+    fragen nicht. Kam die Frage beim Schließen, Speichern, Öffnen oder Exportieren, geht das
+    danach von selbst weiter.
 - **Zeitplan:** links eine Tabelle (Aufgabe, Beginn, Frist, Zuständig), rechts Balken von Beginn
   bis Frist.
   - **Navigation:** **Heute** springt zum heutigen Tag, **Ganzes Projekt** zeigt alles auf einen

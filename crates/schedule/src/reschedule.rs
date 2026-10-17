@@ -33,15 +33,6 @@ impl Reschedule {
         Some(Self { task, moves })
     }
 
-    /// The milestones these moves would overtake: afterwards they come before what they wait
-    /// for (they never move along). A milestone moved itself is not counted – that change is
-    /// asked about on its own.
-    pub fn overtaken(&self, workspace: &Workspace, calendar: Calendar) -> Vec<TaskId> {
-        workspace.task(self.task).map_or_else(Vec::new, |task| {
-            Plan::of(workspace, task.project, calendar).overtaken(&self.moves)
-        })
-    }
-
     /// How many other tasks move along.
     pub fn along(&self) -> usize {
         self.moves.iter().filter(|m| m.task != self.task).count()
@@ -95,12 +86,16 @@ pub fn overtaken_by(workspace: &Workspace, params: &Value, calendar: Calendar) -
     let Some(moves) = moves else {
         return Vec::new();
     };
-    let Some(project) = moves
-        .first()
-        .and_then(|m| workspace.task(m.task))
+    // Each project on its own (dependencies stay inside one).
+    let mut projects: Vec<_> = moves
+        .iter()
+        .filter_map(|m| workspace.task(m.task))
         .map(|t| t.project)
-    else {
-        return Vec::new();
-    };
-    Plan::of(workspace, project, calendar).overtaken(&moves)
+        .collect();
+    projects.sort();
+    projects.dedup();
+    projects
+        .into_iter()
+        .flat_map(|project| Plan::of(workspace, project, calendar).overtaken(&moves))
+        .collect()
 }
