@@ -12,6 +12,8 @@ use crate::host::Scripted;
 use crate::state::{Tab, View};
 use crate::{PlnwrkApp, text};
 
+mod paths;
+
 fn harness(app: PlnwrkApp) -> Harness<'static, PlnwrkApp> {
     // Short steps, like real frames: two clicks a few steps apart count as a double click.
     let mut harness = Harness::builder()

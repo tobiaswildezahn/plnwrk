@@ -584,6 +584,9 @@ pub struct State {
     pub theme: egui::ThemePreference,
     /// The field for a new task takes the cursor in the next frame.
     pub focus_new_task: bool,
+    /// The title in the details takes the cursor in the next frame (a task chosen in the
+    /// palette: the keyboard goes on there, not from the top of the window).
+    pub focus_details: bool,
     /// The field of a new board card takes the focus in the next frame ("+" was chosen).
     pub focus_board_new: bool,
     /// The title of a new milestone, or the name of a new person, takes the focus next frame.

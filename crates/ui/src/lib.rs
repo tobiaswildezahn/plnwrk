@@ -156,6 +156,8 @@ pub(crate) enum Intent {
     Tab(Tab),
     /// Put the cursor into the field for a new task.
     FocusNewTask,
+    /// Put the cursor into the title of the chosen task's details (gone to by keyboard).
+    FocusDetails,
     /// Open the form to edit this project.
     EditProject(ProjectId),
     /// Saves the schedule of a project as a table (CSV): a file on the desktop, a download in
@@ -886,6 +888,7 @@ impl PlnwrkApp {
             }
             Intent::ExportSchedule(project) => self.export_schedule(project),
             Intent::FocusNewTask => self.state.focus_new_task = true,
+            Intent::FocusDetails => self.state.focus_details = true,
             Intent::DismissMessage => self.state.unsay(),
             Intent::Say(message) => self.state.say(message),
             Intent::EditProject(id) => {

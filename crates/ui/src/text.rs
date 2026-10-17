@@ -1715,7 +1715,9 @@ mod tests {
                 continue;
             }
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            if ["text.rs", "tests.rs", "model_tests.rs"].contains(&name.as_str()) {
+            // Tests (also those in `src/tests/`) hold German data, not interface texts.
+            let in_tests = path.parent().is_some_and(|dir| dir.ends_with("tests"));
+            if in_tests || ["text.rs", "tests.rs", "model_tests.rs"].contains(&name.as_str()) {
                 continue;
             }
             checked += 1;

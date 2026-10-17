@@ -146,6 +146,7 @@ Meilenstein wird unhaltbar.
 | 4.15 | ~~Eingabefelder „flach“?~~ **entschieden (Tobi, 2026-10-17):** Tobi urteilt am echten Bildschirm im Wiederholungstest, danach ggf. Rahmen/Höhe nachschärfen | – | Wiederholungstest |
 | 4.16 | ~~Meldungen an ihren Ursprung binden~~ **entschieden (Tobi, 2026-10-17):** ja, als erster Schritt von 9g, vor den Klickpfaden | – | 9g, Schritt 1 |
 | 4.17 | ~~Klickpfade auch nur mit Tastatur~~ **entschieden (Tobi, 2026-10-17):** ja, eigene Tastatur-Variante je Pfad | – | 9g |
+| 4.18 | **Enter im Detailbereich** (Befund der Klickpfade 9g): Enter übernimmt ein Feld, aber der Cursor verlässt es; wer mit der Tastatur weiterarbeitet, fängt oben im Fenster an (Tab übernimmt und springt weiter, das geht). Soll Enter den Cursor im Feld lassen, wie in Office? Berührt jeden Datumsfluss samt Meilenstein-Rückfrage. | Ja, als eigener Schritt mit Tests der Rückfrage | 9g oder danach |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte
@@ -164,6 +165,14 @@ Meilenstein wird unhaltbar.
 - **Eingangskanäle** (Mail, Drucksache/parldok-Import) als spätere Erweiterung.
 
 ### 5.2 Bekannte, bewusst akzeptierte Grenzen (Details PLAN.md §9)
+- **Tastatur (Befund 9g):** Wer ein Datum im Detailbereich ändert und das Feld mit
+  **Umschalt+Tab** verlässt, verliert den Fokus (vorwärts mit Tab geht es; ohne Änderung auch
+  rückwärts). Vermutlich die Fokusführung von egui nach dem Übernehmen. Noch nicht behoben,
+  der Klickpfad „Balken eine Woche später“ geht deshalb vorwärts.
+- **Tastaturpfade** (gemessen 9g, `crates/ui/src/tests/paths.rs`): Vorgang 9 Tasten, Projekt 5,
+  Aufgabe mit Frist 15, Heute 2, Balken eine Woche 24, Meilenstein 15, Karte erledigt 4,
+  Abhängigkeit 24. Über die Befehlspalette geht alles; Felder im Detailbereich erreicht man nur
+  mit Tab der Reihe nach (kein Sprung zwischen Bereichen wie F6 in Office).
 - **Datei:** Rollback einer verschlüsselten Datei auf eine ältere Fassung mit derselben
   Passphrase wird nicht erkannt; eine unverschlüsselte Datei kann bei vollständiger Neuberechnung
   von Kette und Zustand unbemerkt verändert werden (beides: Signatur in Phase 7).

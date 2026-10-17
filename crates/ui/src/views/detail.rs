@@ -81,6 +81,9 @@ pub fn panel(
                         .font(egui::TextStyle::Heading)
                         .desired_width(f32::INFINITY),
                 );
+                if std::mem::take(&mut state.focus_details) {
+                    title.request_focus();
+                }
                 if commit_field(&title) && draft.title.trim() != task.title {
                     out.push(update(id, "title", json!(draft.title.trim())));
                 }

@@ -162,7 +162,9 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   Klick daneben oder Esc schließt es wieder. Nur in sehr niedrigen Fenstern startet es
   eingeklappt. Rückgängig und Wiederholen stehen immer oben rechts.
 - **Befehlspalette:** ⌘K / Strg+K – tippen, was man tun will („Zeitplan“, „Erledigt“,
-  „Gehe zu …“). Jeder Treffer nennt seinen Platz im Menüband, z. B. „Start › Neu“.
+  „Gehe zu …“). Jeder Treffer nennt seinen Platz im Menüband, z. B. „Start › Neu“. Wer eine
+  Aufgabe beim Namen wählt, landet mit dem Cursor in ihrem Titel im Detailbereich; mit Tab geht
+  es von dort zu Terminen, „Wartet auf“ und den übrigen Feldern. Tab übernimmt ein Feld.
 - **Sprache und Darstellung:** Reiter **Ansicht** (Deutsch/English, hell/dunkel).
 - **Schützen:** Reiter **Datei → Mit Passphrase schützen** verschlüsselt die Datei. Ohne
   Passphrase ist der Inhalt dann nicht lesbar – sie lässt sich nicht wiederherstellen.
