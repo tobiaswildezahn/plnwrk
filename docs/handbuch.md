@@ -78,7 +78,10 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 - **Seitenleiste:** nach **Vorgängen** und **Projekten** getrennt. Ein Vorgang ist alles mit
   Aktenzeichen oder einer eigenen Art (z. B. „SKA“); ein Projekt hat die Art „Projekt“ oder
   keine. Beim Anlegen wählt man es oben im Dialog.
-- **Liste:** Aufgaben mit Unteraufgaben; Doppelklick auf einen Titel benennt um.
+- **Liste:** Aufgaben mit Unteraufgaben in Spalten (Frist, Zuständig, Status; in schmalen
+  Fenstern fallen sie von rechts weg). Doppelklick auf einen Titel benennt um. **+** für eine
+  Unteraufgabe erscheint an der Zeile unter dem Zeiger und an der gewählten Aufgabe. Eine neue
+  Aufgabe leuchtet kurz auf, damit man sie findet.
 - **Board:** Spalten Offen / In Arbeit / Blockiert / Prüfung / Erledigt über die ganze Breite
   (in schmalen Fenstern seitlich scrollen). Karten ziehen ändert den Status; eine Linie zeigt,
   wo die Karte landet. **+** an einer Spalte legt dort eine neue Aufgabe an (Enter).

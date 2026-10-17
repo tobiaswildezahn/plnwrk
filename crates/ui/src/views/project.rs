@@ -1,15 +1,24 @@
 //! One project or case: its head (fields, progress) and the tabs list, board and milestones.
 
 use egui::RichText;
-use plnwrk_core::{Classification, Project, ProjectId, ProjectStatus, Task, TaskStatus};
+use plnwrk_core::{Classification, Project, ProjectId, ProjectStatus, Task, TaskId, TaskStatus};
 use plnwrk_engine::query::{self, TaskIndex};
 use serde_json::json;
 
 use crate::design::Icon;
 use crate::doc::OpenDoc;
 use crate::state::{ProjectForm, State, Tab};
-use crate::views::{board, date, due_label, enter_field, icon_button, status_tag};
+use crate::views::{board, date, due_label, enter_field, icon_button};
 use crate::{Clear, Intent, Then, dates, text};
+
+/// The list's columns (Phase 9f): deadline, who, status; room for the "+"; the least the
+/// title keeps before columns give way; how long a new task is lit up.
+const LIST_DUE: f32 = 150.0;
+const LIST_WHO: f32 = 140.0;
+const LIST_STATUS: f32 = 100.0;
+const LIST_PLUS: f32 = 28.0;
+const LIST_TITLE_MIN: f32 = 200.0;
+const FRESH_SECONDS: f64 = 1.5;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -254,15 +263,82 @@ fn list(
         .into_iter()
         .filter(|t| t.parent.is_none())
         .collect();
+    // The columns right of the title (Phase 9f), and how many fit: from the right they give
+    // way before the title gets narrower than its least.
+    let room = ui.available_width();
+    let all_columns: [(&str, f32); 3] = [
+        (text::t().due, LIST_DUE),
+        (text::t().assignee, LIST_WHO),
+        (text::t().status, LIST_STATUS),
+    ];
+    let mut shown = all_columns.len();
+    while shown > 0
+        && room - all_columns.iter().take(shown).map(|(_, w)| w).sum::<f32>() - LIST_PLUS
+            < LIST_TITLE_MIN
+    {
+        shown -= 1;
+    }
+    let columns = all_columns.get(..shown).unwrap_or_default();
+    // The gaps between the parts of a row count too (tick, title, columns, "+").
+    let gaps = ui.spacing().item_spacing.x * (columns.len() as f32 + 2.0);
+    let title_width = room - columns.iter().map(|(_, w)| w).sum::<f32>() - LIST_PLUS - gaps - 8.0;
+    // A task made a moment ago is lit up for a second and a half (one repaint ends it; no
+    // animation that keeps the app busy).
+    let now_s = ui.input(|i| i.time);
+    let fresh_id = egui::Id::new("list-fresh");
+    let fresh = state.fresh.filter(|task| {
+        let since = match ui.data(|d| d.get_temp::<(TaskId, f64)>(fresh_id)) {
+            Some((seen, at)) if seen == *task => at,
+            _ => {
+                ui.data_mut(|d| d.insert_temp(fresh_id, (*task, now_s)));
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(FRESH_SECONDS));
+                now_s
+            }
+        };
+        now_s - since < FRESH_SECONDS
+    });
+    if state.fresh.is_some() && fresh.is_none() {
+        state.fresh = None;
+    }
     egui::ScrollArea::vertical().show(ui, |ui| {
         if roots.is_empty() {
             ui.weak(text::t().no_tasks);
+        } else {
+            // The headings of the columns, painted (as in the schedule's table): the fields of
+            // the details carry these names for the screen reader.
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(room, 18.0), egui::Sense::hover());
+            let small = egui::TextStyle::Small.resolve(ui.style());
+            let weak = ui.visuals().weak_text_color();
+            let mut x = rect.left() + 24.0;
+            for (said, width) in std::iter::once((text::t().ribbon.task, title_width - 24.0))
+                .chain(columns.iter().copied())
+            {
+                ui.painter().text(
+                    egui::pos2(x, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    said,
+                    small.clone(),
+                    weak,
+                );
+                x += width + ui.spacing().item_spacing.x;
+            }
+            ui.separator();
         }
         let mut stack: Vec<(&Task, usize)> = roots.iter().rev().map(|t| (*t, 0)).collect();
         while let Some((task, depth)) = stack.pop() {
             let overdue = query::task_overdue(Some(project), task, now);
             ui.horizontal(|ui| {
-                ui.add_space(depth as f32 * 20.0);
+                let top = ui.cursor().top();
+                let height = ui.spacing().interact_size.y;
+                let left = ui.max_rect().left();
+                // Lit up just after it was made.
+                if fresh == Some(task.id) {
+                    let row = egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(room, height));
+                    let p = crate::design::palette(ui);
+                    ui.painter()
+                        .rect_filled(row, egui::CornerRadius::same(4), p.accent_soft);
+                }
                 let mut done = task.status == TaskStatus::Done;
                 if ui
                     .checkbox(&mut done, "")
@@ -279,60 +355,106 @@ fn list(
                         json!({"task": task.id.to_string(), "status": status.name()}),
                     ));
                 }
+                let indent = depth as f32 * 20.0;
+                let title_room = (title_width - 24.0).max(LIST_TITLE_MIN);
                 let mut cancel = false;
-                if let Some((editing, text)) = &mut state.forms.inline
-                    && *editing == task.id
-                {
-                    // Renaming right in the list: Enter or leaving takes it, Escape drops it.
-                    let field = ui.add(
-                        egui::TextEdit::singleline(text)
-                            .id_salt(("inline", task.id))
-                            .desired_width(320.0),
-                    );
-                    if !field.has_focus() && !field.lost_focus() {
-                        field.request_focus();
-                    }
-                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        cancel = true;
-                    } else if field.lost_focus() {
-                        // Unchanged or emptied: like Escape.
-                        if text.trim() == task.title || text.trim().is_empty() {
-                            cancel = true;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(title_room, height),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(title_room);
+                        ui.add_space(indent);
+                        if let Some((editing, text)) = &mut state.forms.inline
+                            && *editing == task.id
+                        {
+                            // Renaming right in the list: Enter or leaving takes it, Escape
+                            // drops it.
+                            let field = ui.add(
+                                egui::TextEdit::singleline(text)
+                                    .id_salt(("inline", task.id))
+                                    .desired_width((title_room - indent - 16.0).max(120.0)),
+                            );
+                            if !field.has_focus() && !field.lost_focus() {
+                                field.request_focus();
+                            }
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                cancel = true;
+                            } else if field.lost_focus() {
+                                // Unchanged or emptied: like Escape.
+                                if text.trim() == task.title || text.trim().is_empty() {
+                                    cancel = true;
+                                } else {
+                                    out.push(Intent::Run {
+                                        command: "task.update",
+                                        params: json!({"task": task.id.to_string(), "title": text.trim()}),
+                                        then: Then::Nothing,
+                                        clear: Some(Clear::Inline),
+                                    });
+                                }
+                            }
                         } else {
-                            out.push(Intent::Run {
-                                command: "task.update",
-                                params: json!({"task": task.id.to_string(), "title": text.trim()}),
-                                then: Then::Nothing,
-                                clear: Some(Clear::Inline),
-                            });
+                            let title = if done {
+                                RichText::new(title_of(task)).strikethrough().weak()
+                            } else {
+                                RichText::new(title_of(task))
+                            };
+                            let label = ui
+                                .selectable_label(state.selected == Some(task.id), title)
+                                .on_hover_text(text::t().rename_hint);
+                            if label.double_clicked() {
+                                state.forms.inline = Some((task.id, task.title.clone()));
+                            } else if label.clicked() {
+                                out.push(Intent::Select(Some(task.id)));
+                            }
                         }
-                    }
-                } else {
-                    let title = if done {
-                        RichText::new(title_of(task)).strikethrough().weak()
-                    } else {
-                        RichText::new(title_of(task))
-                    };
-                    let label = ui
-                        .selectable_label(state.selected == Some(task.id), title)
-                        .on_hover_text(text::t().rename_hint);
-                    if label.double_clicked() {
-                        state.forms.inline = Some((task.id, task.title.clone()));
-                    } else if label.clicked() {
-                        out.push(Intent::Select(Some(task.id)));
-                    }
-                }
+                    },
+                );
                 if cancel {
                     state.forms.inline = None;
                 }
-                if let Some(person) = task.assignee.and_then(|id| ws.person(id)) {
-                    ui.label(RichText::new(&person.initials).small().weak())
-                        .on_hover_text(&person.name);
+                for (said, width) in columns {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(*width, height),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_min_width(*width);
+                            if *said == text::t().due {
+                                due_label(ui, task.due, task.due_time, overdue);
+                            } else if *said == text::t().assignee {
+                                if let Some(person) = task.assignee.and_then(|id| ws.person(id)) {
+                                    ui.label(RichText::new(&person.name).small());
+                                }
+                            } else if task.status != TaskStatus::Todo {
+                                ui.label(
+                                    RichText::new(text::task_status(task.status))
+                                        .small()
+                                        .weak(),
+                                );
+                            }
+                        },
+                    );
                 }
-                due_label(ui, task.due, task.due_time, overdue);
-                status_tag(ui, task.status);
-                if icon_button(ui, Icon::Plus, text::t().add_subtask).clicked() {
-                    state.forms.new_subtask = Some((task.id, String::new()));
+                // "+ Unteraufgabe" only where the pointer is, at the chosen task, or while it
+                // has the keyboard focus – so the list stays quiet (Phase 9f).
+                // The whole line of the row, however wide the window.
+                let row_rect = egui::Rect::from_min_max(
+                    egui::pos2(left, top),
+                    egui::pos2(f32::INFINITY, top + height),
+                );
+                let shows = ui.rect_contains_pointer(row_rect)
+                    || state.selected == Some(task.id)
+                    || ui.memory(|m| {
+                        m.focused()
+                            .is_some_and(|f| ui.data(|d| d.get_temp::<TaskId>(f.with("plus-of"))) == Some(task.id))
+                    });
+                if shows {
+                    let plus = icon_button(ui, Icon::Plus, text::t().add_subtask);
+                    ui.data_mut(|d| d.insert_temp(plus.id.with("plus-of"), task.id));
+                    if plus.clicked() {
+                        state.forms.new_subtask = Some((task.id, String::new()));
+                    }
+                } else {
+                    ui.add_space(LIST_PLUS);
                 }
             });
             let mut cancel = false;

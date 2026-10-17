@@ -986,6 +986,12 @@ impl PlnwrkApp {
                     form.owner = Some(*id);
                     form.new_person = None;
                 }
+                // Made from the list: lit up for a moment where it landed.
+                if matches!(clear, Some(Clear::NewTask | Clear::NewSubtask))
+                    && let Some(EntityKey::Task(id)) = outcome.created.first()
+                {
+                    self.state.fresh = Some(*id);
+                }
                 if let Some(clear) = clear {
                     self.state.clear(clear);
                 }

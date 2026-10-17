@@ -557,6 +557,8 @@ pub struct State {
     pub focus_new_task: bool,
     /// The field of a new board card takes the focus in the next frame ("+" was chosen).
     pub focus_board_new: bool,
+    /// A task just made from the list, lit up briefly so the eye finds it (Phase 9f).
+    pub fresh: Option<TaskId>,
     /// Files are uploaded and downloaded (the browser).
     pub browser: bool,
     /// Browser: recovery copies in the browser's storage (key and file), newest first.

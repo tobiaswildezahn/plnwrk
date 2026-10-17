@@ -12,7 +12,7 @@ mod ribbon;
 pub(crate) mod schedule;
 
 use egui::{Key, RichText};
-use plnwrk_core::{Classification, TaskStatus};
+use plnwrk_core::Classification;
 use plnwrk_engine::query;
 
 use crate::design::Icon;
@@ -447,13 +447,6 @@ fn due_label(
     }
 }
 
-/// A short status tag for tasks that are neither open nor done.
-fn status_tag(ui: &mut egui::Ui, status: TaskStatus) {
-    if !matches!(status, TaskStatus::Todo | TaskStatus::Done) {
-        ui.label(RichText::new(text::task_status(status)).small().weak());
-    }
-}
-
 /// A button showing only a symbol, with a spoken name for screen readers (and as tooltip).
 pub use crate::design::widgets::icon_button;
 
@@ -465,8 +458,10 @@ fn commit_field(response: &egui::Response) -> bool {
 /// A single-line input that commits on Enter only (and keeps the focus for the next entry).
 /// `focus`: it takes the cursor now.
 fn enter_field(ui: &mut egui::Ui, value: &mut String, hint: &str, width: f32, focus: bool) -> bool {
+    // A fixed id: rows or headings appearing above must not take its focus away.
     let response = ui.add(
         egui::TextEdit::singleline(value)
+            .id_salt(("enter-field", hint))
             .hint_text(hint)
             .desired_width(width),
     );

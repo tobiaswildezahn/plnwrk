@@ -164,12 +164,7 @@ fn tasks_subtasks_and_milestones_are_added_in_the_project() {
     let parent = task_named(harness.state(), "Lage vorbereiten").unwrap();
     assert!(task_named(harness.state(), "Einladung").is_some());
 
-    harness
-        .get_all_by_label(text::t().add_subtask)
-        .next()
-        .unwrap()
-        .click();
-    harness.run();
+    add_subtask_to(&mut harness, "Lage vorbereiten");
     type_into(
         &mut harness,
         text::t().new_subtask_hint,
@@ -1211,12 +1206,7 @@ fn a_task_becomes_a_milestone_but_not_a_subtask() {
     let mut harness = with_project("Umzug");
     type_into(&mut harness, text::t().new_task_hint, "Übergabe", true);
     type_into(&mut harness, text::t().new_task_hint, "Packen", true);
-    harness
-        .get_all_by_label(text::t().add_subtask)
-        .last()
-        .unwrap()
-        .click();
-    harness.run();
+    add_subtask_to(&mut harness, "Packen");
     type_into(&mut harness, text::t().new_subtask_hint, "Kartons", true);
     click(&mut harness, "Übergabe");
     harness
@@ -7573,4 +7563,169 @@ fn overview_cards_wrap_into_rows() {
         .unwrap();
     assert!(second.top() > first.bottom(), "{first:?} {second:?}");
     assert!(second.right() <= 900.0);
+}
+
+/// "+ Unteraufgabe" of a task in the list: shown where the pointer is (Phase 9f), so the
+/// pointer goes to its row first.
+fn add_subtask_to(harness: &mut Harness<'_, PlnwrkApp>, title: &str) {
+    let row = harness.get_by_label(title).rect().center();
+    harness.hover_at(row);
+    // A tooltip fades in there: a few frames, not "until still".
+    harness.run_steps(3);
+    harness.get_by_label(text::t().add_subtask).click();
+    harness.run_steps(3);
+}
+
+/// The filled rectangles the last frame painted (colour and where) – for highlights.
+fn painted_fills(harness: &Harness<'_, PlnwrkApp>) -> Vec<(egui::Color32, egui::Rect)> {
+    fn fills_in(shape: &egui::Shape, out: &mut Vec<(egui::Color32, egui::Rect)>) {
+        match shape {
+            egui::Shape::Rect(rect) if rect.fill != egui::Color32::TRANSPARENT => {
+                out.push((rect.fill, rect.rect));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    fills_in(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for clipped in &harness.output().shapes {
+        fills_in(&clipped.shape, &mut out);
+    }
+    out
+}
+
+/// A project with "Packen" (in progress, Anna Berg) and "Laden" (open), in the list.
+fn list_with_columns() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Umzug");
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "person.create",
+        serde_json::json!({"name": "Anna Berg"}),
+    ));
+    harness.run();
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .next()
+        .unwrap()
+        .id
+        .to_string();
+    for (title, extra) in [
+        (
+            "Packen",
+            serde_json::json!({"status": "in_progress", "assignee": anna}),
+        ),
+        ("Laden", serde_json::json!({})),
+    ] {
+        let mut params = serde_json::json!({"project": project, "title": title});
+        if let (Some(p), Some(e)) = (params.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("task.create", params));
+    }
+    harness.run();
+    harness
+}
+
+/// Phase 9f: the list has columns with headings – deadline, who, status – that give way from
+/// the right in a narrow window; the values stand in them.
+#[test]
+fn the_list_has_columns_with_headings() {
+    let mut harness = list_with_columns();
+    let painted = |h: &Harness<'_, PlnwrkApp>| {
+        painted_texts(h)
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect::<Vec<_>>()
+    };
+    let headings = [
+        text::t().ribbon.task,
+        text::t().due,
+        text::t().assignee,
+        text::t().status,
+    ];
+    let now = painted(&harness);
+    for heading in headings {
+        assert!(now.iter().any(|t| t == heading), "{heading}: {now:?}");
+    }
+    // The values: the person's full name, a status other than "Offen".
+    assert!(harness.query_by_label("Anna Berg").is_some());
+    assert!(
+        harness
+            .query_by_label(text::task_status(TaskStatus::InProgress))
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_by_label(text::task_status(TaskStatus::Todo))
+            .is_none(),
+        "„Offen“ goes without saying"
+    );
+    // Narrow: the status gives way first; the title stays.
+    harness.set_size(egui::vec2(760.0, 900.0));
+    harness.run();
+    let narrow = painted(&harness);
+    assert!(!narrow.iter().any(|t| t == text::t().status), "{narrow:?}");
+    assert!(narrow.iter().any(|t| t == "Packen"));
+}
+
+/// Phase 9f: "+ Unteraufgabe" shows where the pointer is and at the chosen task – not on
+/// every row.
+#[test]
+fn add_subtask_shows_only_at_the_row_in_question() {
+    let mut harness = list_with_columns();
+    // The pointer away from the list.
+    harness.hover_at(egui::pos2(5.0, 5.0));
+    harness.run_steps(3);
+    assert_eq!(harness.query_all_by_label(text::t().add_subtask).count(), 0);
+    let row = harness.get_by_label("Laden").rect().center();
+    harness.hover_at(row);
+    harness.run_steps(3);
+    assert_eq!(harness.query_all_by_label(text::t().add_subtask).count(), 1);
+    harness.hover_at(egui::pos2(5.0, 5.0));
+    let packen = task_named(harness.state(), "Packen").unwrap().id;
+    harness
+        .state_mut()
+        .apply(crate::Intent::Select(Some(packen)));
+    harness.run_steps(3);
+    assert_eq!(
+        harness.query_all_by_label(text::t().add_subtask).count(),
+        1,
+        "at the chosen one"
+    );
+}
+
+/// Phase 9f: a task just made from the list is lit up – that one only – and not for long.
+#[test]
+fn a_new_task_is_lit_up_for_a_moment() {
+    let mut harness = list_with_columns();
+    type_into(&mut harness, text::t().new_task_hint, "Fahren", true);
+    let fahren = task_named(harness.state(), "Fahren").unwrap().id;
+    assert_eq!(harness.state().state.fresh, Some(fahren));
+    let lit = |h: &Harness<'_, PlnwrkApp>, title: &str| {
+        let soft = [
+            crate::design::tokens::of(false).accent_soft,
+            crate::design::tokens::of(true).accent_soft,
+        ];
+        let row = h.get_by_label(title).rect();
+        painted_fills(h)
+            .iter()
+            .any(|(c, r)| soft.contains(c) && r.contains(row.center()))
+    };
+    assert!(lit(&harness, "Fahren"));
+    assert!(!lit(&harness, "Laden"), "only the new one");
+    // Two seconds later (60 frames a second): no longer.
+    harness.run_steps(120);
+    assert!(!lit(&harness, "Fahren"));
+    assert_eq!(harness.state().state.fresh, None);
 }
