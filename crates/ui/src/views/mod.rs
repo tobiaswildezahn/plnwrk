@@ -182,20 +182,75 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
             text::t().version,
             env!("CARGO_PKG_VERSION")
         ));
-        if state.browser {
-            ui.add_space(8.0);
-            ui.label(RichText::new(text::t().browser_not_vs).strong())
-                .on_hover_text(text::t().browser_not_vs_hint);
-            ui.weak(text::t().browser_not_vs_hint);
+        // Two ways in, each said in a sentence (Phase 9f); the browser's limits stand in the
+        // footer.
+        ui.add_space(24.0);
+        let card_width = 260.0;
+        let gap = 16.0;
+        let row = egui::vec2(2.0 * card_width + gap, 0.0);
+        ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for (icon, kind, label, sentence, action) in [
+                (
+                    Icon::Case,
+                    Kind::Primary,
+                    text::t().new_file,
+                    text::t().new_file_explained,
+                    FileAction::New,
+                ),
+                (
+                    Icon::Overview,
+                    Kind::Secondary,
+                    text::t().open_sample,
+                    text::t().sample_explained,
+                    FileAction::Sample,
+                ),
+            ] {
+                design::widgets::card(ui, |ui| {
+                    ui.set_width(card_width - 24.0);
+                    ui.vertical(|ui| {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+                        icon.paint(ui.painter(), rect, design::palette(ui).accent);
+                        ui.add_space(4.0);
+                        // The same room in both cards, so their buttons line up.
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(card_width - 24.0, 72.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_min_height(72.0);
+                                ui.label(sentence);
+                            },
+                        );
+                        ui.add_space(8.0);
+                        if design::widgets::wide_button(ui, kind, label, card_width - 24.0)
+                            .clicked()
+                        {
+                            out.push(Intent::File(action));
+                        }
+                    });
+                });
+            }
+        });
+        ui.add_space(8.0);
+        if design::widgets::button(ui, Kind::Quiet, text::t().open_file).clicked() {
+            out.push(Intent::File(FileAction::Open));
         }
-        ui.add_space(16.0);
-        for (kind, label, action) in [
-            (Kind::Primary, text::t().new_file, FileAction::New),
-            (Kind::Secondary, text::t().open_file, FileAction::Open),
-            (Kind::Secondary, text::t().open_sample, FileAction::Sample),
-        ] {
-            if design::widgets::wide_button(ui, kind, label, 220.0).clicked() {
-                out.push(Intent::File(action));
+        if !state.recent.is_empty() {
+            ui.add_space(16.0);
+            ui.strong(text::t().recent);
+            for path in &state.recent {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                if ui
+                    .link(name)
+                    .on_hover_text(path.display().to_string())
+                    .clicked()
+                {
+                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
+                }
             }
         }
         if !state.stored_copies.is_empty() {
@@ -242,23 +297,6 @@ fn start(ui: &mut egui::Ui, state: &State, out: &mut Vec<Intent>) {
                 }
                 if delete {
                     out.push(Intent::Open(Dialog::DeleteCopy(path.clone())));
-                }
-            }
-        }
-        if !state.recent.is_empty() {
-            ui.add_space(16.0);
-            ui.strong(text::t().recent);
-            for path in &state.recent {
-                let name = path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |n| n.to_string_lossy().into_owned(),
-                );
-                if ui
-                    .link(name)
-                    .on_hover_text(path.display().to_string())
-                    .clicked()
-                {
-                    out.push(Intent::File(FileAction::OpenPath(path.clone())));
                 }
             }
         }

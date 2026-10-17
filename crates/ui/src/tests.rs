@@ -7388,3 +7388,27 @@ fn a_case_without_a_reference_offers_a_time_at_its_deadlines() {
     click(&mut harness, text::t().change_date);
     assert_eq!(times(&harness), before + 1);
 }
+
+/// Phase 9f: the start page offers two ways in, each said in a sentence, with buttons side by
+/// side and level; in the browser its limits stand in the footer only, not in the page.
+#[test]
+fn the_start_page_offers_two_ways_in_said_in_a_sentence() {
+    let (harness, _browser) = in_browser();
+    for sentence in [text::t().new_file_explained, text::t().sample_explained] {
+        assert!(harness.query_by_label(sentence).is_some(), "{sentence}");
+    }
+    let new = harness.get_by_label(text::t().new_file).rect();
+    let sample = harness.get_by_label(text::t().open_sample).rect();
+    assert!(sample.left() > new.right(), "side by side");
+    assert!((new.top() - sample.top()).abs() < 1.0, "level: {new:?} {sample:?}");
+    // The browser's limits: in the footer, said once – not in the page as well.
+    assert_eq!(
+        harness.query_all_by_label(text::t().browser_not_vs).count(),
+        1
+    );
+    assert!(
+        harness
+            .query_by_label(text::t().browser_not_vs_hint)
+            .is_none()
+    );
+}
