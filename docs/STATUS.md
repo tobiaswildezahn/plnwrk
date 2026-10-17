@@ -2,7 +2,7 @@
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17 abends:
 > plnwrk 0.1.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); **Phase 9
-> (Gestaltung) läuft:** 9a–9e gemergt, 9f geprüft und wartet auf den Merge (PR #21), dann 9g.
+> (Gestaltung) läuft:** 9a–9f gemergt (#16–#21), 9g begonnen.
 > 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
@@ -27,7 +27,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6a+ (jeder Tag zählt, `move_task`, sprechende Antworten) **fertig**; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10), [#11](https://github.com/tobiaswildezahn/plnwrk/pull/11) |
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0), Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
-| 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board **fertig**, je Review + Nachreview; **9f** (Dialoge, Start, Übersicht, Liste, Details, Leerzustände) **fertig geprüft, wartet auf Merge**; 9g offen | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#20](https://github.com/tobiaswildezahn/plnwrk/pull/20), [#21](https://github.com/tobiaswildezahn/plnwrk/pull/21) offen |
+| 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board, 9f Dialoge/Start/Übersicht/Liste/Details/Leerzustände **fertig**, je Review + Nachreview; **9g läuft** | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#21](https://github.com/tobiaswildezahn/plnwrk/pull/21) |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
@@ -35,7 +35,7 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub öffentlich (seit 2026-10-15) `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–8 und 9a–9e (Stand `40968aa`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–8 und 9a–9f (Stand `4400e9b`). Neue Phase immer auf eigenem Branch (`phase-…`).
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
@@ -77,12 +77,13 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
-   **9a–9e gemergt** (#16–#20). **9f fertig geprüft** (PR #21, Review + Nachreview eingearbeitet:
-   Anlegen-Dialog Vorgang | Projekt mit einer Regel `Project::is_case`, Startseite, Übersicht
-   „Heute und überfällig“ mit Ampeln, Liste mit Spalten, Detailbereich in Gruppen, Leerzustände,
-   Meldungsleiste, angeheftete Datumsleiste) – **Merge auf Tobis „ja, merge“** bei grüner CI.
-   Danach **9g**: Klickpfade, Wiederholungstest mit dem Sachbearbeiter, Übersicht-Block
-   „Überholte Meilensteine“, Version 0.2.0. Vor 9g zu entscheiden: 4.14–4.17.
+   **9a–9f gemergt** (#16–#21; 9f: Anlegen-Dialog Vorgang | Projekt mit einer Regel
+   `Project::is_case`, Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten,
+   Detailbereich in Gruppen, Leerzustände, Meldungsleiste, angeheftete Datumsleiste).
+   **9g läuft** (Branch `phase-9g`): (1) Meldung mit Ursprung (4.16), (2) Klickpfade, jeder auch
+   nur mit Tastatur (4.17), (3) Übersicht-Block „Überholte Meilensteine“, (4) Durchgang von Hand,
+   (5) Wiederholungstest mit dem Sachbearbeiter (dabei 4.14 und 4.15), (6) Version 0.2.0 –
+   veröffentlicht erst auf Tobis „veröffentlichen“.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der
@@ -141,10 +142,10 @@ Meilenstein wird unhaltbar.
 | 4.10 | ~~Wer testet außer Tobi~~ **erledigt (2026-10-17):** Tobis Sachbearbeiter; Befunde → Phase 9 |
 | 4.12 | ~~Erledigte Aufgaben im Zeitplan~~ **entschieden (Tobi, 2026-10-14):** fest wie Meilensteine, nicht kritisch, keine Warnungen über sie | – | umgesetzt |
 | 4.13 | **Fristen auf Wochenende/Feiertag**: Seit „jeder Tag zählt“ setzen Schub und `move_task` Termine auch auf Samstag/Sonntag. Für Einsatzvorhaben richtig, für Verwaltungsfristen (SKA, Senatskanzlei) evtl. falsch. Nur Hinweis anzeigen, Kalender je Projekt wählbar machen (Hamburg-Kalender liegt bereit) oder so lassen? | Erst im Realitätstest beobachten | nach 4.10 |
-| 4.14 | **Ziehen nach „Erledigt“ bei offenen Vorgängern** (9e): Heute sagt plnwrk das beim Ziehen, hält aber nicht auf. Reicht der weiche Hinweis, oder soll eine kurze Rückfrage kommen (wie bei offenen Unteraufgaben)? | Weich lassen, im Wiederholungstest beobachten | vor 9g |
-| 4.15 | **Eingabefelder „flach“?** (Befund des Realitätstests) Die Felder folgen den Tokens (Rahmen, Fläche, Radius); ob sie am echten Bildschirm zu flach wirken, ist Tobis Urteil. | Am echten Bildschirm ansehen, dann ggf. Rahmen/Höhe nachschärfen | Wiederholungstest |
-| 4.16 | **Meldungen an ihren Ursprung binden** (Vorschlag aus den Reviews 9d–9f): Die meisten Funde betrafen, wo eine Meldung steht und wie lange sie gilt. Heute ist sie ein globales Feld, das jeder Weg richtig leeren muss. Meldung mit Ursprung (Dialog, Ansicht, Feld) macht „eine Meldung, ein Ort“ zur Regel im Code. | Als Umbau zu Beginn von 9g, vor den Klickpfaden | vor 9g |
-| 4.17 | **Klickpfade auch nur mit Tastatur** (Vorschlag für 9g): In 9f lagen die meisten Fehler bei Enter, Escape und Fokus. Jeder Klickpfad zusätzlich als reine Tastatur-Variante prüft das Anti-Ziel „Bedienung nur noch mit der Maus“ maschinell. | Ja, als eigene Test-Variante je Pfad | vor 9g |
+| 4.14 | ~~Ziehen nach „Erledigt“ bei offenen Vorgängern~~ **entschieden (Tobi, 2026-10-17):** weicher Hinweis bleibt, im Wiederholungstest beobachten | – | Wiederholungstest |
+| 4.15 | ~~Eingabefelder „flach“?~~ **entschieden (Tobi, 2026-10-17):** Tobi urteilt am echten Bildschirm im Wiederholungstest, danach ggf. Rahmen/Höhe nachschärfen | – | Wiederholungstest |
+| 4.16 | ~~Meldungen an ihren Ursprung binden~~ **entschieden (Tobi, 2026-10-17):** ja, als erster Schritt von 9g, vor den Klickpfaden | – | 9g, Schritt 1 |
+| 4.17 | ~~Klickpfade auch nur mit Tastatur~~ **entschieden (Tobi, 2026-10-17):** ja, eigene Tastatur-Variante je Pfad | – | 9g |
 | 4.11 | **Fristen ohne Zeitzone**: „14:00“ gilt immer als Ortszeit des Geräts. Für Hamburg richtig; relevant bei Bund/EU-Bezug oder Arbeiten im Ausland? | So lassen, bis ein Fall auftritt | bei Bedarf |
 
 ## 5. Offene technische Punkte

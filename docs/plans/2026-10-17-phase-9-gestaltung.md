@@ -445,9 +445,9 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
      (`query`), damit Claude sie morgens nennen kann;
    - leer: der Block erscheint nicht.
 
-6. **Vorschläge für 9g (offen, Tobi entscheidet – STATUS 4.16, 4.17):**
+6. **Für 9g entschieden (Tobi, 2026-10-17 – STATUS 4.16, 4.17):**
    - **Meldung mit Ursprung:** Meldungen kennen Dialog, Ansicht oder Feld, aus dem sie kommen,
-     statt ein globales Feld zu sein, das jeder Weg leeren muss – als Umbau zu Beginn von 9g,
+     statt ein globales Feld zu sein, das jeder Weg leeren muss – als **erster Schritt von 9g**,
      bevor die Klickpfade festgeschrieben werden.
    - **Klickpfade auch nur mit Tastatur:** jeder Pfad aus Punkt 1 zusätzlich ohne Maus
      (Tab, Enter, Escape, Pfeiltasten) – in 9f lagen die meisten Fehler genau dort.
