@@ -73,10 +73,18 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
 
 - **Übersicht:** alle Projekte und Vorgänge mit Fortschritt; darunter alles Überfällige.
 - **Liste:** Aufgaben mit Unteraufgaben; Doppelklick auf einen Titel benennt um.
-- **Board:** Spalten Offen / In Arbeit / Blockiert / Prüfung / Erledigt. Karten ziehen ändert
-  den Status. Unteraufgaben stehen in der Karte und werden dort abgehakt. Zieht man eine Karte
-  nach „Erledigt“, während noch Unteraufgaben offen sind, fragt plnwrk, ob sie mit erledigt
-  werden sollen.
+- **Board:** Spalten Offen / In Arbeit / Blockiert / Prüfung / Erledigt über die ganze Breite
+  (in schmalen Fenstern seitlich scrollen). Karten ziehen ändert den Status; eine Linie zeigt,
+  wo die Karte landet. **+** an einer Spalte legt dort eine neue Aufgabe an (Enter).
+  - **Karte:** Titel (höchstens zwei Zeilen), Frist als farbiges Kärtchen mit Worten
+    („seit 3 Tagen überfällig“, „heute fällig“, „in 2 Tagen“, sonst das Datum), Kreis mit dem
+    Kürzel der zuständigen Person, Fahne bei hoher Priorität, Fortschritt der Unteraufgaben.
+    Die Unteraufgaben lassen sich mit dem Pfeil einklappen und werden in der Karte abgehakt.
+  - **Filter oben:** Zuständig, nur Überfälliges, Suche im Titel; die Spalten nennen dann
+    „2 von 5“. **Filter aufheben** zeigt wieder alles.
+  - Zieht man eine Karte nach „Erledigt“, die noch auf offene Aufgaben wartet, sagt plnwrk das
+    beim Ziehen (es verhindert es nicht). Sind noch Unteraufgaben offen, fragt plnwrk, ob sie
+    mit erledigt werden sollen; Meilensteine fragen nach wie überall.
 - **Meilensteine:** die festen Termine (♦) eines Projekts.
   - **Oben ein Zeitstrahl** mit allen Meilensteinen, Heute und der Projektfrist. Eine Raute
     anklicken wählt den Meilenstein, ziehen gibt ihm einen anderen Termin.

@@ -202,8 +202,8 @@ fn column_ui(
             field.request_focus();
             ui.data_mut(|d| d.insert_temp(fresh, true));
         }
+        // Enter creates; leaving the field otherwise (Escape, a click elsewhere) drops it.
         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        let escaped = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if entered && !title.trim().is_empty() {
             out.push(Intent::Run {
                 command: "task.create",
@@ -212,7 +212,7 @@ fn column_ui(
                 then: Then::Nothing,
                 clear: Some(Clear::BoardNew),
             });
-        } else if escaped || (field.lost_focus() && !entered) {
+        } else if field.lost_focus() && !entered {
             state.forms.board_new = None;
         }
         if state.forms.board_new.is_none() {
@@ -226,9 +226,18 @@ fn column_ui(
         .map(|id| open_before(ws, id))
         .unwrap_or(0);
     let mut rects = Vec::new();
-    let frame = egui::Frame::default().inner_margin(4.0);
-    let (zone, dropped) = ui.dnd_drop_zone::<TaskId, ()>(frame, |ui| {
-        ui.set_min_size(vec2(width - 8.0, 160.0));
+    // The column: a quiet surface (not egui's drop zone, whose frame it would replace with a
+    // grey box); framed in the accent while a card is held over it.
+    let p = palette(ui);
+    let frame = egui::Frame::new()
+        .fill(p.shade)
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::same(4));
+    // Down to the bottom of what is in view, so a card can be dropped anywhere below the
+    // last one – also into a short column beside a long one.
+    let reach = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(160.0);
+    let zone = frame.show(ui, |ui| {
+        ui.set_min_size(vec2(width - 8.0, reach));
         if waiting > 0 && ui.rect_contains_pointer(ui.max_rect()) {
             widgets::field_error(ui, &text::still_waits_for(waiting));
         }
@@ -274,9 +283,19 @@ fn column_ui(
             rects.push((card.id, response.rect));
         }
     });
+    let over = dragged.is_some() && zone.response.contains_pointer();
+    if over {
+        ui.painter().rect_stroke(
+            zone.response.rect,
+            egui::CornerRadius::same(8),
+            Stroke::new(2.0, p.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let dropped = zone.response.dnd_release_payload::<TaskId>();
     // Where a dragged card would land: a line in the gap (the same index as the drop).
     if let Some(task) = dragged
-        && zone.response.contains_pointer()
+        && over
         && let Some(y) = ui.ctx().pointer_interact_pos().map(|p| p.y)
     {
         let others: Vec<egui::Rect> = rects
@@ -297,7 +316,7 @@ fn column_ui(
         ui.painter().hline(
             x.min + 4.0..=x.max - 4.0,
             line_y,
-            Stroke::new(2.0, palette(ui).accent),
+            Stroke::new(2.0, p.accent),
         );
     }
     if let Some(task) = dropped {
@@ -505,32 +524,34 @@ fn card_ui(
         .inner
 }
 
-/// The deadline as a chip coloured by how it stands – overdue, today, soon, later – and saying
-/// it in words too. Done work and projects where deadlines do not count: the date, plain.
+/// The deadline as a chip coloured by how it stands, saying it in words too.
 fn due_chip(ui: &mut egui::Ui, card: &TaskCard, now: DateTime, counts: bool) {
-    let Some(due) = card.due else {
-        return;
-    };
-    let date = dates::format_deadline(due, card.due_time);
+    if let Some((tone, said)) = due_look(card, now, counts) {
+        let date = card
+            .due
+            .map(|due| dates::format_deadline(due, card.due_time))
+            .unwrap_or_default();
+        widgets::chip(ui, tone, &said).on_hover_text(date);
+    }
+}
+
+/// How a card's deadline looks: overdue, today, soon, later – in colour and words. Done work
+/// and projects where deadlines do not count: the date, plain.
+fn due_look(card: &TaskCard, now: DateTime, counts: bool) -> Option<(Tone, String)> {
+    let due = card.due?;
     let days = days_until(now.date(), due);
-    let (tone, said) = if !counts || card.status == TaskStatus::Done {
-        (Tone::Neutral, date.clone())
+    let state = || text::deadline_state(due, card.due_time, now).0;
+    Some(if !counts || card.status == TaskStatus::Done {
+        (Tone::Neutral, dates::format_deadline(due, card.due_time))
     } else if card.overdue {
-        (
-            Tone::Danger,
-            text::deadline_state(due, card.due_time, now).0,
-        )
+        (Tone::Danger, state())
     } else if days == 0 {
-        (
-            Tone::Warning,
-            text::deadline_state(due, card.due_time, now).0,
-        )
+        (Tone::Warning, state())
     } else if days <= SOON_DAYS {
-        (Tone::Info, text::deadline_state(due, card.due_time, now).0)
+        (Tone::Info, state())
     } else {
         (Tone::Neutral, dates::format_short(due))
-    };
-    widgets::chip(ui, tone, &said).on_hover_text(date);
+    })
 }
 
 fn days_until(today: Date, due: Date) -> i64 {
@@ -575,6 +596,65 @@ mod tests {
 
     fn ids(n: u128) -> Vec<TaskId> {
         (1..=n).map(|i| TaskId::from(ulid::Ulid(i))).collect()
+    }
+
+    fn card(due: &str, status: TaskStatus, overdue: bool) -> TaskCard {
+        TaskCard {
+            id: ids(1)[0],
+            project: plnwrk_core::ProjectId::from_ulid(ulid::Ulid(9)),
+            parent: None,
+            title: "Karte".to_owned(),
+            status,
+            priority: Priority::Normal,
+            assignee: None,
+            due: Some(due.parse().unwrap()),
+            due_time: None,
+            milestone: false,
+            overdue,
+            progress: 0,
+            tags: Vec::new(),
+            subtasks: 0,
+            subtasks_done: 0,
+            classification: plnwrk_core::Classification::default(),
+        }
+    }
+
+    /// The colour of a deadline (the words are checked on the board): overdue red, today
+    /// amber, up to 3 days blue, later and done plain; where deadlines do not count, plain.
+    #[test]
+    fn a_deadline_is_coloured_by_how_it_stands() {
+        let now: DateTime = "2026-10-17T09:00".parse().unwrap();
+        let tone = |due: &str, status, overdue, counts| {
+            due_look(&card(due, status, overdue), now, counts).map(|(tone, _)| tone)
+        };
+        let open = TaskStatus::Todo;
+        assert_eq!(tone("2026-10-14", open, true, true), Some(Tone::Danger));
+        assert_eq!(tone("2026-10-17", open, false, true), Some(Tone::Warning));
+        assert_eq!(tone("2026-10-20", open, false, true), Some(Tone::Info));
+        assert_eq!(tone("2026-10-21", open, false, true), Some(Tone::Neutral));
+        assert_eq!(
+            tone("2026-10-14", TaskStatus::Done, false, true),
+            Some(Tone::Neutral)
+        );
+        assert_eq!(tone("2026-10-17", open, false, false), Some(Tone::Neutral));
+    }
+
+    fn rect(top: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(0.0, top), egui::vec2(100.0, 40.0))
+    }
+
+    /// Where a dropped card lands: the cards above the pointer, not counting itself (the line
+    /// while dragging uses the same rule).
+    #[test]
+    fn a_card_lands_below_the_cards_above_the_pointer() {
+        let all = ids(3);
+        let [a, b, c] = all[..] else { panic!() };
+        let rects = [(a, rect(0.0)), (b, rect(50.0)), (c, rect(100.0))];
+        assert_eq!(drop_index(&rects, c, -5.0), 0);
+        assert_eq!(drop_index(&rects, c, 30.0), 1);
+        assert_eq!(drop_index(&rects, c, 200.0), 2, "itself not counted");
+        assert_eq!(drop_index(&rects, a, 200.0), 2);
+        assert_eq!(drop_index(&rects, a, 75.0), 1, "b above, a itself not");
     }
 
     #[test]

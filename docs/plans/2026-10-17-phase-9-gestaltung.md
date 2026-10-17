@@ -306,6 +306,17 @@ Wächtertest wie beim Text prüft das: keine `Color32::from_rgb` außerhalb `des
 - **Filter oben:** Zuständig, nur Überfälliges, Suche im Titel.
 - **Spaltengrenzen** (optional je Spalte, nur Warnfarbe): **aufgeschoben** auf nach den
   Wiederholungstest.
+- **Review-Fokus 9e** (Lehre aus 9d: die Fehler lagen an den Übergängen, nicht in den Regeln):
+  - Ziehen, während ein Dialog offen ist (Meilenstein-Frage, Unteraufgaben-Frage);
+  - Ziehen und Ablegen bei aktivem Filter (Platz zwischen sichtbaren Karten; verdeckte
+    behalten ihre Reihenfolge);
+  - Klick, Haken, Einklapp-Pfeil und Ziehen auf derselben Karte (wer bekommt den Zeiger, auch
+    mit Tastatur);
+  - „+“ einer Spalte: halb getippter Titel beim Wechsel von Ansicht/Projekt, Rückgängig,
+    Speichern/Schließen (Wächtertest der Eingabefelder);
+  - mehrere Rückfragen hintereinander (offene Unteraufgaben, dann Meilenstein; Hinweis auf
+    offene Vorgänger);
+  - schmales Fenster: seitlich scrollen, eine Spalte nur teilweise zu sehen, Ablegen dort.
 
 ### 7.3 Meilensteine (Phase 9d)
 

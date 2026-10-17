@@ -6379,3 +6379,271 @@ fn a_date_typed_on_a_milestone_card_counts_as_unsaved() {
     type_into(&mut harness, text::t().milestone_date, "20.12.2026", false);
     assert!(harness.state().has_unsaved_changes());
 }
+
+/// A board for Phase 9e: Anna Berg; cards due today, in 2, 3, 4 and 20 days, 3 days ago (Anna,
+/// high priority), 5 days ago but done; one with a very long title; "Nachher" waiting for
+/// "Vorher". Shown in the tab Board.
+fn board_9e() -> Harness<'static, PlnwrkApp> {
+    let mut harness = with_project("Wache");
+    // Room for all five columns side by side.
+    harness.set_size(egui::vec2(1800.0, 900.0));
+    let project = projects(harness.state()).first().unwrap().id.to_string();
+    harness.state_mut().apply(crate::Intent::run(
+        "person.create",
+        serde_json::json!({"name": "Anna Berg"}),
+    ));
+    harness.run();
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .next()
+        .unwrap()
+        .id
+        .to_string();
+    let long = "Sehr lange Aufgabe mit einem Titel, der auf einer schmalen Karte nicht in zwei Zeilen passt, weil er so viele Wörter hat";
+    let cards = [
+        ("Heute", Some(0), serde_json::json!({})),
+        ("Bald", Some(2), serde_json::json!({})),
+        ("Grenze", Some(3), serde_json::json!({})),
+        ("Dahinter", Some(4), serde_json::json!({})),
+        ("Später", Some(20), serde_json::json!({})),
+        (
+            "Alt",
+            Some(-3),
+            serde_json::json!({"assignee": anna, "priority": "high"}),
+        ),
+        (
+            "Erledigt alt",
+            Some(-5),
+            serde_json::json!({"status": "done"}),
+        ),
+        (long, None, serde_json::json!({})),
+        ("Vorher", None, serde_json::json!({})),
+        ("Nachher", None, serde_json::json!({})),
+    ];
+    for (title, days, extra) in cards {
+        let mut params = serde_json::json!({"project": project, "title": title});
+        if let Some(days) = days {
+            params["due"] = serde_json::json!(day_from_today(&harness, days));
+        }
+        if let (Some(params), Some(extra)) = (params.as_object_mut(), extra.as_object()) {
+            params.extend(extra.clone());
+        }
+        harness
+            .state_mut()
+            .apply(crate::Intent::run("task.create", params));
+    }
+    harness.run();
+    let vorher = task_named(harness.state(), "Vorher").unwrap().id;
+    let nachher = task_named(harness.state(), "Nachher").unwrap().id;
+    harness.state_mut().apply(crate::Intent::run(
+        "dependency.add",
+        serde_json::json!({"from": vorher.to_string(), "to": nachher.to_string()}),
+    ));
+    harness.run();
+    click(&mut harness, text::t().board);
+    harness
+}
+
+/// The heading of a board column ("Offen (7)"): a plain label, so its text is the value; the
+/// first of the nodes that carry it.
+fn column_heading_node<'a>(
+    harness: &'a Harness<'_, PlnwrkApp>,
+    status: TaskStatus,
+) -> egui_kittest::Node<'a> {
+    let start = format!("{} (", text::task_status(status));
+    harness
+        .query_all_by(move |n| n.value().is_some_and(|l| l.starts_with(&start)))
+        .next()
+        .expect("a column heading")
+}
+
+#[test]
+fn board_cards_say_how_their_deadline_stands() {
+    let harness = board_9e();
+    let now = harness.state().doc().unwrap().session.clock().now_local();
+    let day = |days: i64| now.date() + jiff::Span::new().days(days);
+    for (days, expected) in [
+        (0, text::deadline_state(day(0), None, now).0),
+        (2, text::deadline_state(day(2), None, now).0),
+        // Soon up to 3 days ahead; the day after, the plain date.
+        (3, text::deadline_state(day(3), None, now).0),
+        (4, crate::dates::format_short(day(4))),
+        (20, crate::dates::format_short(day(20))),
+        (-3, text::deadline_state(day(-3), None, now).0),
+        // Done: the date, plain – not "overdue".
+        (-5, crate::dates::format(day(-5))),
+    ] {
+        assert!(
+            harness.query_by_label(&expected).is_some(),
+            "{days}: {expected}"
+        );
+    }
+    let done_late = text::deadline_state(day(-5), None, now).0;
+    assert!(harness.query_by_label(&done_late).is_none(), "{done_late}");
+}
+
+#[test]
+fn a_board_card_names_its_person_and_priority() {
+    let harness = board_9e();
+    assert!(harness.query_by_label("Anna Berg").is_some());
+    assert!(
+        harness
+            .query_by_label(text::priority(plnwrk_core::Priority::High))
+            .is_some()
+    );
+}
+
+#[test]
+fn a_long_title_takes_two_lines_and_is_read_whole() {
+    let harness = board_9e();
+    let long = "Sehr lange Aufgabe mit einem Titel, der auf einer schmalen Karte nicht in zwei Zeilen passt, weil er so viele Wörter hat";
+    let title = harness.get_by_label(long).rect();
+    let line = harness.get_by_label("Heute").rect().height();
+    assert!(
+        title.height() <= 2.0 * line + 2.0,
+        "{} for a line of {line}",
+        title.height()
+    );
+    assert!(title.height() > 1.5 * line, "it wraps: {}", title.height());
+}
+
+/// The columns share the window's width; narrower than 220 px each, the board scrolls sideways.
+#[test]
+fn board_columns_fill_the_window_and_scroll_when_narrow() {
+    let mut harness = board_9e();
+    let heading = |h: &Harness<'_, PlnwrkApp>, status| column_heading_node(h, status).rect();
+    let gap = |h: &Harness<'_, PlnwrkApp>| {
+        heading(h, TaskStatus::InProgress).left() - heading(h, TaskStatus::Todo).left()
+    };
+    assert!(gap(&harness) > 228.0 + 20.0, "wide: {}", gap(&harness));
+    harness.set_size(egui::vec2(900.0, 900.0));
+    harness.run();
+    assert!(
+        (gap(&harness) - 228.0).abs() < 1.0,
+        "narrow: {}",
+        gap(&harness)
+    );
+    assert!(
+        heading(&harness, TaskStatus::Done).left() > 900.0,
+        "the last column lies beyond the window"
+    );
+}
+
+#[test]
+fn the_plus_of_a_column_adds_a_task_there() {
+    let mut harness = board_9e();
+    click(&mut harness, &text::new_in_column(TaskStatus::Blocked));
+    type_into(&mut harness, text::t().new_task_hint, "Funk prüfen", true);
+    let created = task_named(harness.state(), "Funk prüfen").unwrap();
+    assert_eq!(created.status, TaskStatus::Blocked);
+    assert!(harness.state().state.forms.board_new.is_none());
+    // Escape drops what was typed; nothing is created.
+    click(&mut harness, &text::new_in_column(TaskStatus::Review));
+    type_into(&mut harness, text::t().new_task_hint, "Doch nicht", false);
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(harness.state().state.forms.board_new.is_none());
+    assert!(task_named(harness.state(), "Doch nicht").is_none());
+}
+
+#[test]
+fn the_board_filter_keeps_what_was_asked_for() {
+    let mut harness = board_9e();
+    let todo = |h: &Harness<'_, PlnwrkApp>| {
+        let node = column_heading_node(h, TaskStatus::Todo);
+        egui_kittest::kittest::NodeT::accesskit_node(&node)
+            .value()
+            .unwrap_or_default()
+    };
+    // Nine open cards (one is done).
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 9, 9));
+    click(&mut harness, text::t().board_filter_overdue);
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
+    assert!(harness.query_by_label("Alt").is_some());
+    assert!(harness.query_by_label("Heute").is_none());
+    click(&mut harness, text::t().board_filter_reset);
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 9, 9));
+    // Words in the title, any case.
+    type_into(&mut harness, text::t().board_search, "VOR", false);
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
+    assert!(harness.query_by_label("Vorher").is_some());
+    click(&mut harness, text::t().board_filter_reset);
+    // A person; nobody in charge.
+    let anna = harness
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .next()
+        .unwrap()
+        .id;
+    harness.state_mut().state.board_filter.assignee = Some(Some(anna));
+    harness.run();
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 1, 9));
+    harness.state_mut().state.board_filter.assignee = Some(None);
+    harness.run();
+    assert_eq!(todo(&harness), text::column_heading(TaskStatus::Todo, 8, 9));
+}
+
+#[test]
+fn folding_a_card_hides_its_subtasks_and_back() {
+    let mut harness = board_with_subtasks();
+    let ticks = |h: &Harness<'_, PlnwrkApp>| {
+        h.query_all_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox && n.label().as_deref() == Some("Bücher")
+        })
+        .count()
+    };
+    assert_eq!(ticks(&harness), 1);
+    click(&mut harness, text::t().fold_subtasks);
+    assert_eq!(ticks(&harness), 0);
+    // The bar still says how far it is.
+    assert!(harness.query_by_label("0/2").is_some());
+    // With the keyboard too.
+    harness.get_by_label(text::t().unfold_subtasks).focus();
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert_eq!(ticks(&harness), 1);
+}
+
+#[test]
+fn dragging_to_done_says_what_it_still_waits_for() {
+    let mut harness = board_9e();
+    harness.get_by_label("Nachher").scroll_to_me();
+    harness.run();
+    let card = harness.get_by_label("Nachher").rect().center();
+    // Beside the card, in the column "Erledigt" (short: one card), far below its card.
+    let done = egui::pos2(
+        column_heading_node(&harness, TaskStatus::Done)
+            .rect()
+            .center()
+            .x,
+        card.y,
+    );
+    harness.drag_at(card);
+    harness.run();
+    harness.hover_at(card + egui::vec2(10.0, 10.0));
+    harness.run();
+    harness.hover_at(done);
+    harness.run();
+    assert!(
+        harness.query_by_label(&text::still_waits_for(1)).is_some(),
+        "said while dragging"
+    );
+    harness.drop_at(done);
+    harness.run();
+    // Said, not stopped.
+    assert_eq!(
+        task_named(harness.state(), "Nachher").unwrap().status,
+        TaskStatus::Done
+    );
+    assert!(harness.query_by_label(&text::still_waits_for(1)).is_none());
+}
