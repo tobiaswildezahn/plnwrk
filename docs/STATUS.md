@@ -35,7 +35,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub öffentlich (seit 2026-10-15) `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–8 und 9a–9f (Stand `4400e9b`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–9 (Stand `70557f9`, Version 0.2.0). Neue Phase immer auf eigenem Branch (`phase-…`).
+- **Veröffentlichen** (nur auf Tobis „veröffentlichen“), drei Schritte: (1) Version in `Cargo.toml`
+  per PR, gemergt, CI auf `main` grün; (2) Tag `v<version>` auf diesen Commit pushen – der
+  Release-Ablauf baut und veröffentlicht die Pakete; (3) **Pages-Ablauf von Hand starten**
+  (`gh workflow run pages.yml --ref main`) – die Browser-Version folgt `main` **nicht** von
+  selbst. Danach README „Stand“ per Doku-PR.
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
