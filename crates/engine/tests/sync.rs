@@ -807,4 +807,46 @@ mod sync {
             "Carla only renamed it; the deadline was Anna's"
         );
     }
+
+    /// NACHREVIEW N2 (F11): an undo refused because of others' work that hangs on the own step
+    /// (a comment on a task created here) is refused by the rules, not by a conflict – it must
+    /// not block the older own steps either.
+    #[test]
+    fn nachreview_an_undo_refused_by_the_rules_does_not_block_older_steps() {
+        let (mut anna, mut ben, base, [_, vergabe], _) = two();
+        let project = anna.workspace().projects().next().unwrap().id.to_string();
+        run(
+            &mut anna,
+            "task.update",
+            json!({"task": vergabe.to_string(), "priority": "high"}),
+        );
+        let neu = task(&mut anna, &project, "Neu von Anna", "2026-11-30");
+        // Ben takes Anna's file and comments on her new task.
+        ben.rebase_onto(anna.workspace().clone(), anna.log().to_vec(), base)
+            .expect("continues");
+        run(
+            &mut ben,
+            "comment.add",
+            json!({"task": neu.to_string(), "body": "Bens Hinweis"}),
+        );
+        // Anna takes Ben's file (nothing unsaved of her own).
+        let hers = anna.log().len();
+        anna.rebase_onto(ben.workspace().clone(), ben.log().to_vec(), hers)
+            .expect("continues");
+        assert!(
+            anna.workspace()
+                .comments()
+                .any(|c| c.body == "Bens Hinweis")
+        );
+        // Undoing her task's creation is refused (Ben's comment hangs on it) …
+        let first = anna.run("undo", &json!({}), Origin::User);
+        assert!(first.is_err(), "undone: {first:?}");
+        // … but the step before stays reachable.
+        let second = anna.run("undo", &json!({}), Origin::User);
+        assert_eq!(
+            anna.workspace().task(vergabe).unwrap().priority,
+            plnwrk_core::Priority::Normal,
+            "the older own step cannot be undone any more: first {first:?}, second {second:?}"
+        );
+    }
 }

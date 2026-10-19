@@ -900,3 +900,158 @@ fn an_untouched_milestone_edit_follows_what_others_saved() {
         crate::dates::parse("01.12.2026").unwrap()
     );
 }
+
+/// Sets the folder of `path` read-only (`true`) or writable again: a lock file that is there
+/// already can still be taken, but nothing new can be written next to it.
+#[cfg(unix)]
+fn folder_read_only(path: &std::path::Path, read_only: bool) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let folder = path.parent().unwrap();
+    let mode = if read_only { 0o555 } else { 0o755 };
+    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// NACHREVIEW N1 (F4): a merge that could not take all of the own work, whose writing then
+/// fails (here: nothing can be written next to the file; just as well a drive that ignored the
+/// lock) – what was not taken is out of the work here already. It must be said at some point,
+/// not only lie quietly under "Wiederherstellen".
+#[cfg(unix)]
+#[test]
+fn nachreview_what_was_not_taken_is_said_even_if_writing_failed_once() {
+    let path = shared_file("nach-lost-failed");
+    let copies = scratch("nach-lost-failed-folder");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    anna.state_mut()
+        .set_autosave(Some(copies.clone()), false, 0.0);
+    let id = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.delete",
+        serde_json::json!({"task": id.to_string()}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    anna.state_mut().apply(crate::Intent::run(
+        "comment.add",
+        serde_json::json!({"task": id.to_string(), "body": "Annas wichtiger Hinweis"}),
+    ));
+    let mut said = Vec::new();
+    folder_read_only(&path, true);
+    anna.state_mut().shared_at(200.0);
+    anna.state_mut().shared_at(202.0);
+    folder_read_only(&path, false);
+    said.extend(anna.state().state.message().map(|m| m.text.clone()));
+    // The folder is writable again: the next try saves.
+    anna.state_mut().shared_at(240.0);
+    anna.state_mut().shared_at(242.0);
+    said.extend(anna.state().state.message().map(|m| m.text.clone()));
+    assert!(!anna.state().has_unsaved_changes(), "not saved: {said:?}");
+    assert!(
+        task_named(anna.state(), "Einbau Wache 11").is_none(),
+        "the deletion was not taken"
+    );
+    assert!(
+        said.iter().any(|s| s.contains("Annas wichtiger Hinweis")),
+        "what was not taken was never said: {said:?}"
+    );
+}
+
+/// NACHREVIEW N7: a shared file that could not save itself says so – and once it saved itself
+/// after all, that refusal must not stand on as if it still failed.
+#[cfg(unix)]
+#[test]
+fn nachreview_a_refusal_of_saving_by_itself_goes_once_it_saved() {
+    let path = shared_file("nach-stale");
+    let mut anna = working_as(&path, "Anna Berg");
+    rename(&mut anna, "Einbau Wache 11", "Anna");
+    folder_read_only(&path, true);
+    anna.state_mut().shared_at(200.0);
+    anna.state_mut().shared_at(202.0);
+    folder_read_only(&path, false);
+    let refused = anna.state().state.message().cloned().unwrap();
+    assert!(refused.error, "{refused:?}");
+    anna.state_mut().shared_at(240.0);
+    anna.state_mut().shared_at(242.0);
+    assert!(!anna.state().has_unsaved_changes(), "not saved");
+    let now = anna.state().state.message().cloned();
+    assert!(
+        now.as_ref().is_none_or(|m| m.text != refused.text),
+        "saved, but still says: {now:?}"
+    );
+}
+
+/// NACHREVIEW N4 (F7): a mistyped passphrase for the shared file is used before anything was
+/// read with it – the work here then counts as protected with the typo, and its recovery copy
+/// is encrypted with a passphrase nobody knows.
+#[test]
+fn nachreview_a_mistyped_file_passphrase_does_not_lock_the_recovery_copy() {
+    let path = shared_file("nach-typo");
+    let copies = scratch("nach-typo-folder");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    anna.state_mut()
+        .set_autosave(Some(copies.clone()), false, 0.0);
+    let right = || plnwrk_store::SecretString::from("eine-lange-passphrase".to_owned());
+    tobias.state_mut().apply(crate::Intent::Protect(right()));
+    rename(&mut anna, "Einbau Wache 11", "Annas ungespeicherte Arbeit");
+    anna.state_mut().shared_at(110.0);
+    anna.state_mut().shared_at(112.0);
+    assert!(matches!(
+        anna.state().state.dialog,
+        Some(Dialog::FilePassphrase { .. })
+    ));
+    anna.state_mut().apply(crate::Intent::FilePassphrase(
+        plnwrk_store::SecretString::from("eine-lange-passphrasr".to_owned()),
+    ));
+    anna.state_mut().shared_at(120.0);
+    assert!(
+        matches!(
+            anna.state().state.dialog,
+            Some(Dialog::FilePassphrase { .. })
+        ),
+        "the typo was not noticed"
+    );
+    // "Abbrechen": she goes on working, the recovery copy keeps her work meanwhile.
+    anna.state_mut().apply(crate::Intent::CloseDialog);
+    let protected_here = anna.state().doc().unwrap().encrypted();
+    anna.state_mut().autosave_at(200.0);
+    anna.state_mut().autosave.settle();
+    let copy = anna.state().autosave.copy().unwrap().to_path_buf();
+    let readable = crate::OpenDoc::open(&copy, None).is_ok()
+        || crate::OpenDoc::open(&copy, Some(right())).is_ok();
+    assert!(
+        readable,
+        "the recovery copy opens neither without nor with the file's passphrase \
+         (protected here with the typo: {protected_here})"
+    );
+}
+
+/// NACHREVIEW N5 (F12): while the window is hidden, eframe calls only `App::logic`, through
+/// `egui::Context::run_logic` – which leaves the input alone, so `input.time` stays that of
+/// the last shown frame (eframe 0.36, `App::logic` docs). The shared rhythm, timed by it,
+/// stands still: nothing is saved or fetched while hidden.
+#[test]
+fn nachreview_a_hidden_window_still_saves_the_shared_file() {
+    let path = shared_file("nach-hidden");
+    let mut anna = working_as(&path, "Anna Berg");
+    let ctx = egui::Context::default();
+    let at = |t: f64| egui::RawInput {
+        time: Some(t),
+        ..Default::default()
+    };
+    // The last shown frame, at 10 s.
+    ctx.run_ui(at(10.0), |_| {}).textures_delta.clear();
+    rename(&mut anna, "Einbau Wache 11", "Im Hintergrund");
+    // Hidden: `logic` every half second, as eframe does (what `logic` runs for a shared file),
+    // while egui's time stands still – for two real seconds.
+    for _ in 0..5 {
+        let _ = ctx.run_logic(&at(10.0), |ctx| {
+            anna.state_mut().shared_tick(ctx);
+        });
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    assert!(
+        !anna.state().has_unsaved_changes(),
+        "two seconds hidden, still not saved (egui time seen: {})",
+        ctx.input(|i| i.time)
+    );
+}

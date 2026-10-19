@@ -536,3 +536,23 @@ fn templates_with_old_milestones_give_cases_milestone_tasks() {
         "a new case starts open"
     );
 }
+
+/// Nachreview 10a, N2: a redo the rules refuse (what it needs is gone meanwhile) can never be
+/// done – it leaves the stack instead of blocking it.
+#[test]
+fn a_redo_the_rules_refuse_leaves_the_stack() {
+    let mut s = session();
+    let id = create_person(&mut s, "Anna");
+    s.run(
+        "project.create",
+        &json!({"title": "P", "owner": id.to_string()}),
+        Origin::User,
+    )
+    .unwrap();
+    s.run("undo", &json!({}), Origin::User).unwrap();
+    // Outside edit: the owner is gone, so the project cannot come back.
+    s.workspace_mut().remove(EntityKey::Person(id));
+    let error = s.run("redo", &json!({}), Origin::User).unwrap_err();
+    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+    assert!(!s.can_redo());
+}

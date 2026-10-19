@@ -17,6 +17,15 @@ pub struct Outcome {
     pub created: Vec<plnwrk_core::EntityKey>,
 }
 
+/// A state of a session to go back to.
+#[derive(Debug, Clone)]
+pub struct Checkpoint {
+    ws: Workspace,
+    log: Vec<Change>,
+    undo: Vec<u64>,
+    redo: Vec<u64>,
+}
+
 /// One open workspace with its history.
 pub struct Session {
     ws: Workspace,
@@ -79,6 +88,25 @@ impl Session {
         self.ws = rebased.workspace.clone();
         self.log = rebased.log.clone();
         Ok(rebased)
+    }
+
+    /// The state as it is now – data, history, undo and redo – to go back to with
+    /// [`Self::restore`] (a merge whose writing failed: review 10a, N1).
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            ws: self.ws.clone(),
+            log: self.log.clone(),
+            undo: self.undo.clone(),
+            redo: self.redo.clone(),
+        }
+    }
+
+    /// Goes back to a state taken with [`Self::checkpoint`]; who works stays.
+    pub fn restore(&mut self, checkpoint: Checkpoint) {
+        self.ws = checkpoint.ws;
+        self.log = checkpoint.log;
+        self.undo = checkpoint.undo;
+        self.redo = checkpoint.redo;
     }
 
     /// The data, read-only.
@@ -341,9 +369,13 @@ impl Session {
             .map(Event::inverse)
             .collect();
         if let Err(error) = self.apply_all(&inverse) {
-            // Changed by someone else since (a shared file): this step can never be undone –
-            // it goes, so older own steps stay reachable (review 10a, F11).
-            if matches!(error, CommandError::Conflict { .. }) {
+            // Changed by someone else since (a shared file), or the rules no longer allow it
+            // (someone added to what it created): this step cannot be undone – it goes, so
+            // older own steps stay reachable (review 10a, F11, N2).
+            if matches!(
+                error,
+                CommandError::Conflict { .. } | CommandError::Invalid { .. }
+            ) {
                 self.undo.pop();
             }
             return Err(error);
@@ -364,7 +396,10 @@ impl Session {
         })?;
         let events = self.events_of(seq)?;
         if let Err(error) = self.apply_all(&events) {
-            if matches!(error, CommandError::Conflict { .. }) {
+            if matches!(
+                error,
+                CommandError::Conflict { .. } | CommandError::Invalid { .. }
+            ) {
                 self.redo.pop();
             }
             return Err(error);

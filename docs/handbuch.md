@@ -187,8 +187,9 @@ Server braucht es dafür nicht.
   - **Speichern, dann schließen:** Konnte dabei etwas Eigenes nicht übernommen werden, bleibt die
     Datei offen, damit man die Meldung sieht.
 - **Rückgängig** nimmt die eigenen Schritte zurück, nicht die der anderen. Hat jemand anderes
-  inzwischen an derselben Stelle geändert, lehnt plnwrk das Rückgängig ab und sagt es. Dieser
-  Schritt fällt dann weg; das nächste Rückgängig nimmt den Schritt davor zurück.
+  inzwischen an derselben Stelle geändert oder etwas daran ergänzt, lehnt plnwrk das Rückgängig
+  ab und sagt es. Dieser Schritt fällt dann weg; das nächste Rückgängig nimmt den Schritt davor
+  zurück.
 - **Gut zu wissen:**
   - **Gleiche Version für alle:** Eine ältere Version (0.2) sperrt die Datei, solange sie dort
     offen ist. Dann kann niemand sonst speichern, und plnwrk sagt das beim Öffnen.
@@ -197,7 +198,8 @@ Server braucht es dafür nicht.
   - **Netzlaufwerk:** Ob die Sperre beim Speichern auf eurem Laufwerk wirkt, hängt vom
     Laufwerk ab. Bitte einmal mit zwei Rechnern ausprobieren, bevor ihr damit arbeitet. plnwrk
     prüft zusätzlich unmittelbar vor dem Schreiben, ob jemand dazwischen gespeichert hat, und
-    überschreibt dann nichts.
+    überschreibt dann nichts. Ob jemand gespeichert hat, erkennt plnwrk am Inhalt der Datei,
+    nicht an Größe und Uhrzeit, die manche Laufwerke eine Weile veraltet melden.
   - **Verschlüsselte gemeinsame Datei:** Alle brauchen dieselbe Passphrase. Wer sie weitergibt,
     regelt die Abteilung (Verschlusssachen: Geheimschutzstelle). Schützt jemand die Datei,
     während andere sie offen haben, fragt plnwrk dort nach der Passphrase und speichert danach

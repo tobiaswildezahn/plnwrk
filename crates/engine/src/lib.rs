@@ -18,7 +18,7 @@ mod tx;
 pub use command::{CommandSpec, find, registry, search};
 pub use error::CommandError;
 pub use event::{Change, Event, Origin};
-pub use session::{Outcome, Session};
+pub use session::{Checkpoint, Outcome, Session};
 pub use tx::Tx;
 
 #[cfg(test)]
