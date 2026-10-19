@@ -351,7 +351,9 @@ fn undo_refuses_when_the_data_was_changed_behind_its_back() {
     let error = s.run("undo", &json!({}), Origin::User).unwrap_err();
     assert!(matches!(error, CommandError::Conflict { .. }));
     assert_eq!(snapshot(&s), before);
-    assert!(s.can_undo());
+    // It can never be undone any more: it leaves the stack, so older steps stay reachable
+    // (review 10a, F11).
+    assert!(!s.can_undo());
 }
 
 #[test]
@@ -398,7 +400,8 @@ fn redo_refuses_when_the_data_was_changed_behind_its_back() {
     let error = s.run("redo", &json!({}), Origin::User).unwrap_err();
     assert!(matches!(error, CommandError::Conflict { .. }));
     assert_eq!(snapshot(&s), before);
-    assert!(s.can_redo());
+    // It can never be redone any more: it leaves the stack (review 10a, F11).
+    assert!(!s.can_redo());
 }
 
 fn create_then_rename(tx: &mut Tx<'_>, _: &Params<'_>) -> Result<(), CommandError> {

@@ -441,3 +441,462 @@ fn i_am_marked_in_the_list_of_people() {
             .is_some()
     );
 }
+
+/// REVIEW U1 (handbuch §4): an own change that could not be taken – the work as it was stays
+/// as a copy of its own, offered under "Wiederherstellen" (review 10a, F4).
+#[test]
+fn review_the_recovery_copy_stays_when_own_work_was_not_taken() {
+    let path = shared_file("rev-copy");
+    let copies = scratch("rev-copy-folder");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    anna.state_mut()
+        .set_autosave(Some(copies.clone()), false, 0.0);
+    let id = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.delete",
+        serde_json::json!({"task": id.to_string()}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    anna.state_mut().apply(crate::Intent::run(
+        "comment.add",
+        serde_json::json!({"task": id.to_string(), "body": "Annas wichtiger Hinweis"}),
+    ));
+    saves_itself(&mut anna, 200.0);
+    let said = anna.state().state.message().cloned().unwrap();
+    assert!(said.text.contains("Annas wichtiger Hinweis"), "{said:?}");
+    assert!(said.text.contains(text::t().lost_copy_kept), "{said:?}");
+    anna.run();
+    let kept = anna.state().state.recovered.first().cloned().unwrap();
+    assert!(kept.starts_with(&copies), "{kept:?}");
+    let copy = crate::OpenDoc::open(&kept, None).unwrap();
+    assert!(
+        copy.session
+            .workspace()
+            .comments()
+            .any(|c| c.body == "Annas wichtiger Hinweis"),
+        "the copy does not hold what was not taken"
+    );
+}
+
+/// REVIEW U2: an older plnwrk holds the lock – the window must not freeze for most of the time.
+#[test]
+fn review_a_held_lock_does_not_freeze_the_window() {
+    let path = shared_file("rev-freeze");
+    let mut anna = working_as(&path, "Anna Berg");
+    let _held = plnwrk_store::file::lock(&path).unwrap();
+    rename(&mut anna, "Einbau Wache 11", "Gesperrt");
+    // Ten seconds of frames, every half second.
+    let started = std::time::Instant::now();
+    let mut longest = std::time::Duration::ZERO;
+    let mut t = 100.0;
+    while t < 110.0 {
+        let frame = std::time::Instant::now();
+        anna.state_mut().shared_at(t);
+        longest = longest.max(frame.elapsed());
+        t += 0.5;
+    }
+    let total = started.elapsed();
+    assert!(
+        longest < std::time::Duration::from_millis(200),
+        "one frame took {longest:?}; ten seconds of frames blocked {total:?}"
+    );
+}
+
+/// REVIEW U3: the file was replaced by another one while open – it is said, and the own work
+/// is not written into the other work (with a person it does not have).
+#[test]
+fn review_a_replaced_file_does_not_record_a_person_it_does_not_have() {
+    let path = shared_file("rev-replaced");
+    let mut anna = working_as(&path, "Anna Berg");
+    let other = scratch("rev-replaced-other").join("andere.plnwrk");
+    let mut doc = crate::OpenDoc::sample().unwrap();
+    doc.save_as(&other, |_, _| ()).unwrap();
+    drop(doc);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::copy(&other, &path).unwrap();
+    anna.state_mut().shared_at(105.0);
+    let said = anna.state().state.message().cloned().unwrap();
+    assert_eq!(said.text, text::t().shared_file_replaced);
+    rename(&mut anna, "Einbau Wache 11", "Nach dem Ersetzen");
+    anna.state_mut().shared_at(200.0);
+    anna.state_mut().shared_at(202.0);
+    assert!(anna.state().has_unsaved_changes(), "taken as saved");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        std::fs::read(&other).unwrap(),
+        "written into the other work"
+    );
+}
+
+/// REVIEW U4: both changed a person's name – the message must not promise a comment on a
+/// task that is never written.
+#[test]
+fn review_a_conflict_on_a_person_does_not_promise_a_comment() {
+    let path = shared_file("rev-person-conflict");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let id = anna
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .find(|p| p.name == "Anna Berg")
+        .unwrap()
+        .id;
+    for (h, name) in [(&mut tobias, "Anna Berg-Kruse"), (&mut anna, "Anna Kruse")] {
+        h.state_mut().apply(crate::Intent::run(
+            "person.update",
+            serde_json::json!({"person": id.to_string(), "name": name}),
+        ));
+    }
+    saves_itself(&mut tobias, 100.0);
+    let before = anna
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .comments()
+        .count();
+    saves_itself(&mut anna, 100.0);
+    let said = anna.state().state.message().cloned().unwrap();
+    let after = anna
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .comments()
+        .count();
+    assert!(
+        after > before || !said.text.contains("Kommentar"),
+        "said: {}",
+        said.text
+    );
+}
+
+/// REVIEW U5: a conflict comment is no own step – it must not take the own redo away.
+#[test]
+fn review_a_conflict_comment_keeps_the_own_redo() {
+    let path = shared_file("rev-redo");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let x = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    let y = task_named(anna.state(), "Schulung Einsatzkräfte")
+        .unwrap()
+        .id;
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": x.to_string(), "title": "Tobias"}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    for params in [
+        serde_json::json!({"task": x.to_string(), "title": "Anna"}),
+        serde_json::json!({"task": y.to_string(), "priority": "high"}),
+    ] {
+        anna.state_mut()
+            .apply(crate::Intent::run("task.update", params));
+    }
+    anna.state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    assert!(anna.state().doc().unwrap().session.can_redo());
+    saves_itself(&mut anna, 100.0);
+    assert!(
+        anna.state().doc().unwrap().session.can_redo(),
+        "redo gone after the conflict comment"
+    );
+}
+
+/// REVIEW U6: someone protected the shared file meanwhile – plnwrk asks for the passphrase
+/// (plan §2.1 W5) instead of only saying "encrypted".
+#[test]
+fn review_a_file_protected_meanwhile_asks_for_the_passphrase() {
+    let path = shared_file("rev-protected");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    tobias
+        .state_mut()
+        .apply(crate::Intent::Protect(plnwrk_store::SecretString::from(
+            "eine-lange-passphrase".to_owned(),
+        )));
+    assert!(
+        plnwrk_store::peek(&std::fs::read(&path).unwrap())
+            .unwrap()
+            .encrypted
+    );
+    anna.state_mut().shared_at(105.0);
+    let said_at_fetch = anna.state().state.message().map(|m| m.text.clone());
+    rename(&mut anna, "Einbau Wache 11", "Nach dem Schützen");
+    anna.state_mut().shared_at(110.0);
+    anna.state_mut().shared_at(112.0);
+    assert!(
+        matches!(
+            anna.state().state.dialog,
+            Some(Dialog::FilePassphrase { .. })
+        ),
+        "dialog {:?}, said at fetch {:?}, said now {:?}, unsaved {}",
+        anna.state().state.dialog,
+        said_at_fetch,
+        anna.state().state.message().map(|m| m.text.clone()),
+        anna.state().has_unsaved_changes()
+    );
+    // With the passphrase, saving goes on – encrypted, as the file is now.
+    anna.state_mut().apply(crate::Intent::FilePassphrase(
+        plnwrk_store::SecretString::from("eine-lange-passphrase".to_owned()),
+    ));
+    saves_itself(&mut anna, 120.0);
+    let secret = plnwrk_store::SecretString::from("eine-lange-passphrase".to_owned());
+    let on_disk = crate::OpenDoc::open(&path, Some(secret)).unwrap();
+    assert!(on_disk.encrypted(), "written in plain text");
+    assert!(
+        on_disk
+            .session
+            .workspace()
+            .tasks()
+            .any(|t| t.title == "Nach dem Schützen"),
+        "the own change was not saved"
+    );
+}
+
+/// REVIEW U7: an undo refused because someone changed it since – said in words a person reads,
+/// and the older own steps stay reachable.
+#[test]
+fn review_a_refused_undo_is_said_plainly_and_does_not_block_older_steps() {
+    let path = shared_file("rev-undo");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let z = task_named(anna.state(), "Schulung Einsatzkräfte")
+        .unwrap()
+        .id;
+    let x = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    for params in [
+        serde_json::json!({"task": z.to_string(), "priority": "high"}),
+        serde_json::json!({"task": x.to_string(), "title": "Anna"}),
+    ] {
+        anna.state_mut()
+            .apply(crate::Intent::run("task.update", params));
+    }
+    saves_itself(&mut anna, 100.0);
+    tobias.state_mut().shared_at(105.0);
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": x.to_string(), "priority": "low"}),
+    ));
+    saves_itself(&mut tobias, 110.0);
+    anna.state_mut().shared_at(120.0);
+    assert!(task_named(anna.state(), "Anna").is_some());
+    anna.state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    let said = anna.state().state.message().cloned().unwrap();
+    let plain = !said.text.contains("expected state");
+    anna.state_mut()
+        .apply(crate::Intent::run("undo", serde_json::json!({})));
+    let app = anna.state();
+    assert_eq!(
+        app.doc()
+            .unwrap()
+            .session
+            .workspace()
+            .task(z)
+            .unwrap()
+            .priority,
+        plnwrk_core::Priority::Normal,
+        "the older own step cannot be undone any more"
+    );
+    assert!(plain, "said: {}", said.text);
+}
+
+/// REVIEW U8 (plan §4.4: typed values in the person form count like any input): closing the
+/// window with a typed, not applied change of a person does not drop it silently.
+#[test]
+fn review_a_typed_person_change_is_not_dropped_when_closing() {
+    let mut h = people_view();
+    click(&mut h, &edit_button("Anna Berg"));
+    type_in_field(&mut h, text::t().name, "Anna Berg-Kruse", false);
+    let closes = h.state_mut().close_requested();
+    let kept = person(&h, "Anna Berg-Kruse").is_some();
+    // Taken like "Übernehmen" – and then asked about, as unsaved.
+    assert!(
+        kept && !closes,
+        "closes: {closes}, typed name taken: {kept} (unsaved: {})",
+        h.state().has_unsaved_changes()
+    );
+}
+
+/// REVIEW U9: "Save, then close" with own work that could not be taken – the person must get
+/// to see what was not taken before the work is closed.
+#[test]
+fn review_save_then_close_does_not_hide_what_was_not_taken() {
+    let path = shared_file("rev-save-close");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let id = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.delete",
+        serde_json::json!({"task": id.to_string()}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    anna.state_mut().apply(crate::Intent::run(
+        "comment.add",
+        serde_json::json!({"task": id.to_string(), "body": "Annas wichtiger Hinweis"}),
+    ));
+    anna.state_mut()
+        .apply(crate::Intent::SaveThen(crate::state::FileAction::Quit));
+    anna.run();
+    let open = !anna.state().wants_to_quit();
+    let said = anna.state().state.message().map(|m| m.text.clone());
+    assert!(
+        open,
+        "closed; said: {said:?}; on disk: {:?}",
+        titles_on_disk(&path).len()
+    );
+}
+
+/// Review 10a, F10: an own deletion that took others' newer work along says so, naming it.
+#[test]
+fn what_a_deletion_took_along_is_named() {
+    let path = shared_file("swept");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let id = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    tobias.state_mut().apply(crate::Intent::run(
+        "comment.add",
+        serde_json::json!({"task": id.to_string(), "body": "Tobias’ Hinweis zum Einbau"}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    anna.state_mut().apply(crate::Intent::run(
+        "task.delete",
+        serde_json::json!({"task": id.to_string()}),
+    ));
+    saves_itself(&mut anna, 100.0);
+    let said = anna.state().state.message().cloned().unwrap();
+    assert!(said.error, "said as news: {said:?}");
+    assert!(
+        said.text.contains("Tobias’ Hinweis zum Einbau"),
+        "{}",
+        said.text
+    );
+    assert!(titles_on_disk(&path).iter().all(|t| t != "Einbau Wache 11"));
+}
+
+/// Review 10a, K3: a conflict with a change made without a person (CLI, MCP) is commented in
+/// plain words.
+#[test]
+fn a_conflict_with_someone_unnamed_reads_plainly() {
+    let path = shared_file("unnamed");
+    let mut anna = working_as(&path, "Anna Berg");
+    let id = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    let mut cli = crate::OpenDoc::open(&path, None).unwrap();
+    cli.session
+        .run(
+            "task.update",
+            &serde_json::json!({"task": id.to_string(), "title": "Von der Kommandozeile"}),
+            plnwrk_engine::Origin::Script,
+        )
+        .unwrap();
+    cli.save(|_, _| ()).unwrap();
+    rename(&mut anna, "Einbau Wache 11", "Von Anna");
+    saves_itself(&mut anna, 100.0);
+    let ws = anna.state().doc().unwrap().session.workspace().clone();
+    let comment = ws.comments().find(|c| c.task == id).unwrap();
+    assert!(
+        comment.body.starts_with(&format!(
+            "Gleichzeitig geändert: {} hatte",
+            text::someone_subject()
+        )),
+        "{}",
+        comment.body
+    );
+}
+
+/// Review 10a, K4: protecting the file right after a merge that could not take everything
+/// does not hide what was not taken behind "Geschützt".
+#[test]
+fn protecting_does_not_hide_what_was_not_taken() {
+    let path = shared_file("protect-lost");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let id = task_named(anna.state(), "Einbau Wache 11").unwrap().id;
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.delete",
+        serde_json::json!({"task": id.to_string()}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    anna.state_mut().apply(crate::Intent::run(
+        "comment.add",
+        serde_json::json!({"task": id.to_string(), "body": "Annas wichtiger Hinweis"}),
+    ));
+    anna.state_mut()
+        .apply(crate::Intent::Protect(plnwrk_store::SecretString::from(
+            "eine-lange-passphrase".to_owned(),
+        )));
+    let said = anna.state().state.message().cloned().unwrap();
+    assert!(
+        said.text.contains("Annas wichtiger Hinweis"),
+        "{}",
+        said.text
+    );
+}
+
+/// Review 10a, F7: a wrong passphrase for the shared file is said, and asked for again.
+#[test]
+fn a_wrong_file_passphrase_is_asked_again() {
+    let path = shared_file("wrong-secret");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    tobias
+        .state_mut()
+        .apply(crate::Intent::Protect(plnwrk_store::SecretString::from(
+            "eine-lange-passphrase".to_owned(),
+        )));
+    anna.state_mut().shared_at(105.0);
+    assert!(matches!(
+        anna.state().state.dialog,
+        Some(Dialog::FilePassphrase { .. })
+    ));
+    anna.state_mut().apply(crate::Intent::FilePassphrase(
+        plnwrk_store::SecretString::from("eine-falsche-passphrase".to_owned()),
+    ));
+    anna.state_mut().shared_at(110.0);
+    assert!(
+        matches!(
+            anna.state().state.dialog,
+            Some(Dialog::FilePassphrase { .. })
+        ),
+        "not asked again"
+    );
+    let said = anna.state().state.message().cloned().unwrap();
+    assert_eq!(
+        said.text,
+        text::store_error(&plnwrk_store::StoreError::WrongPassphrase)
+    );
+}
+
+/// Review 10a, L1: a milestone's date shown for editing on its card but not typed in follows
+/// what others saved – the card must not show the old date as if typed.
+#[test]
+fn an_untouched_milestone_edit_follows_what_others_saved() {
+    let path = shared_file("milestone-edit");
+    let mut anna = working_as(&path, "Anna Berg");
+    let mut tobias = working_as(&path, "Tobias Wildezahn");
+    let task = task_named(anna.state(), "Einbau Wache 11").unwrap().clone();
+    anna.state_mut().state.forms.milestone_edit = Some((
+        task.id,
+        crate::dates::format_opt(task.due),
+        crate::dates::format_time_opt(task.due_time),
+    ));
+    tobias.state_mut().apply(crate::Intent::run(
+        "task.update",
+        serde_json::json!({"task": task.id.to_string(), "due": "2026-12-01"}),
+    ));
+    saves_itself(&mut tobias, 100.0);
+    anna.state_mut().shared_at(105.0);
+    assert!(anna.state().state.forms.milestone_edit.is_none());
+    assert_eq!(
+        task_named(anna.state(), "Einbau Wache 11").unwrap().due,
+        crate::dates::parse("01.12.2026").unwrap()
+    );
+}

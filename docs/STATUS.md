@@ -28,7 +28,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0); **0.2.0** (2026-10-17, Phase 9): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.2.0); Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
 | 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board, 9f Dialoge/Start/Übersicht/Liste/Details/Leerzustände, 9g Meldungen/Klickpfade/Überholte Meilensteine **fertig**, je Review + Nachreview; offen: Wiederholungstest | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#22](https://github.com/tobiaswildezahn/plnwrk/pull/22) |
-| 10 Team | **10a Gemeinsame Datei** (mehrere Bearbeiter an einer Datei, Personen anlegen und ändern): gebaut, Review und PR folgen | – |
+| 10 Team | **10a Gemeinsame Datei** (mehrere Bearbeiter an einer Datei, Personen anlegen und ändern): gebaut und reviewt (18 Befunde behoben), Nachreview und PR folgen | – |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.

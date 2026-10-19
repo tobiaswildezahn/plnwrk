@@ -177,11 +177,18 @@ Server braucht es dafür nicht.
 - **Gleichzeitig dasselbe geändert:**
   - **Feld:** Wer später speichert, dessen Wert gilt. Die Aufgabe bekommt einen Kommentar mit
     dem anderen Wert, sodass beide ihn sehen.
-  - **Gelöscht und geändert:** Hat jemand eine Aufgabe gelöscht, die man selbst geändert hat,
-    bleibt sie gelöscht. Die Meldung nennt, was nicht übernommen werden konnte, die
-    Wiederherstellungskopie bleibt erhalten.
+  - **Gelöscht und geändert:** Gelöscht bleibt gelöscht, egal wer zuerst gespeichert hat.
+    - Hat jemand anderes eine Aufgabe gelöscht, die man selbst geändert hat: Die Meldung nennt,
+      was nicht übernommen werden konnte. Der eigene Stand von vorher liegt als Kopie „… – nicht
+      übernommen …“ auf der Startseite unter **Wiederherstellen**.
+    - Löscht man selbst eine Aufgabe, an der jemand anderes inzwischen etwas ergänzt hat (etwa
+      einen Kommentar): Die Meldung nennt, was dabei mitgelöscht wurde. „Rückgängig“ holt es
+      zurück.
+  - **Speichern, dann schließen:** Konnte dabei etwas Eigenes nicht übernommen werden, bleibt die
+    Datei offen, damit man die Meldung sieht.
 - **Rückgängig** nimmt die eigenen Schritte zurück, nicht die der anderen. Hat jemand anderes
-  inzwischen an derselben Stelle geändert, lehnt plnwrk das Rückgängig ab und sagt es.
+  inzwischen an derselben Stelle geändert, lehnt plnwrk das Rückgängig ab und sagt es. Dieser
+  Schritt fällt dann weg; das nächste Rückgängig nimmt den Schritt davor zurück.
 - **Gut zu wissen:**
   - **Gleiche Version für alle:** Eine ältere Version (0.2) sperrt die Datei, solange sie dort
     offen ist. Dann kann niemand sonst speichern, und plnwrk sagt das beim Öffnen.
@@ -192,7 +199,12 @@ Server braucht es dafür nicht.
     prüft zusätzlich unmittelbar vor dem Schreiben, ob jemand dazwischen gespeichert hat, und
     überschreibt dann nichts.
   - **Verschlüsselte gemeinsame Datei:** Alle brauchen dieselbe Passphrase. Wer sie weitergibt,
-    regelt die Abteilung (Verschlusssachen: Geheimschutzstelle).
+    regelt die Abteilung (Verschlusssachen: Geheimschutzstelle). Schützt jemand die Datei,
+    während andere sie offen haben, fragt plnwrk dort nach der Passphrase und speichert danach
+    weiter. Jedes Speichern einer verschlüsselten Datei dauert etwa eine halbe Sekunde, weil der
+    Schlüssel jedes Mal neu abgeleitet wird.
+  - **Datei ersetzt:** Legt jemand eine andere Datei unter demselben Namen ab, schreibt plnwrk
+    nicht hinein und sagt es. Die eigene Arbeit dann mit „Speichern unter“ woanders sichern.
   - **Rechte:** Neue Dateien sind zunächst nur für die eigene Person lesbar. Auf dem Laufwerk
     bestimmt meist die Freigabe, wer sie öffnen darf.
   - **Browser-Version:** Gemeinsame Dateien gibt es nur in der App, nicht im Browser.

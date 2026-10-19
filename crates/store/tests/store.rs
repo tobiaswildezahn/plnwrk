@@ -87,131 +87,20 @@ mod store {
     }
 
     /// Phase 10a (decision 8): a file written now must stay readable by plnwrk 0.2.0, which
-    /// refuses a command or a parameter it does not know. The commands and their parameters of
-    /// 0.2.0 – change them only together with a new file format version.
+    /// checks every parameter of every change against its schema and refuses what it does not
+    /// know. The schemas of 0.2.0 (as `plnwrk-cli commands` of 0.2.0 lists them, review 10a L4)
+    /// – change them only together with a new file format version.
     #[test]
     fn the_commands_stay_those_of_0_2_0() {
-        const OF_0_2_0: &[(&str, &[&str])] = &[
-            (
-                "project.create",
-                &[
-                    "classification",
-                    "description",
-                    "due",
-                    "kind",
-                    "owner",
-                    "reference",
-                    "start",
-                    "status",
-                    "template",
-                    "title",
-                ],
-            ),
-            (
-                "project.update",
-                &[
-                    "classification",
-                    "description",
-                    "due",
-                    "kind",
-                    "owner",
-                    "project",
-                    "reference",
-                    "start",
-                    "status",
-                    "template",
-                    "title",
-                ],
-            ),
-            ("project.archive", &["project"]),
-            (
-                "project.instantiate",
-                &["due", "owner", "reference", "start", "template", "title"],
-            ),
-            (
-                "task.create",
-                &[
-                    "after",
-                    "assignee",
-                    "classification",
-                    "description",
-                    "due",
-                    "estimate_minutes",
-                    "milestone",
-                    "parent",
-                    "priority",
-                    "progress",
-                    "project",
-                    "start",
-                    "status",
-                    "tags",
-                    "title",
-                ],
-            ),
-            (
-                "task.update",
-                &[
-                    "assignee",
-                    "classification",
-                    "description",
-                    "due",
-                    "estimate_minutes",
-                    "milestone",
-                    "priority",
-                    "progress",
-                    "start",
-                    "status",
-                    "tags",
-                    "task",
-                    "title",
-                ],
-            ),
-            (
-                "task.move",
-                &["after", "before", "close_subtasks", "status", "task"],
-            ),
-            ("task.reparent", &["parent", "task"]),
-            ("task.assign", &["assignee", "task"]),
-            ("task.set_status", &["status", "task"]),
-            ("task.reschedule", &["moves"]),
-            ("task.set_progress", &["progress", "task"]),
-            ("task.delete", &["task"]),
-            ("dependency.add", &["from", "kind", "lag_days", "to"]),
-            ("dependency.remove", &["dependency"]),
-            ("person.create", &["email", "initials", "name", "role"]),
-            (
-                "person.update",
-                &["email", "initials", "name", "person", "role"],
-            ),
-            ("comment.add", &["body", "task"]),
-            ("undo", &[]),
-            ("redo", &[]),
-            ("workspace.upgrade", &[]),
-        ];
-        let now: Vec<(String, Vec<String>)> = plnwrk_engine::registry()
+        let then: BTreeMap<String, serde_json::Value> =
+            serde_json::from_str(include_str!("fixtures/commands-0.2.0.json")).unwrap();
+        let now: BTreeMap<String, serde_json::Value> = plnwrk_engine::registry()
             .iter()
-            .map(|c| {
-                let schema = c.input_schema();
-                let mut params: Vec<String> = schema["properties"]
-                    .as_object()
-                    .map(|p| p.keys().cloned().collect())
-                    .unwrap_or_default();
-                params.sort();
-                (c.id.to_owned(), params)
-            })
-            .collect();
-        let then: Vec<(String, Vec<String>)> = OF_0_2_0
-            .iter()
-            .map(|(id, params)| {
-                (
-                    (*id).to_owned(),
-                    params.iter().map(|p| (*p).to_owned()).collect(),
-                )
-            })
+            .map(|c| (c.id.to_owned(), c.input_schema()))
             .collect();
         assert_eq!(
             now, then,
-            "a new command or parameter makes files unreadable for 0.2.0: new format version first"
+            "a command or parameter schema of 0.2.0 changed: files would be unreadable for 0.2.0 – new format version first"
         );
     }
 

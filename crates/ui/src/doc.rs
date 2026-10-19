@@ -40,11 +40,18 @@ pub struct OpenDoc {
     /// The passphrase of the file as it lies on disk (the protection may be about to change):
     /// what reading it for a merge needs.
     file_secret: Option<SecretString>,
+    /// The work as it was before a merge that could not take all of it (review 10a, F4): kept
+    /// as a copy of its own, never deleted by the recovery copies' upkeep.
+    lost_copy: Option<Document>,
 }
 
 /// How long saving waits for someone else's save to finish.
 #[cfg(not(target_arch = "wasm32"))]
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// What the name of a copy of own work that a merge could not take carries (review 10a, F4).
+#[cfg(not(target_arch = "wasm32"))]
+const LOST_MARK: &str = " – nicht übernommen";
 
 /// What saving or fetching took from the file: others' changes merged with the own.
 pub type Merged = plnwrk_engine::sync::Rebased;
@@ -79,6 +86,7 @@ impl OpenDoc {
             shared: false,
             held_elsewhere: false,
             file_secret: None,
+            lost_copy: None,
         }
     }
 
@@ -267,7 +275,30 @@ impl OpenDoc {
                 reason: text::t().no_file_chosen.to_owned(),
             });
         };
-        self.write_merged(&path, merged)
+        self.write_merged(&path, LOCK_WAIT, merged)
+    }
+
+    /// Like [`Self::save`], without waiting for someone else's save: a shared file saving itself
+    /// tries again in a moment instead of holding up the window (review 10a, F5).
+    pub fn save_now(
+        &mut self,
+        merged: impl FnOnce(&mut Session, &Merged),
+    ) -> Result<Option<Merged>, StoreError> {
+        let Some(path) = self.path.clone() else {
+            return Err(StoreError::Io {
+                reason: text::t().no_file_chosen.to_owned(),
+            });
+        };
+        self.write_merged(&path, std::time::Duration::ZERO, merged)
+    }
+
+    /// The passphrase of the file on disk, given after it was protected by someone else
+    /// meanwhile (review 10a, F7).
+    pub fn use_file_passphrase(&mut self, secret: SecretString) {
+        if !self.protection_changed {
+            self.protection = Protection::Passphrase(secret.clone());
+        }
+        self.file_secret = Some(secret);
     }
 
     /// Locks `path`, reads it, merges own work since `base` onto it and writes the result –
@@ -275,19 +306,27 @@ impl OpenDoc {
     fn write_merged(
         &mut self,
         path: &Path,
+        wait: std::time::Duration,
         after_merge: impl FnOnce(&mut Session, &Merged),
     ) -> Result<Option<Merged>, StoreError> {
         use plnwrk_store::file;
-        let _lock = file::lock_waiting(path, LOCK_WAIT)?;
+        let _lock = file::lock_waiting(path, wait)?;
         let seen = file::stamp(path);
         let mut merged = None;
-        if seen.is_some() {
-            let opened = self.read_file(path)?;
+        // An encrypted file that did not change since it was last read or written here is not
+        // read again: decrypting takes most of a second (review 10a, F6). Unencrypted files are
+        // always read – cheap, and then not the stamp alone decides.
+        let unchanged = self.file_secret.is_some() && seen.is_some() && seen == self.stamp;
+        if seen.is_some() && !unchanged {
+            let opened = self.open_file(path)?;
+            self.follow(&opened);
             let theirs = opened.document.log.len();
             let same = theirs == self.base
                 && opened.document.log.as_slice()
                     == self.session.log().get(..theirs).unwrap_or(&[]);
             if !same {
+                let before = (self.session.log().len() > self.base)
+                    .then(|| Document::from_session(&self.session));
                 let rebased = self
                     .session
                     .rebase_onto(opened.document.workspace, opened.document.log, self.base)
@@ -296,6 +335,10 @@ impl OpenDoc {
                     })?;
                 // From here the file's state is ours too, whether or not writing succeeds.
                 self.base = theirs;
+                // The earliest state is kept: it holds everything a later try lost too.
+                if !rebased.lost.is_empty() && self.lost_copy.is_none() {
+                    self.lost_copy = before;
+                }
                 after_merge(&mut self.session, &rebased);
                 merged = Some(rebased);
             }
@@ -306,19 +349,46 @@ impl OpenDoc {
         Ok(merged)
     }
 
-    /// The file at `path`, read and checked, opened with the passphrase of this workspace. Its
-    /// protection is taken over unless it was changed here (then saving sets it visibly).
-    fn read_file(&mut self, path: &Path) -> Result<plnwrk_store::Opened, StoreError> {
+    /// The file at `path`, read and checked, opened with the passphrase of the file this
+    /// workspace lives in. Changes nothing here.
+    fn open_file(&self, path: &Path) -> Result<plnwrk_store::Opened, StoreError> {
         let bytes = plnwrk_store::file::read(path)?;
-        let passphrase = self.file_secret.clone();
-        let opened = plnwrk_store::open(&bytes, passphrase.as_ref())?;
+        plnwrk_store::open(&bytes, self.file_secret.as_ref())
+    }
+
+    /// Takes over the protection of the shared file (someone protected or unprotected it
+    /// meanwhile) – unless it was changed here, then saving sets it visibly. Only for the file of
+    /// the same work: never from another file (review 10a, F2).
+    fn follow(&mut self, opened: &plnwrk_store::Opened) {
         if !self.protection_changed {
-            self.protection = match passphrase {
-                Some(secret) if opened.manifest.encrypted => Protection::Passphrase(secret),
+            self.protection = match &self.file_secret {
+                Some(secret) if opened.manifest.encrypted => Protection::Passphrase(secret.clone()),
                 _ => Protection::None,
             };
         }
-        Ok(opened)
+    }
+
+    /// Keeps the work as it was before a merge that could not take all of it (review 10a, F4):
+    /// a new file in `folder`, with the protection here, offered under "Wiederherstellen". The
+    /// path, if there was such work.
+    pub fn keep_lost_copy(&mut self, folder: &Path) -> Result<Option<PathBuf>, StoreError> {
+        let Some(before) = self.lost_copy.take() else {
+            return Ok(None);
+        };
+        std::fs::create_dir_all(folder).map_err(|e| StoreError::Io {
+            reason: e.to_string(),
+        })?;
+        let bytes = plnwrk_store::save(&before, &self.protection)?;
+        let when = jiff::Zoned::now().strftime("%Y-%m-%d %H.%M.%S").to_string();
+        let mut path = folder.join(format!("{}{LOST_MARK} {when}.plnwrk", self.name()));
+        for n in 2.. {
+            if !path.exists() {
+                break;
+            }
+            path = folder.join(format!("{}{LOST_MARK} {when} ({n}).plnwrk", self.name()));
+        }
+        plnwrk_store::file::write_new(&path, &bytes)?;
+        Ok(Some(path))
     }
 
     /// Takes what others saved in the file since it was last read or written here – only when
@@ -335,25 +405,17 @@ impl OpenDoc {
         if now.is_none() || now == self.stamp {
             return Ok(None);
         }
-        let opened = self.read_file(&path)?;
+        let opened = self.open_file(&path)?;
+        self.follow(&opened);
         let theirs = opened.document.log.len();
-        let rebased = match self.session.rebase_onto(
-            opened.document.workspace.clone(),
-            opened.document.log.clone(),
-            self.base,
-        ) {
-            Ok(rebased) => rebased,
-            // Replaced by another file entirely: that one now.
-            Err(_) => {
-                let actor = self.session.actor();
-                self.session = session(opened.document.clone());
-                self.session.set_actor(actor);
-                plnwrk_engine::sync::rebase(opened.document.workspace, opened.document.log, &[], 0)
-                    .map_err(|_| StoreError::Corrupt {
-                        reason: text::t().shared_file_replaced.to_owned(),
-                    })?
-            }
-        };
+        // Replaced by another file entirely: said, not quietly taken over with a person it
+        // does not have (review 10a, F8).
+        let rebased = self
+            .session
+            .rebase_onto(opened.document.workspace, opened.document.log, self.base)
+            .map_err(|_| StoreError::Io {
+                reason: text::t().shared_file_replaced.to_owned(),
+            })?;
         self.stamp = now;
         self.base = theirs;
         self.saved = theirs;
@@ -372,23 +434,35 @@ impl OpenDoc {
         if self.path.as_deref() == Some(path.as_path()) {
             return self.save(merged);
         }
-        // The same work there: what both have in common is where merging starts.
-        self.base = match self.read_file(&path) {
-            Ok(opened) if common_start(&opened.document.log, self.session.log()) > 0 => {
-                common_start(&opened.document.log, self.session.log())
+        // What is there decides (review 10a, F1–F3): the same work – merged onto it; another
+        // work or nothing – written as it is, with the protection here (the system asked about
+        // replacing); a file that cannot be read (protected, broken) – never written over.
+        if !path.exists() {
+            let result = self.write_fresh(&path).map(|()| None);
+            if result.is_ok() {
+                self.path = Some(path);
             }
-            // Another work or no file: written as it is (the system asked about replacing).
-            _ => 0,
-        };
-        let result = if self.base == 0 {
-            self.write_fresh(&path).map(|()| None)
-        } else {
-            self.write_merged(&path, merged)
-        };
-        if result.is_ok() {
-            self.path = Some(path);
+            return result;
         }
-        result
+        let opened = self.open_file(&path)?;
+        let common = common_start(&opened.document.log, self.session.log());
+        if common == 0 {
+            self.write_fresh(&path)?;
+            self.path = Some(path);
+            return Ok(None);
+        }
+        let before = self.base;
+        self.base = common;
+        match self.write_merged(&path, LOCK_WAIT, merged) {
+            Ok(merged) => {
+                self.path = Some(path);
+                Ok(merged)
+            }
+            Err(error) => {
+                self.base = before;
+                Err(error)
+            }
+        }
     }
 
     /// Writes the whole work to `path`, under the lock, replacing what is there.
@@ -482,7 +556,12 @@ impl OpenDoc {
     fn name_of(&self, path: &Path) -> String {
         path.file_stem()
             .map(|s| s.to_string_lossy().into_owned())
-            .and_then(|stem| stem.split(" – Wiederherstellung").next().map(str::to_owned))
+            .and_then(|stem| {
+                stem.split(" – Wiederherstellung")
+                    .next()
+                    .and_then(|stem| stem.split(LOST_MARK).next())
+                    .map(str::to_owned)
+            })
             .unwrap_or_else(|| text::t().untitled.to_owned())
     }
 }
@@ -858,6 +937,114 @@ mod tests {
         assert_eq!(
             with_extension(Path::new("a/b.plnwrk")),
             PathBuf::from("a/b.plnwrk")
+        );
+    }
+
+    /// REVIEW R1: a failed "Save as" must not leave a wrong merge start behind – the next
+    /// save would set the whole own history onto the file again.
+    #[test]
+    fn review_a_failed_save_as_does_not_replay_the_history_on_the_next_save() {
+        let (path, _anna, mut ben) = shared("rev-failed-save-as");
+        // An older copy of the same work: "Save as" there would merge from its start.
+        let other = path.with_file_name("andere.plnwrk");
+        std::fs::copy(&path, &other).unwrap();
+        // Saved earlier: one title changed twice.
+        rename(&mut ben, "Einbau Wache 11", "Zwischenstand");
+        rename(&mut ben, "Zwischenstand", "Endstand");
+        ben.save(|_, _| ()).unwrap();
+        let before = ben.session.log().len();
+        rename(&mut ben, "Schulung Einsatzkräfte", "Ben");
+        // The copy is busy (e.g. open in plnwrk 0.2.0): "Save as" there fails.
+        let held = plnwrk_store::file::lock(&other).unwrap();
+        assert!(ben.save_as(&other, |_, _| ()).is_err());
+        drop(held);
+        // Back to the shared file with ⌘S: nothing of others to merge.
+        let merged = ben.save(|_, _| ()).unwrap();
+        let on_disk = OpenDoc::open(&path, None).unwrap();
+        assert_eq!(
+            on_disk.session.log().len(),
+            before + 1,
+            "merged: {:?}",
+            merged.map(|m| (m.foreign.len(), m.moved.len(), m.conflicts.len()))
+        );
+    }
+
+    /// REVIEW R2: "Save as" of a protected work onto another (unprotected) file must not write
+    /// it unencrypted.
+    #[test]
+    fn review_save_as_of_a_protected_work_onto_another_file_stays_encrypted() {
+        let dir = scratch("rev-protect-save-as");
+        let secret = SecretString::from("eine-lange-passphrase".to_owned());
+        let path = dir.join("geheim.plnwrk");
+        let mut doc = OpenDoc::sample().unwrap();
+        doc.set_protection(Protection::Passphrase(secret.clone()));
+        doc.save_as(&path, |_, _| ()).unwrap();
+        let other = dir.join("andere.plnwrk");
+        let mut plain = OpenDoc::sample().unwrap();
+        plain.save_as(&other, |_, _| ()).unwrap();
+        drop(plain);
+        doc.save_as(&other, |_, _| ()).unwrap();
+        assert!(
+            plnwrk_store::peek(&std::fs::read(&other).unwrap())
+                .unwrap()
+                .encrypted,
+            "written in plain text (file)"
+        );
+        assert!(doc.encrypted(), "still protected here");
+        assert!(
+            plnwrk_store::peek(&std::fs::read(&other).unwrap())
+                .unwrap()
+                .encrypted,
+            "written in plain text"
+        );
+    }
+
+    /// REVIEW R3: a shared file saves itself after every change, in the window's thread – an
+    /// encrypted one must not freeze the window for long each time.
+    #[test]
+    fn review_saving_an_encrypted_shared_file_is_quick() {
+        let dir = scratch("rev-enc-time");
+        let path = dir.join("gemeinsam.plnwrk");
+        let secret = SecretString::from("eine-lange-passphrase".to_owned());
+        let mut doc = OpenDoc::sample().unwrap();
+        doc.set_protection(Protection::Passphrase(secret.clone()));
+        doc.save_as(&path, |_, _| ()).unwrap();
+        drop(doc);
+        let mut anna = OpenDoc::open(&path, Some(secret)).unwrap();
+        rename(&mut anna, "Einbau Wache 11", "Verschlüsselt");
+        // Encrypting once is the price of the protection (the key is derived anew each time);
+        // reading the unchanged file again on top of it is not (review 10a, F6).
+        let started = std::time::Instant::now();
+        anna.to_bytes().unwrap();
+        let encrypting = started.elapsed();
+        let started = std::time::Instant::now();
+        anna.save(|_, _| ()).unwrap();
+        let took = started.elapsed();
+        assert!(
+            took < encrypting * 3 / 2,
+            "one autosave took {took:?}, encrypting alone {encrypting:?}"
+        );
+    }
+
+    /// REVIEW R4: "Save as" from a recovery copy onto the shared file, which someone protected
+    /// meanwhile – must not replace it (their protection and their changes).
+    #[test]
+    fn review_save_as_onto_the_shared_file_protected_meanwhile_does_not_replace_it() {
+        let (path, mut anna, mut ben) = shared("rev-save-as-protected");
+        // Ben works on from a recovery copy (no file of its own).
+        let _ = ben.detach_as_untitled();
+        rename(&mut ben, "Schulung Einsatzkräfte", "Ben aus der Kopie");
+        anna.set_protection(Protection::Passphrase(SecretString::from(
+            "eine-lange-passphrase".to_owned(),
+        )));
+        rename(&mut anna, "Einbau Wache 11", "Anna geschützt");
+        anna.save(|_, _| ()).unwrap();
+        let result = ben.save_as(&path, |_, _| ());
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            plnwrk_store::peek(&bytes).unwrap().encrypted,
+            "replaced in plain text (save_as: {:?})",
+            result.as_ref().map(Option::is_some)
         );
     }
 }

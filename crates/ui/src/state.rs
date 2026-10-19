@@ -178,6 +178,9 @@ pub enum Dialog {
     /// Change a person (Phase 10a: people are added and changed, never deleted – the history
     /// refers to them).
     EditPerson { person: PersonId, form: PersonForm },
+    /// Someone protected the shared file meanwhile: its passphrase, to go on saving and
+    /// fetching (review 10a, F7).
+    FilePassphrase { text: String },
 }
 
 /// What the last action has to say: a refusal or a note.
@@ -742,7 +745,9 @@ impl State {
     /// Closes the dialog; a typed passphrase is wiped from memory.
     pub fn close_dialog(&mut self) {
         match &mut self.dialog {
-            Some(Dialog::Passphrase { text, .. }) => text.zeroize(),
+            Some(Dialog::Passphrase { text, .. } | Dialog::FilePassphrase { text }) => {
+                text.zeroize();
+            }
             Some(Dialog::Protect { first, second }) => {
                 first.zeroize();
                 second.zeroize();

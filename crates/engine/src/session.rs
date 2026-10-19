@@ -173,14 +173,19 @@ impl Session {
         &mut self.ws
     }
 
-    /// Takes the last change off the undo stack: bookkeeping that is no step of the person's
-    /// own (Phase 10a – a comment noting a conflict), so undo goes back to what they did.
-    pub fn keep_off_undo(&mut self) {
-        if let (Some(top), Some(last)) = (self.undo.last(), self.log.last())
-            && *top == last.seq
-        {
-            self.undo.pop();
-        }
+    /// Runs a command as bookkeeping, not as a step of the person's own (Phase 10a – a comment
+    /// noting a conflict): undo and redo stay as they were.
+    pub fn run_aside(
+        &mut self,
+        command: &str,
+        params: &Value,
+        origin: Origin,
+    ) -> Result<Outcome, CommandError> {
+        let (undo, redo) = (self.undo.clone(), self.redo.clone());
+        let result = self.run(command, params, origin);
+        self.undo = undo;
+        self.redo = redo;
+        result
     }
 
     /// Whether `undo` would do something.
@@ -335,7 +340,14 @@ impl Session {
             .rev()
             .map(Event::inverse)
             .collect();
-        self.apply_all(&inverse)?;
+        if let Err(error) = self.apply_all(&inverse) {
+            // Changed by someone else since (a shared file): this step can never be undone –
+            // it goes, so older own steps stay reachable (review 10a, F11).
+            if matches!(error, CommandError::Conflict { .. }) {
+                self.undo.pop();
+            }
+            return Err(error);
+        }
         self.undo.pop();
         self.redo.push(seq);
         let change = self.append("undo", json!({}), inverse, origin, Some(seq), None);
@@ -351,7 +363,12 @@ impl Session {
             reason: "nothing to redo".to_owned(),
         })?;
         let events = self.events_of(seq)?;
-        self.apply_all(&events)?;
+        if let Err(error) = self.apply_all(&events) {
+            if matches!(error, CommandError::Conflict { .. }) {
+                self.redo.pop();
+            }
+            return Err(error);
+        }
         self.redo.pop();
         self.undo.push(seq);
         let change = self.append("redo", json!({}), events, origin, None, Some(seq));

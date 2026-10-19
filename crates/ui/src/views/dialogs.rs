@@ -165,6 +165,24 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         }
                     });
                 }
+                Dialog::FilePassphrase { text: secret } => {
+                    ui.heading(text::t().passphrase);
+                    ui.label(text::t().file_passphrase_question);
+                    let field = ui.add(egui::TextEdit::singleline(secret).password(true));
+                    focus_once(&field, serial);
+                    let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                    ui.horizontal(|ui| {
+                        if (w::button(ui, Kind::Primary, text::t().apply).clicked() || entered)
+                            && !secret.is_empty()
+                        {
+                            let secret = SecretString::from(std::mem::take(secret));
+                            out.push(Intent::FilePassphrase(secret));
+                        }
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
+                            out.push(Intent::CloseDialog);
+                        }
+                    });
+                }
                 Dialog::Unsaved(action) => {
                     ui.heading(text::t().unsaved_title);
                     ui.label(text::t().unsaved_question);

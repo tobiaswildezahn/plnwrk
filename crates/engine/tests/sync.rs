@@ -708,18 +708,103 @@ mod sync {
             ranks_unique(&ben);
             prop_assert_eq!(&ben.log()[..anna.log().len()], anna.log(), "everything she saved, unchanged, first");
             // Nothing of my own: the merge is her file, unchanged.
-            let mut idle = fork(&Workspace::default(), &[], 7_000);
-            let _ = &mut idle;
             let (start_session, _, _) = start();
             let mut quiet = fork(start_session.workspace(), start_session.log(), 3_000);
             let same = quiet.rebase_onto(anna.workspace().clone(), anna.log().to_vec(), base).expect("continues");
             prop_assert_eq!(quiet.log(), anna.log());
             prop_assert_eq!(quiet.workspace(), anna.workspace());
             prop_assert!(same.moved.is_empty() && same.lost.is_empty());
-            prop_assert!(merged.moved.len() + merged.lost.len() <= own);
+            // Every own change is accounted for: taken, not taken, or held already (L3).
+            prop_assert_eq!(merged.moved.len() + merged.lost.len() + merged.held.len(), own);
             for lost in &merged.lost {
                 prop_assert!(lost.seq as usize > base);
             }
         }
+    }
+
+    /// REVIEW E1: Ben deletes a task Anna has just commented on (saved before him) – her
+    /// comment must not vanish without anyone being told.
+    #[test]
+    fn review_a_comment_saved_meanwhile_does_not_vanish_unsaid() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(
+            &mut anna,
+            "comment.add",
+            json!({"task": einbau.to_string(), "body": "Annas Hinweis"}),
+        );
+        run(&mut ben, "task.delete", json!({"task": einbau.to_string()}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        // Deleting wins (decided in review 10a, F10) – but what it took along is named.
+        let comment = anna
+            .workspace()
+            .comments()
+            .find(|c| c.body == "Annas Hinweis")
+            .unwrap()
+            .id;
+        assert!(ben.workspace().comment(comment).is_none(), "deleted along");
+        assert!(
+            merged
+                .swept
+                .iter()
+                .any(|s| s.entity == plnwrk_core::EntityKey::Comment(comment)),
+            "gone, nothing said: swept {:?}",
+            merged.swept
+        );
+    }
+
+    /// REVIEW E2: Anna renamed a task and saved; Ben deletes it – her change must be named.
+    #[test]
+    fn review_a_change_saved_meanwhile_is_not_deleted_unsaid() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(
+            &mut anna,
+            "task.update",
+            json!({"task": einbau.to_string(), "title": "Einbau – Angebot liegt vor"}),
+        );
+        run(&mut ben, "task.delete", json!({"task": einbau.to_string()}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert!(ben.workspace().task(einbau).is_none(), "deleting wins");
+        assert!(
+            merged
+                .swept
+                .iter()
+                .any(|s| s.entity == plnwrk_core::EntityKey::Task(einbau)),
+            "her change is gone, nothing said: swept {:?}",
+            merged.swept
+        );
+    }
+
+    /// REVIEW E3: the conflict names who set the other value – not whoever touched the task
+    /// last.
+    #[test]
+    fn review_a_conflict_names_who_set_the_other_value() {
+        let (mut anna, mut ben, base, [einbau, _], [anna_id, _]) = two();
+        run(
+            &mut anna,
+            "task.update",
+            json!({"task": einbau.to_string(), "due": "2026-11-21"}),
+        );
+        let mut carla = fork(anna.workspace(), anna.log(), 3_000);
+        let carla_id = person(&mut carla, "Carla Meier");
+        carla.set_actor(Some(carla_id));
+        run(
+            &mut carla,
+            "task.update",
+            json!({"task": einbau.to_string(), "title": "Einbau (Carla)"}),
+        );
+        run(
+            &mut ben,
+            "task.update",
+            json!({"task": einbau.to_string(), "due": "2026-11-25"}),
+        );
+        let merged = ben
+            .rebase_onto(carla.workspace().clone(), carla.log().to_vec(), base)
+            .unwrap();
+        assert_eq!(merged.conflicts.len(), 1);
+        assert_eq!(
+            merged.conflicts[0].by,
+            Some(anna_id),
+            "Carla only renamed it; the deadline was Anna's"
+        );
     }
 }

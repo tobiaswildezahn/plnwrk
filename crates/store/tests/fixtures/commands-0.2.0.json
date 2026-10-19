@@ -1,0 +1,829 @@
+{
+  "comment.add": {
+    "additionalProperties": false,
+    "properties": {
+      "body": {
+        "description": "Markdown",
+        "maxLength": 20000,
+        "type": "string"
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task",
+      "body"
+    ],
+    "type": "object"
+  },
+  "dependency.add": {
+    "additionalProperties": false,
+    "properties": {
+      "from": {
+        "description": "The task that comes first",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      },
+      "kind": {
+        "description": "Default: finish_to_start",
+        "enum": [
+          "finish_to_start",
+          "start_to_start",
+          "finish_to_finish"
+        ],
+        "type": "string"
+      },
+      "lag_days": {
+        "description": "Extra days in between",
+        "maximum": 365,
+        "minimum": -365,
+        "type": "integer"
+      },
+      "to": {
+        "description": "The task that waits",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "from",
+      "to"
+    ],
+    "type": "object"
+  },
+  "dependency.remove": {
+    "additionalProperties": false,
+    "properties": {
+      "dependency": {
+        "description": "The dependency",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "dependency"
+      }
+    },
+    "required": [
+      "dependency"
+    ],
+    "type": "object"
+  },
+  "person.create": {
+    "additionalProperties": false,
+    "properties": {
+      "email": {
+        "description": "E-mail address",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "initials": {
+        "description": "Short form; default: first letters of the name",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "name": {
+        "description": "Full name",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "role": {
+        "description": "Role or function",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "person.update": {
+    "additionalProperties": false,
+    "properties": {
+      "email": {
+        "description": "E-mail address; null removes it",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "initials": {
+        "description": "Short form",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "name": {
+        "description": "Full name",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "person": {
+        "description": "The person",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "person"
+      },
+      "role": {
+        "description": "Role or function; null removes it",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "person"
+    ],
+    "type": "object"
+  },
+  "project.archive": {
+    "additionalProperties": false,
+    "properties": {
+      "project": {
+        "description": "The project or case",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "project"
+      }
+    },
+    "required": [
+      "project"
+    ],
+    "type": "object"
+  },
+  "project.create": {
+    "additionalProperties": false,
+    "properties": {
+      "classification": {
+        "description": "Default: open",
+        "enum": [
+          "open",
+          "vs_nfd"
+        ],
+        "type": "string"
+      },
+      "description": {
+        "description": "Markdown",
+        "maxLength": 20000,
+        "type": "string"
+      },
+      "due": {
+        "description": "Deadline, optionally with a time of day",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$",
+        "type": "string"
+      },
+      "kind": {
+        "description": "Free label, e.g. Projekt, SKA, Beschaffung",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "owner": {
+        "description": "Who is responsible",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "person"
+      },
+      "reference": {
+        "description": "File or reference number (Aktenzeichen)",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "start": {
+        "description": "First day",
+        "format": "date",
+        "type": "string"
+      },
+      "status": {
+        "description": "Default: active",
+        "enum": [
+          "draft",
+          "active",
+          "on_hold",
+          "done",
+          "archived"
+        ],
+        "type": "string"
+      },
+      "template": {
+        "description": "Use as a template for new projects or cases",
+        "type": "boolean"
+      },
+      "title": {
+        "description": "Name",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "title"
+    ],
+    "type": "object"
+  },
+  "project.instantiate": {
+    "additionalProperties": false,
+    "properties": {
+      "due": {
+        "description": "Deadline, optionally with a time of day; default: the template's, moved",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$",
+        "type": "string"
+      },
+      "owner": {
+        "description": "Who is responsible",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "person"
+      },
+      "reference": {
+        "description": "File or reference number",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "start": {
+        "description": "First day; template dates move along",
+        "format": "date",
+        "type": "string"
+      },
+      "template": {
+        "description": "The template",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "project"
+      },
+      "title": {
+        "description": "Name of the new project or case",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "template",
+      "title",
+      "start"
+    ],
+    "type": "object"
+  },
+  "project.update": {
+    "additionalProperties": false,
+    "properties": {
+      "classification": {
+        "description": "Security classification",
+        "enum": [
+          "open",
+          "vs_nfd"
+        ],
+        "type": "string"
+      },
+      "description": {
+        "description": "Markdown",
+        "maxLength": 20000,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "due": {
+        "description": "Deadline, optionally with a time of day",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "kind": {
+        "description": "Free label",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "owner": {
+        "description": "Who is responsible",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": [
+          "string",
+          "null"
+        ],
+        "x-entity": "person"
+      },
+      "project": {
+        "description": "The project or case",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "project"
+      },
+      "reference": {
+        "description": "File or reference number",
+        "maxLength": 80,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "start": {
+        "description": "First day",
+        "format": "date",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "status": {
+        "description": "Lifecycle",
+        "enum": [
+          "draft",
+          "active",
+          "on_hold",
+          "done",
+          "archived"
+        ],
+        "type": "string"
+      },
+      "template": {
+        "description": "Use as a template",
+        "type": "boolean"
+      },
+      "title": {
+        "description": "Name",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "project"
+    ],
+    "type": "object"
+  },
+  "redo": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "task.assign": {
+    "additionalProperties": false,
+    "properties": {
+      "assignee": {
+        "description": "Who does it; omit or null for nobody",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": [
+          "string",
+          "null"
+        ],
+        "x-entity": "person"
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "type": "object"
+  },
+  "task.create": {
+    "additionalProperties": false,
+    "properties": {
+      "after": {
+        "description": "Place it right after this task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      },
+      "assignee": {
+        "description": "Who does it",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "person"
+      },
+      "classification": {
+        "description": "Own classification, not lower than the project's or the parent task's",
+        "enum": [
+          "open",
+          "vs_nfd"
+        ],
+        "type": "string"
+      },
+      "description": {
+        "description": "Markdown",
+        "maxLength": 20000,
+        "type": "string"
+      },
+      "due": {
+        "description": "Deadline, optionally with a time of day",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$",
+        "type": "string"
+      },
+      "estimate_minutes": {
+        "description": "Expected effort in minutes",
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "milestone": {
+        "description": "A milestone (top-level only): a date that matters, reached when done",
+        "type": "boolean"
+      },
+      "parent": {
+        "description": "Makes it a subtask of this task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      },
+      "priority": {
+        "description": "Default: normal",
+        "enum": [
+          "low",
+          "normal",
+          "high",
+          "critical"
+        ],
+        "type": "string"
+      },
+      "progress": {
+        "description": "Percent done",
+        "maximum": 100,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "project": {
+        "description": "The project or case",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "project"
+      },
+      "start": {
+        "description": "First day",
+        "format": "date",
+        "type": "string"
+      },
+      "status": {
+        "description": "Default: todo",
+        "enum": [
+          "todo",
+          "in_progress",
+          "blocked",
+          "review",
+          "done"
+        ],
+        "type": "string"
+      },
+      "tags": {
+        "description": "Free labels",
+        "items": {
+          "maxLength": 80,
+          "type": "string"
+        },
+        "maxItems": 30,
+        "type": "array"
+      },
+      "title": {
+        "description": "Short name",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "project",
+      "title"
+    ],
+    "type": "object"
+  },
+  "task.delete": {
+    "additionalProperties": false,
+    "properties": {
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "type": "object"
+  },
+  "task.move": {
+    "additionalProperties": false,
+    "properties": {
+      "after": {
+        "description": "Place it right after this task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      },
+      "before": {
+        "description": "Place it right before this task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      },
+      "close_subtasks": {
+        "description": "With status done: every open subtask (at any depth) is done too, in the same step",
+        "type": "boolean"
+      },
+      "status": {
+        "description": "New status (board column)",
+        "enum": [
+          "todo",
+          "in_progress",
+          "blocked",
+          "review",
+          "done"
+        ],
+        "type": "string"
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "type": "object"
+  },
+  "task.reparent": {
+    "additionalProperties": false,
+    "properties": {
+      "parent": {
+        "description": "New parent; omit or null for top level. An inherited classification is kept.",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": [
+          "string",
+          "null"
+        ],
+        "x-entity": "task"
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "type": "object"
+  },
+  "task.reschedule": {
+    "additionalProperties": false,
+    "properties": {
+      "moves": {
+        "description": "New dates: [{task, start, due}], null clears a date",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "due": {
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "due_time": {
+              "description": "Left out: the time of day stays",
+              "pattern": "^[0-9]{2}:[0-9]{2}$",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "start": {
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "task": {
+              "type": "string",
+              "x-entity": "task"
+            }
+          },
+          "required": [
+            "task",
+            "start",
+            "due"
+          ],
+          "type": "object"
+        },
+        "maxItems": 1000,
+        "minItems": 1,
+        "type": "array"
+      }
+    },
+    "required": [
+      "moves"
+    ],
+    "type": "object"
+  },
+  "task.set_progress": {
+    "additionalProperties": false,
+    "properties": {
+      "progress": {
+        "description": "Percent done",
+        "maximum": 100,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task",
+      "progress"
+    ],
+    "type": "object"
+  },
+  "task.set_status": {
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "description": "New status",
+        "enum": [
+          "todo",
+          "in_progress",
+          "blocked",
+          "review",
+          "done"
+        ],
+        "type": "string"
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      }
+    },
+    "required": [
+      "task",
+      "status"
+    ],
+    "type": "object"
+  },
+  "task.update": {
+    "additionalProperties": false,
+    "properties": {
+      "assignee": {
+        "description": "Who does it",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": [
+          "string",
+          "null"
+        ],
+        "x-entity": "person"
+      },
+      "classification": {
+        "description": "Own classification",
+        "enum": [
+          "open",
+          "vs_nfd"
+        ],
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "description": {
+        "description": "Markdown",
+        "maxLength": 20000,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "due": {
+        "description": "Deadline, optionally with a time of day",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "estimate_minutes": {
+        "description": "Expected effort in minutes",
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "milestone": {
+        "description": "Make it a milestone or a normal task",
+        "type": "boolean"
+      },
+      "priority": {
+        "description": "How urgent",
+        "enum": [
+          "low",
+          "normal",
+          "high",
+          "critical"
+        ],
+        "type": "string"
+      },
+      "progress": {
+        "description": "Percent done",
+        "maximum": 100,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "start": {
+        "description": "First day",
+        "format": "date",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "status": {
+        "description": "Where it stands",
+        "enum": [
+          "todo",
+          "in_progress",
+          "blocked",
+          "review",
+          "done"
+        ],
+        "type": "string"
+      },
+      "tags": {
+        "description": "Free labels; replaces all",
+        "items": {
+          "maxLength": 80,
+          "type": "string"
+        },
+        "maxItems": 30,
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "task": {
+        "description": "The task",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$",
+        "type": "string",
+        "x-entity": "task"
+      },
+      "title": {
+        "description": "Short name",
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "type": "object"
+  },
+  "undo": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "workspace.upgrade": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  }
+}

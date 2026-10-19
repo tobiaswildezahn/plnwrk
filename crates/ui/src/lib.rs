@@ -87,8 +87,13 @@ struct SharedClock {
     changed: f64,
     next_fetch: f64,
     retry_at: f64,
-    /// A refusal that would repeat every few seconds was said once already.
+    /// A refusal of saving that would repeat every few seconds was said once already.
     said: bool,
+    /// The same for fetching (one must not keep the other quiet: review 10a, K2).
+    fetch_said: bool,
+    /// The passphrase of a file protected meanwhile was asked for by itself already; after
+    /// "Abbrechen" only saving by hand asks again.
+    asked: bool,
 }
 /// How many recent files are kept.
 const RECENT_MAX: usize = 8;
@@ -150,6 +155,9 @@ pub(crate) enum Intent {
     File(FileAction),
     /// Open an encrypted file with this passphrase.
     Unlock(FileSource, SecretString),
+    /// Go on saving and fetching the shared file with this passphrase (someone protected it
+    /// meanwhile).
+    FilePassphrase(SecretString),
     /// Save first, then carry out the action.
     SaveThen(FileAction),
     /// Carry out the action and drop unsaved changes.
@@ -242,6 +250,9 @@ pub struct PlnwrkApp {
     after_answer: Option<Intent>,
     /// The rhythm of a shared file (Phase 10a).
     shared: SharedClock,
+    /// The last save merged, but could not take all of the own work (review 10a, F4): "save,
+    /// then …" stops there, so it is seen.
+    save_lost: bool,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -300,6 +311,7 @@ impl PlnwrkApp {
             last_done: false,
             after_answer: None,
             shared: SharedClock::default(),
+            save_lost: false,
         }
     }
 
@@ -351,7 +363,23 @@ impl PlnwrkApp {
                     .is_some_and(state::TaskDraft::is_pending)
                 || self.inline_pending().is_some()
                 || self.project_pending().is_some()
-                || self.milestone_edit_pending())
+                || self.milestone_edit_pending()
+                || self.person_pending().is_some())
+    }
+
+    /// A person's fields typed in "Person bearbeiten" and not applied yet: the parameters of
+    /// `person.update` (review 10a, U8).
+    fn person_pending(&self) -> Option<Value> {
+        let Some(Dialog::EditPerson { person, form }) = &self.state.dialog else {
+            return None;
+        };
+        let stored = self.doc.as_ref()?.session.workspace().person(*person)?;
+        let params = form.update_params(stored);
+        // Only the person named: nothing typed.
+        params
+            .as_object()
+            .is_some_and(|fields| fields.len() > 1)
+            .then_some(params)
     }
 
     /// A project form with typed changes: the project and the form, brought up to date with
@@ -416,6 +444,16 @@ impl PlnwrkApp {
         // What could not be taken, named in one message at the end (a later success must not
         // hide an earlier refusal).
         let mut refused: Vec<String> = Vec::new();
+        // A person being edited: taken like "Übernehmen", or put back and named.
+        if let Some(params) = self.person_pending() {
+            let taken = self.run("person.update", &params, Then::Nothing, Some(Clear::Dialog));
+            if !taken {
+                if let Some(message) = self.state.message().filter(|m| m.error) {
+                    refused.push(format!("{} {}", text::t().not_taken, message.text));
+                }
+                self.state.close_dialog();
+            }
+        }
         // A title being renamed in the list counts like any typed text.
         if let Some((id, title)) = self.inline_pending() {
             // Refused or not: what `run` says, not what stands in the message (a field's message
@@ -697,11 +735,7 @@ impl PlnwrkApp {
         }
         self.autosave_tick(ui.ctx());
         #[cfg(not(target_arch = "wasm32"))]
-        if self.doc.as_ref().is_some_and(|d| d.shared) {
-            self.shared_at(ui.ctx().input(|i| i.time));
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(500));
-        }
+        self.shared_tick(ui.ctx());
         let unsaved = self.has_unsaved_changes();
         if unsaved != self.leave_warning {
             self.host.set_leave_warning(unsaved);
@@ -714,6 +748,15 @@ impl PlnwrkApp {
     fn autosave_tick(&mut self, ctx: &egui::Context) {
         if let Some(wait) = self.autosave_at(ctx.input(|i| i.time)) {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.1)));
+        }
+    }
+
+    /// Lets a shared file save and fetch when due, and wakes the app up again for it.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn shared_tick(&mut self, ctx: &egui::Context) {
+        if self.doc.as_ref().is_some_and(|d| d.shared) {
+            self.shared_at(ctx.input(|i| i.time));
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
     }
 
@@ -888,10 +931,24 @@ impl PlnwrkApp {
             }
             Intent::SaveThen(action) => {
                 self.state.close_dialog();
-                if self.save(false) {
+                if self.save(false) && !self.save_lost {
                     self.state.force = true;
                     self.file(action);
                 }
+            }
+            Intent::FilePassphrase(secret) => {
+                self.state.close_dialog();
+                self.shared.asked = false;
+                self.shared.said = false;
+                self.shared.fetch_said = false;
+                self.shared.retry_at = 0.0;
+                self.shared.next_fetch = 0.0;
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(doc) = &mut self.doc {
+                    doc.use_file_passphrase(secret);
+                }
+                #[cfg(target_arch = "wasm32")]
+                drop(secret);
             }
             Intent::Discard(action) => {
                 self.state.close_dialog();
@@ -1350,11 +1407,13 @@ impl PlnwrkApp {
         let Some(doc) = &mut self.doc else { return };
         let old = doc.set_protection(protection);
         if self.save(false) {
-            // A typed date that was not taken is the more important news.
-            self.state.say(match warning {
-                Some(warning) => Message::error(warning),
-                None => Message::info(done),
-            });
+            // A typed date that was not taken is the more important news, and so is own work a
+            // merge could not take (review 10a, K4).
+            match warning {
+                Some(warning) => self.state.say(Message::error(warning)),
+                None if self.save_lost => {}
+                None => self.state.say(Message::info(done)),
+            }
         } else {
             if let Some(doc) = &mut self.doc {
                 doc.restore_protection(old);
@@ -1535,31 +1594,36 @@ impl PlnwrkApp {
         }
     }
 
-    /// Saves a shared file by itself: quietly, unless something was merged or refused.
+    /// Saves a shared file by itself: quietly, unless something was merged or refused. Never
+    /// waits for someone else's save: it tries again in a moment instead of holding up the
+    /// window (review 10a, F5).
     #[cfg(not(target_arch = "wasm32"))]
     fn save_shared(&mut self, now: f64) {
         let Some(doc) = &mut self.doc else { return };
-        match doc.save(note_conflicts) {
+        match doc.save_now(note_conflicts) {
             Ok(merged) => {
                 self.shared.said = false;
                 self.shared.len = doc.log_len();
-                let lost = merged.as_ref().is_some_and(|m| !lost_said(m).is_empty());
-                if !lost {
-                    self.autosave.saved();
-                }
-                if let Some(said) = merged.as_ref().and_then(|m| merged_message(doc, m)) {
+                if let Some(said) = self.after_save(merged.as_ref()) {
                     self.state.say(said);
                 }
             }
             // Someone else is saving, or the drive ignored the lock: again in a moment.
             Err(StoreError::InUse { .. } | StoreError::ChangedMeanwhile { .. }) => {
+                self.keep_lost_quietly();
                 self.shared.retry_at = now + 2.0;
             }
             Err(error) => {
+                self.keep_lost_quietly();
                 self.shared.retry_at = now + 30.0;
-                if !self.shared.said {
+                if passphrase_needed(&error) {
+                    if !self.shared.asked {
+                        self.shared.asked = true;
+                        self.ask_file_passphrase(&error);
+                    }
+                } else if !self.shared.said {
                     self.shared.said = true;
-                    self.state.say(Message::error(text::store_error(&error)));
+                    self.state.say(Message::error(said_of(&error)));
                 }
             }
         }
@@ -1578,6 +1642,7 @@ impl PlnwrkApp {
         let Some(doc) = &mut self.doc else { return };
         match doc.fetch() {
             Ok(Some(merged)) => {
+                self.shared.fetch_said = false;
                 self.shared.len = doc.log_len();
                 if !merged.foreign.is_empty() {
                     let from = authors(doc.session.workspace(), &merged.foreign);
@@ -1596,12 +1661,17 @@ impl PlnwrkApp {
                 }
             }
             Ok(None) => {}
-            Err(StoreError::PassphraseRequired | StoreError::WrongPassphrase) => {
-                if !self.shared.said {
-                    self.shared.said = true;
-                    self.state.say(Message::error(text::store_error(
-                        &StoreError::PassphraseRequired,
-                    )));
+            Err(error) if passphrase_needed(&error) => {
+                if !self.shared.asked {
+                    self.shared.asked = true;
+                    self.ask_file_passphrase(&error);
+                }
+            }
+            // Replaced by another work entirely: said once (review 10a, F8).
+            Err(error) if replaced(&error) => {
+                if !self.shared.fetch_said {
+                    self.shared.fetch_said = true;
+                    self.state.say(Message::error(said_of(&error)));
                 }
             }
             // Read while being written, a network hiccup: next time.
@@ -1609,9 +1679,85 @@ impl PlnwrkApp {
         }
     }
 
+    /// Asks for the passphrase of the shared file, protected by someone else meanwhile (or
+    /// given wrong here) – unless another question is open.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ask_file_passphrase(&mut self, error: &StoreError) {
+        if self.state.dialog.is_some() {
+            return;
+        }
+        self.state.open_dialog(Dialog::FilePassphrase {
+            text: String::new(),
+        });
+        if matches!(error, StoreError::WrongPassphrase) {
+            self.state.say(Message::error(text::store_error(error)));
+        }
+    }
+
+    /// After a save: the own work a merge could not take kept as a copy of its own, the
+    /// recovery copy dropped once nothing is missing from what was saved or kept – and what
+    /// there is to say about the merge (review 10a, F4).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn after_save(&mut self, merged: Option<&doc::Merged>) -> Option<Message> {
+        let kept = self.keep_lost();
+        let lost = merged.is_some_and(|m| !lost_said(m).is_empty());
+        self.save_lost = lost;
+        if !lost || matches!(kept, Ok(Some(_))) {
+            self.autosave.saved();
+        }
+        let doc = self.doc.as_ref()?;
+        let mut said = merged.and_then(|m| merged_message(doc, m))?;
+        match kept {
+            Ok(Some(_)) => {
+                said.text.push(' ');
+                said.text.push_str(text::t().lost_copy_kept);
+            }
+            Ok(None) => {}
+            Err(reason) => {
+                said.text.push(' ');
+                said.text
+                    .push_str(&format!("{} {reason}", text::t().recovery_failed));
+            }
+        }
+        Some(said)
+    }
+
+    /// Writes the own work a merge could not take as a copy of its own in the recovery folder
+    /// and offers it on the start page. Its path, if there was such work.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn keep_lost(&mut self) -> Result<Option<PathBuf>, String> {
+        let Some(folder) = self.autosave.folder().map(std::path::Path::to_path_buf) else {
+            return Ok(None);
+        };
+        let Some(doc) = &mut self.doc else {
+            return Ok(None);
+        };
+        let path = doc
+            .keep_lost_copy(&folder)
+            .map_err(|e| text::store_error(&e))?;
+        if let Some(path) = &path {
+            self.state.recovered.retain(|p| !same_place(p, path));
+            self.state.recovered.insert(0, path.clone());
+        }
+        Ok(path)
+    }
+
+    /// [`Self::keep_lost`] after a merge whose writing failed: the copy is written all the same
+    /// (the work is merged here already); a failure is said.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn keep_lost_quietly(&mut self) {
+        if let Err(reason) = self.keep_lost() {
+            self.state.say_in_bar(Message::error(format!(
+                "{} {reason}",
+                text::t().recovery_failed
+            )));
+        }
+    }
+
     /// Saves (asking for a place if needed or wanted; in the browser: downloads). Returns
     /// whether it was saved.
     fn save(&mut self, choose_place: bool) -> bool {
+        self.save_lost = false;
         if self.state.browser {
             self.download()
         } else {
@@ -1671,23 +1817,22 @@ impl PlnwrkApp {
         };
         match result {
             Ok(merged) => {
-                if let Some(path) = doc.path() {
+                if let Some(path) = self.doc.as_ref().and_then(OpenDoc::path) {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
-                let lost = merged.as_ref().is_some_and(|m| !lost_said(m).is_empty());
-                // Something of the own work could not be taken: its recovery copy stays.
-                if !lost {
-                    self.autosave.saved();
-                }
-                let said = merged
-                    .as_ref()
-                    .and_then(|m| merged_message(doc, m))
+                let said = self
+                    .after_save(merged.as_ref())
                     .unwrap_or_else(|| Message::info(text::t().saved));
                 self.state.say(said);
                 true
             }
             Err(error) => {
-                self.state.say(Message::error(text::store_error(&error)));
+                self.keep_lost_quietly();
+                self.state.say(Message::error(said_of(&error)));
+                // The shared file was protected meanwhile: its passphrase is asked for.
+                if passphrase_needed(&error) && self.doc.as_ref().is_some_and(|d| d.shared) {
+                    self.ask_file_passphrase(&error);
+                }
                 false
             }
         }
@@ -1755,8 +1900,11 @@ impl eframe::App for PlnwrkApp {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Called also while the window is minimised or covered, when `ui` is not.
+        // Called also while the window is minimised or covered, when `ui` is not: a shared
+        // file goes on saving and fetching then too (review 10a, F12).
         self.autosave_tick(ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.shared_tick(ctx);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1796,7 +1944,7 @@ fn note_conflicts(session: &mut plnwrk_engine::Session, merged: &doc::Merged) {
     let ws = session.workspace().clone();
     let name = |id: Option<plnwrk_core::PersonId>| {
         id.and_then(|id| ws.person(id))
-            .map_or_else(|| text::someone().to_owned(), |p| p.name.clone())
+            .map_or_else(|| text::someone_subject().to_owned(), |p| p.name.clone())
     };
     let me = name(session.actor());
     for conflict in &merged.conflicts {
@@ -1811,9 +1959,7 @@ fn note_conflicts(session: &mut plnwrk_engine::Session, merged: &doc::Merged) {
         );
         let body: String = body.chars().take(plnwrk_core::text::BODY_MAX).collect();
         let params = serde_json::json!({"task": task.to_string(), "body": body});
-        if session.run("comment.add", &params, Origin::Script).is_ok() {
-            session.keep_off_undo();
-        }
+        let _ = session.run_aside("comment.add", &params, Origin::Script);
     }
 }
 
@@ -1862,23 +2008,94 @@ fn remember_me(state: &mut state::State, doc: &mut OpenDoc, person: Option<Perso
     doc.shared = person.is_some();
 }
 
-/// What a merge has to say: others' changes taken, conflicts, own changes not taken. `None`
-/// when nothing of others came in and nothing was lost.
+/// What a merge has to say: others' changes taken, conflicts, others' work deleted along, own
+/// changes not taken. `None` when nothing of others came in and nothing was lost.
 #[cfg(not(target_arch = "wasm32"))]
 fn merged_message(doc: &OpenDoc, merged: &doc::Merged) -> Option<Message> {
     let lost = lost_said(merged);
-    if merged.foreign.is_empty() && lost.is_empty() {
+    let swept = swept_said(merged);
+    if merged.foreign.is_empty() && lost.is_empty() && swept.is_empty() {
         return None;
     }
+    // Only conflicts on tasks get a comment (review 10a, K1).
+    let noted = merged
+        .conflicts
+        .iter()
+        .filter(|c| matches!(c.entity, plnwrk_core::EntityKey::Task(_)))
+        .count();
     let said = text::merged_saved(
         merged.foreign.len(),
         &authors(doc.session.workspace(), &merged.foreign),
         merged.conflicts.len(),
+        noted,
         &lost,
+        &swept,
     );
-    Some(if lost.is_empty() {
+    Some(if lost.is_empty() && swept.is_empty() {
         Message::info(said)
     } else {
         Message::error(said)
     })
+}
+
+/// Others' tasks and comments an own deletion took along, as people read them (review 10a,
+/// F10): the title or the start of the comment, as last saved by others.
+#[cfg(not(target_arch = "wasm32"))]
+fn swept_said(merged: &doc::Merged) -> Vec<String> {
+    merged
+        .swept
+        .iter()
+        .filter_map(|swept| {
+            let entity = merged
+                .foreign
+                .iter()
+                .flat_map(|c| &c.events)
+                .filter_map(|e| match e {
+                    plnwrk_engine::Event::Put { after, .. } if after.key() == swept.entity => {
+                        Some(after)
+                    }
+                    _ => None,
+                })
+                .next_back()?;
+            match entity.as_ref() {
+                plnwrk_core::Entity::Task(task) => Some(format!("„{}“", task.title)),
+                plnwrk_core::Entity::Comment(comment) => {
+                    let start: String = comment.body.chars().take(40).collect();
+                    let more = if comment.body.chars().count() > 40 {
+                        "…"
+                    } else {
+                        ""
+                    };
+                    Some(format!("„{start}{more}“"))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// A refusal that a passphrase answers.
+#[cfg(not(target_arch = "wasm32"))]
+fn passphrase_needed(error: &StoreError) -> bool {
+    matches!(
+        error,
+        StoreError::PassphraseRequired | StoreError::WrongPassphrase
+    )
+}
+
+/// What a refused save or fetch says: a replaced file in its own words, without "file access
+/// failed" before it.
+#[cfg(not(target_arch = "wasm32"))]
+fn said_of(error: &StoreError) -> String {
+    if replaced(error) {
+        text::t().shared_file_replaced.to_owned()
+    } else {
+        text::store_error(error)
+    }
+}
+
+/// The shared file was replaced by another work entirely.
+#[cfg(not(target_arch = "wasm32"))]
+fn replaced(error: &StoreError) -> bool {
+    matches!(error, StoreError::Io { reason } if reason == text::t().shared_file_replaced)
 }

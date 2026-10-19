@@ -87,6 +87,8 @@ pub struct Texts {
     pub change_me: &'static str,
     pub held_elsewhere: &'static str,
     pub me_marker: &'static str,
+    pub file_passphrase_question: &'static str,
+    pub lost_copy_kept: &'static str,
     pub edit_person: &'static str,
     pub welcome: &'static str,
     pub new_file: &'static str,
@@ -385,6 +387,8 @@ pub static DE: Texts = Texts {
     change_me: "Person wechseln",
     held_elsewhere: "Die Datei ist in einer älteren plnwrk-Version geöffnet. Speichern geht erst, wenn sie dort geschlossen ist.",
     me_marker: "(ich)",
+    file_passphrase_question: "Jemand hat die gemeinsame Datei inzwischen mit einer Passphrase geschützt. Mit ihr speichert und holt plnwrk weiter.",
+    lost_copy_kept: "Dein Stand von vorher liegt auf der Startseite unter „Wiederherstellen“.",
     edit_person: "Person bearbeiten",
     welcome: "Projekte und Vorgänge – in einer Datei, die dir gehört.",
     new_file: "Neue Datei",
@@ -681,6 +685,8 @@ pub static EN: Texts = Texts {
     change_me: "Change person",
     held_elsewhere: "The file is open in an older plnwrk. Saving works once it is closed there.",
     me_marker: "(me)",
+    file_passphrase_question: "Someone protected the shared file with a passphrase meanwhile. With it, plnwrk goes on saving and fetching.",
+    lost_copy_kept: "Your work as it was is on the start page under “Recover”.",
     edit_person: "Edit person",
     welcome: "Projects and cases – in one file that belongs to you.",
     new_file: "New file",
@@ -1516,7 +1522,12 @@ pub fn command_error(error: &CommandError) -> String {
             ),
             None => pick("Nicht erlaubt.", "Not allowed.").to_owned(),
         },
-        CommandError::Conflict { reason } => format!("{} {reason}", pick("Konflikt:", "Conflict:")),
+        // Undo or redo of a step someone else changed since (a shared file, Phase 10a).
+        CommandError::Conflict { .. } => pick(
+            "Das geht nicht mehr: Inzwischen hat jemand anderes an derselben Stelle geändert.",
+            "Not possible any more: someone else changed the same thing meanwhile.",
+        )
+        .to_owned(),
         CommandError::UnknownCommand { command } => {
             format!(
                 "{} {command}",
@@ -1649,8 +1660,16 @@ pub fn conflict_comment(theirs: &str, by: &str, ours: &str, me: &str) -> String 
     )
 }
 
-/// Saved and merged with what others saved meanwhile.
-pub fn merged_saved(taken: usize, from: &str, conflicts: usize, lost: &[String]) -> String {
+/// Saved and merged with what others saved meanwhile. `noted`: conflicts noted as a comment on
+/// their task (only tasks have comments).
+pub fn merged_saved(
+    taken: usize,
+    from: &str,
+    conflicts: usize,
+    noted: usize,
+    lost: &[String],
+    swept: &[String],
+) -> String {
     let mut said = pick(
         format!("Gespeichert und zusammengeführt: {taken} Änderung(en) von {from} übernommen."),
         format!("Saved and merged: {taken} change(s) by {from} taken."),
@@ -1658,8 +1677,28 @@ pub fn merged_saved(taken: usize, from: &str, conflicts: usize, lost: &[String])
     if conflicts > 0 {
         said.push(' ');
         said.push_str(&pick(
-            format!("Bei {conflicts} Angabe(n) galt deine – der andere Wert steht als Kommentar an der Aufgabe."),
-            format!("For {conflicts} value(s) yours was kept – the other one is a comment on the task."),
+            format!("Bei {conflicts} Angabe(n) galt deine."),
+            format!("For {conflicts} value(s) yours was kept."),
+        ));
+        if noted > 0 {
+            said.push(' ');
+            said.push_str(pick(
+                "Der andere Wert steht als Kommentar an der Aufgabe.",
+                "The other value is a comment on the task.",
+            ));
+        }
+    }
+    if !swept.is_empty() {
+        said.push(' ');
+        said.push_str(&pick(
+            format!(
+                "Mitgelöscht, obwohl inzwischen von anderen ergänzt oder geändert: {}.",
+                swept.join("; ")
+            ),
+            format!(
+                "Deleted along, though others added or changed it meanwhile: {}.",
+                swept.join("; ")
+            ),
         ));
     }
     if !lost.is_empty() {
@@ -1683,9 +1722,14 @@ pub fn fetched(taken: usize, from: &str) -> String {
     )
 }
 
-/// Someone unknown (a change without a person: the command line, an AI).
+/// Someone unknown (a change without a person: the command line, an AI) – after "von".
 pub fn someone() -> &'static str {
     pick("jemand anderem", "someone else")
+}
+
+/// The same as the subject of a sentence ("jemand anderes hatte …").
+pub fn someone_subject() -> &'static str {
+    pick("Jemand anderes", "Someone else")
 }
 
 #[cfg(test)]
@@ -1810,6 +1854,7 @@ mod tests {
     const NOT_INTERFACE: &[&str] = &[
         " – Wiederherstellung ",
         "{} – Wiederherstellung {}.plnwrk",
+        " – nicht übernommen",
         "Notkopien",
     ];
 

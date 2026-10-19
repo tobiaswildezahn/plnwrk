@@ -99,6 +99,16 @@ impl Lost {
     }
 }
 
+/// Something others saved meanwhile that an own change removed (deleting a task takes its
+/// comments and subtasks along): kept as decided – deletion wins – but never unsaid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Swept {
+    /// What was removed.
+    pub entity: EntityKey,
+    /// Who had created or changed it, if known.
+    pub by: Option<PersonId>,
+}
+
 /// The merged state.
 #[derive(Debug, Clone)]
 pub struct Rebased {
@@ -114,6 +124,10 @@ pub struct Rebased {
     pub conflicts: Vec<Conflict>,
     /// Own changes that could not be taken.
     pub lost: Vec<Lost>,
+    /// Own changes the file already held: nothing left to do (left out, no loss).
+    pub held: Vec<u64>,
+    /// What others saved meanwhile and an own change removed.
+    pub swept: Vec<Swept>,
 }
 
 /// Sets the own changes (`ours[base..]`) onto the file (`file_ws`, `file_log`), whose log must
@@ -137,6 +151,8 @@ pub fn rebase(
     let mut moved = BTreeMap::new();
     let mut conflicts = Vec::new();
     let mut lost = Vec::new();
+    let mut held = Vec::new();
+    let mut swept = Vec::new();
     for change in own {
         // Undo and redo follow what they refer to: one not taken takes them along.
         let refers = change.undoes.or(change.redoes);
@@ -173,12 +189,23 @@ pub fn rebase(
         };
         let (events, after) = match taken {
             Ok(Some(done)) => done,
-            Ok(None) => continue, // nothing left to do: the file already holds it
+            Ok(None) => {
+                held.push(change.seq); // nothing left to do: the file already holds it
+                continue;
+            }
             Err(dropped) => {
                 lost.push(Lost::of(change, dropped));
                 continue;
             }
         };
+        for event in &events {
+            if let Event::Remove { before } = event {
+                let key = before.key();
+                if let Some(by) = touched_by(&foreign, key) {
+                    swept.push(Swept { entity: key, by });
+                }
+            }
+        }
         ws = after;
         let seq = log.last().map_or(1, |c| c.seq.saturating_add(1));
         moved.insert(change.seq, seq);
@@ -198,6 +225,8 @@ pub fn rebase(
         foreign,
         conflicts,
         lost,
+        held,
+        swept,
     })
 }
 
@@ -432,12 +461,13 @@ fn merge_fields(
     let Ok(entity) = serde_json::from_value::<Entity>(Value::Object(merged)) else {
         return (current.clone(), None);
     };
+    let by = set_by(foreign, current.key(), &theirs);
     let conflict = (!fields_in_conflict.is_empty()).then(|| Conflict {
         entity: current.key(),
         fields: fields_in_conflict,
         theirs,
         ours,
-        by: last_by(foreign, current.key()),
+        by,
     });
     (entity, conflict)
 }
@@ -450,13 +480,38 @@ fn fields(entity: &Entity) -> Option<Map<String, Value>> {
     }
 }
 
-/// Who last changed `key` among the changes others saved.
-fn last_by(foreign: &[Change], key: EntityKey) -> Option<PersonId> {
+/// Who of the others last set `fields` of `key` (not whoever touched it last – review 10a, F9).
+fn set_by(foreign: &[Change], key: EntityKey, fields: &Map<String, Value>) -> Option<PersonId> {
+    foreign
+        .iter()
+        .rev()
+        .find(|c| {
+            c.events.iter().any(|e| match e {
+                Event::Put { before, after } if after.key() == key => {
+                    let (Some(new), old) = (
+                        self::fields(after),
+                        before.as_deref().and_then(self::fields),
+                    ) else {
+                        return false;
+                    };
+                    fields
+                        .keys()
+                        .any(|f| old.as_ref().and_then(|o| o.get(f)) != new.get(f))
+                }
+                _ => false,
+            })
+        })
+        .and_then(|c| c.actor)
+}
+
+/// Whether others created or changed `key` meanwhile, and who did last (`Some(None)`: someone
+/// without a person, e.g. over MCP).
+fn touched_by(foreign: &[Change], key: EntityKey) -> Option<Option<PersonId>> {
     foreign
         .iter()
         .rev()
         .find(|c| c.events.iter().any(|e| e.key() == key))
-        .and_then(|c| c.actor)
+        .map(|c| c.actor)
 }
 
 /// Labels merged as a set: what I removed goes, what I added comes, the rest is theirs.
@@ -550,6 +605,63 @@ mod tests {
         assert!(
             rerun(s.workspace(), &update).is_some(),
             "creates nothing: run again"
+        );
+    }
+    /// Only a place set here gives way to one taken meanwhile; a task merely renamed here keeps
+    /// its rank even where the file holds the same rank twice (review 10a, L2).
+    #[test]
+    fn only_a_place_set_here_gives_way() {
+        let mut s = Session::with_workspace(
+            Workspace::default(),
+            Vec::new(),
+            Box::new(FixedClock::at("2026-10-19").unwrap()),
+            Box::new(SequentialIds::default()),
+        );
+        s.run(
+            "project.create",
+            &serde_json::json!({"title": "P"}),
+            crate::Origin::User,
+        )
+        .unwrap();
+        let project = s.workspace().projects().next().unwrap().id.to_string();
+        for title in ["A", "B"] {
+            s.run(
+                "task.create",
+                &serde_json::json!({"project": project, "title": title}),
+                crate::Origin::User,
+            )
+            .unwrap();
+        }
+        let mut ws = s.workspace().clone();
+        let mut tasks: Vec<_> = ws.tasks().cloned().collect();
+        tasks.sort_by(|x, y| x.title.cmp(&y.title));
+        let [a, b] = <[plnwrk_core::Task; 2]>::try_from(tasks).unwrap();
+        // The file holds B at A's place.
+        let mut b_there = b.clone();
+        b_there.rank = a.rank.clone();
+        ws.put(Entity::Task(b_there));
+        let mut renamed = a.clone();
+        renamed.title = "A2".to_owned();
+        let Entity::Task(kept) =
+            own_place(&ws, Entity::Task(renamed), Some(&Entity::Task(a.clone())))
+        else {
+            panic!("not a task");
+        };
+        assert_eq!(kept.rank, a.rank, "renamed only: the place stays");
+        let mut moved = a.clone();
+        let Entity::Task(old) = ws.get(plnwrk_core::EntityKey::Task(b.id)).unwrap() else {
+            panic!("not a task");
+        };
+        moved.rank = old.rank.clone();
+        let mut was = a;
+        was.rank = b.rank;
+        let Entity::Task(gave_way) = own_place(&ws, Entity::Task(moved), Some(&Entity::Task(was)))
+        else {
+            panic!("not a task");
+        };
+        assert!(
+            gave_way.rank > old.rank,
+            "moved here: goes behind the one there"
         );
     }
 }
