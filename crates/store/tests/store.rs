@@ -42,6 +42,179 @@ mod store {
         assert!(load(&save(&next, &Protection::None).unwrap(), None).is_ok());
     }
 
+    /// Phase 10a: two people's work on one file, merged, is a file like any other – the chain,
+    /// the parameters, the replay and every rule hold when it is opened (also encrypted).
+    #[test]
+    fn a_merged_file_opens_like_any_other() {
+        let doc = sample_doc();
+        let fork = |ids: u128| {
+            doc.clone()
+                .into_session(clock(), Box::new(SequentialIds::starting_at(ids)))
+        };
+        let (mut anna, mut ben) = (fork(1_000_000), fork(2_000_000));
+        let task = doc.workspace.tasks().next().unwrap().id.to_string();
+        let project = doc.workspace.projects().next().unwrap().id.to_string();
+        for (s, title) in [(&mut anna, "Von Anna"), (&mut ben, "Von Ben")] {
+            s.run(
+                "task.update",
+                &json!({"task": task, "title": title}),
+                Origin::User,
+            )
+            .unwrap();
+            s.run(
+                "task.create",
+                &json!({"project": project, "title": title}),
+                Origin::User,
+            )
+            .unwrap();
+        }
+        ben.run("undo", &json!({}), Origin::User).unwrap();
+        let merged = ben
+            .rebase_onto(anna.workspace().clone(), anna.log().to_vec(), doc.log.len())
+            .unwrap();
+        assert!(!merged.foreign.is_empty());
+        let next = Document::from_session(&ben);
+        let opened = load(&save(&next, &Protection::None).unwrap(), None).unwrap();
+        assert_eq!(opened.log, next.log);
+        assert!(
+            load_with(
+                &encrypted(&next, "gemeinsam-geheim"),
+                Some(&pass("gemeinsam-geheim")),
+                Limits::default()
+            )
+            .is_ok()
+        );
+    }
+
+    /// Phase 10a (decision 8): a file written now must stay readable by plnwrk 0.2.0, which
+    /// refuses a command or a parameter it does not know. The commands and their parameters of
+    /// 0.2.0 – change them only together with a new file format version.
+    #[test]
+    fn the_commands_stay_those_of_0_2_0() {
+        const OF_0_2_0: &[(&str, &[&str])] = &[
+            (
+                "project.create",
+                &[
+                    "classification",
+                    "description",
+                    "due",
+                    "kind",
+                    "owner",
+                    "reference",
+                    "start",
+                    "status",
+                    "template",
+                    "title",
+                ],
+            ),
+            (
+                "project.update",
+                &[
+                    "classification",
+                    "description",
+                    "due",
+                    "kind",
+                    "owner",
+                    "project",
+                    "reference",
+                    "start",
+                    "status",
+                    "template",
+                    "title",
+                ],
+            ),
+            ("project.archive", &["project"]),
+            (
+                "project.instantiate",
+                &["due", "owner", "reference", "start", "template", "title"],
+            ),
+            (
+                "task.create",
+                &[
+                    "after",
+                    "assignee",
+                    "classification",
+                    "description",
+                    "due",
+                    "estimate_minutes",
+                    "milestone",
+                    "parent",
+                    "priority",
+                    "progress",
+                    "project",
+                    "start",
+                    "status",
+                    "tags",
+                    "title",
+                ],
+            ),
+            (
+                "task.update",
+                &[
+                    "assignee",
+                    "classification",
+                    "description",
+                    "due",
+                    "estimate_minutes",
+                    "milestone",
+                    "priority",
+                    "progress",
+                    "start",
+                    "status",
+                    "tags",
+                    "task",
+                    "title",
+                ],
+            ),
+            (
+                "task.move",
+                &["after", "before", "close_subtasks", "status", "task"],
+            ),
+            ("task.reparent", &["parent", "task"]),
+            ("task.assign", &["assignee", "task"]),
+            ("task.set_status", &["status", "task"]),
+            ("task.reschedule", &["moves"]),
+            ("task.set_progress", &["progress", "task"]),
+            ("task.delete", &["task"]),
+            ("dependency.add", &["from", "kind", "lag_days", "to"]),
+            ("dependency.remove", &["dependency"]),
+            ("person.create", &["email", "initials", "name", "role"]),
+            (
+                "person.update",
+                &["email", "initials", "name", "person", "role"],
+            ),
+            ("comment.add", &["body", "task"]),
+            ("undo", &[]),
+            ("redo", &[]),
+            ("workspace.upgrade", &[]),
+        ];
+        let now: Vec<(String, Vec<String>)> = plnwrk_engine::registry()
+            .iter()
+            .map(|c| {
+                let schema = c.input_schema();
+                let mut params: Vec<String> = schema["properties"]
+                    .as_object()
+                    .map(|p| p.keys().cloned().collect())
+                    .unwrap_or_default();
+                params.sort();
+                (c.id.to_owned(), params)
+            })
+            .collect();
+        let then: Vec<(String, Vec<String>)> = OF_0_2_0
+            .iter()
+            .map(|(id, params)| {
+                (
+                    (*id).to_owned(),
+                    params.iter().map(|p| (*p).to_owned()).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            now, then,
+            "a new command or parameter makes files unreadable for 0.2.0: new format version first"
+        );
+    }
+
     fn pass(text: &str) -> SecretString {
         SecretString::from(text.to_owned())
     }

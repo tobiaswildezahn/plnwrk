@@ -447,24 +447,19 @@ impl Plan {
                 let Warning::Milestone { task, earliest } = warning else {
                     return None;
                 };
-                let item = self.items.get(&task)?;
                 let span = *spans.get(&task)?;
-                let length = self.duration(item, span);
-                let by = self
-                    .links
+                // Every task with dates it waits for (through tasks without dates, too) that
+                // alone would overtake it: a plan takes the latest of all ways, so without
+                // these it holds.
+                let candidates = self.dated_behind(task);
+                let mut by: Vec<TaskId> = candidates
                     .iter()
-                    .filter(|l| l.to == task)
-                    .filter(|l| {
-                        self.requires(l, item, &spans, length)
-                            .is_some_and(|required| self.too_early(item, span, required))
-                    })
-                    .flat_map(|l| self.holding(l.from, &spans, &mut BTreeSet::new()))
-                    .fold(Vec::new(), |mut by, task| {
-                        if !by.contains(&task) {
-                            by.push(task);
-                        }
-                        by
-                    });
+                    .copied()
+                    .filter(|alone| self.overtaken_by_alone(task, &candidates, *alone))
+                    .collect();
+                if by.is_empty() {
+                    by = candidates;
+                }
                 Some(Overtaking {
                     milestone: task,
                     date: span.0,
@@ -475,44 +470,47 @@ impl Plan {
             .collect()
     }
 
-    /// What really holds back through `task`: the task itself if it has dates; a task without
-    /// dates takes no time and lies where what it waits for puts it, so then what binds it
-    /// there – down to the late task with dates, which can be moved (review 9g, K3).
-    fn holding(
-        &self,
-        task: TaskId,
-        spans: &BTreeMap<TaskId, (Date, Date)>,
-        seen: &mut BTreeSet<TaskId>,
-    ) -> Vec<TaskId> {
-        let (Some(item), Some(span)) = (self.items.get(&task), spans.get(&task)) else {
-            return vec![task];
-        };
-        if item.span().is_some() {
-            return vec![task];
-        }
-        // Reached again on another path: already followed from there (Nachreview 9g, N2).
-        if !seen.insert(task) {
-            return Vec::new();
-        }
-        let length = self.duration(item, *span);
-        let binding: Vec<TaskId> = self
+    /// The tasks with dates `milestone` waits for, directly or through tasks without dates
+    /// (those take no time and lie where what they wait for puts them – review 9g, K3).
+    fn dated_behind(&self, milestone: TaskId) -> Vec<TaskId> {
+        let mut found = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut queue: VecDeque<TaskId> = self
             .links
             .iter()
-            .filter(|l| l.to == task)
-            .filter(|l| {
-                self.requires(l, item, spans, length)
-                    .is_some_and(|required| required >= span.0)
-            })
+            .filter(|l| l.to == milestone)
             .map(|l| l.from)
             .collect();
-        // Nothing binds it: then it stands for itself, so `by` is never empty.
-        if binding.is_empty() {
-            return vec![task];
+        while let Some(task) = queue.pop_front() {
+            if !seen.insert(task) {
+                continue;
+            }
+            let Some(item) = self.items.get(&task) else {
+                continue;
+            };
+            if item.span().is_some() {
+                found.push(task);
+            } else {
+                queue.extend(self.links.iter().filter(|l| l.to == task).map(|l| l.from));
+            }
         }
-        binding
-            .into_iter()
-            .flat_map(|from| self.holding(from, spans, seen))
-            .collect()
+        found
+    }
+
+    /// Whether `milestone` is overtaken when, of `candidates`, only `alone` leads anywhere.
+    fn overtaken_by_alone(&self, milestone: TaskId, candidates: &[TaskId], alone: TaskId) -> bool {
+        let links: Vec<Link> = self
+            .links
+            .iter()
+            .filter(|l| l.from == alone || !candidates.contains(&l.from))
+            .cloned()
+            .collect();
+        let items: Vec<Item> = self.items.values().cloned().collect();
+        Plan::new(self.calendar, items, links, self.project_due)
+            .analyse()
+            .warnings
+            .iter()
+            .any(|w| matches!(w, Warning::Milestone { task, .. } if *task == milestone))
     }
 
     /// The critical path and what cannot hold, for the dates as they are.

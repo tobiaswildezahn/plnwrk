@@ -8044,10 +8044,12 @@ fn messages_go_with_the_view_and_cards_fit_the_window() {
         .apply(crate::Intent::Go(crate::state::View::Overview));
     harness.set_size(egui::vec2(1600.0, 900.0));
     harness.run();
+    // The card, not a line of "Heute und überfällig" above it with the same name (the case is
+    // due on 19.10.2026: on that day the test once took the line).
     let card = |h: &Harness<'_, PlnwrkApp>, title: &str| {
         h.get_all_by_label(title)
             .map(|n| n.rect())
-            .find(|r| r.left() > 250.0)
+            .rfind(|r| r.left() > 250.0)
             .unwrap()
     };
     let first = card(&harness, "SKA 23/1234 Sirenenwarnung");
