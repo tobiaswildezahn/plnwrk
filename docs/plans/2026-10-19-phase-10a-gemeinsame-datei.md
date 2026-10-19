@@ -57,6 +57,69 @@ der Verlauf zeigt, wer was getan hat.
 8. **Kein neues Dateiformat.** 10a fügt dem Modell kein Feld hinzu. Dateien bleiben Version 2;
    0.2.0 und 0.3.0 lesen sich gegenseitig.
 
+**Tobi nach der Prüfung des Plans (2026-10-19):** Bei einer gemeinsamen Datei speichert plnwrk
+jede Änderung **nach 1–2 Sekunden automatisch** und führt dabei zusammen, statt auf ⌘S zu
+warten. Bei einer Datei nur für eine Person bleibt ⌘S wie heute.
+
+### 2.1 Ergebnis der Planprüfung (unabhängiger Agent) und was daraus folgt
+
+Die Prüfung fand 2 Blocker, 9 wichtige Punkte und 11 Hinweise. Was der Plan jetzt vorsieht:
+
+- **Gemeinsam heißt:** Auf diesem Gerät wurde für die Datei eine Person gewählt („Ich arbeite
+  als“). Das gilt dann auch für automatisches Speichern und Abholen. Gefragt wird beim Öffnen,
+  sobald die Datei Personen enthält und auf dem Gerät noch nichts gemerkt ist. Zur Auswahl
+  stehen: eine Person, „Person anlegen…“ oder „Nur ich nutze diese Datei“ (dann wie bisher).
+  Gemerkt wird je Gerät unter einer **Kennung der Datei** (Hash der ersten Logzeile, übersteht
+  Umbenennen und andere Laufwerksbuchstaben); die gewählte Person muss in der Datei noch
+  existieren (W8).
+- **„Speichern unter“ auf eine vorhandene Datei** (B1): Hat sie denselben Anfang (dieselbe
+  Kette), wird zusammengeführt wie beim Speichern, etwa aus einer Wiederherstellungskopie
+  heraus. Sonst fragt plnwrk vorher: „Die Datei enthält n Änderungen, die du nicht hast.
+  Ersetzen?“
+- **Rückgängig und Wiederholen** (B2): werden nicht Feld für Feld zusammengeführt, sondern
+  streng. Die Umkehrung bzw. Wiederholung muss genau auf den Stand passen. Hat inzwischen
+  jemand anderes daran geändert, wird der Schritt nicht übernommen und genannt (§7).
+- **Gruppen, die zusammen gehören** (W3): (Beginn, Frist, Uhrzeit), (Projekt, Elternaufgabe,
+  Meilenstein), bei Personen (Name, Kürzel). **Schlagworte** werden als Menge zusammengeführt
+  (H4).
+- **Löschen** (W4): Scheitert eine eigene Änderung, die nichts anlegt (z. B. Löschen mit
+  Unteraufgaben, die inzwischen jemand ergänzt hat), wird der Befehl auf dem Dateistand **neu
+  ausgeführt**. Was trotzdem nicht übernommen werden kann, nennt die Meldung mit Text (etwa den
+  Kommentar), und die Wiederherstellungskopie bleibt erhalten.
+- **Reihenfolge** (W2): Bekommen zwei Aufgaben denselben Rang, rückt die eigene direkt dahinter.
+  Der Eigenschaftstest prüft eindeutige Ränge.
+- **Angelegtes mit vorhandener Kennung** (W1): Ist es gleich, entfällt es; sonst wird es nicht
+  übernommen. Ein beim Öffnen nötiger Formatumbau (`workspace.upgrade`) wird nicht als Verlust
+  gemeldet, wenn die Datei schon umgebaut ist.
+- **Schutz und Passphrase** (W5): Sie folgen der Datei, wie sie unter der Sperre gelesen wurde.
+  Nur wer den Schutz in dieser Sitzung selbst geändert hat, setzt seinen sichtbar durch. Wird
+  eine Passphrase nötig oder ist sie falsch, fragt plnwrk einmal und hält das Abholen an.
+- **Abholen** (W6): nur, wenn nichts ungespeichert ist (`has_unsaved_changes`, auch getippte
+  Entwürfe) und kein Dialog offen ist. Entwürfe ohne Quelle (Umbenennen in der Liste, Datum auf
+  der Meilensteinkarte) werden vorher geschlossen. Das Personenformular folgt dem gespeicherten
+  Stand wie das Projektformular.
+- **Sperre** (W7): Zusätzlich zur Sperre prüft plnwrk unmittelbar vor dem Ersetzen, ob die Datei
+  seit dem Lesen unverändert ist (Größe, Zeitstempel). Auf einem Netzlaufwerk (SMB, Mac und
+  Windows gemischt) ist die Sperre **nicht lokal prüfbar**: Das gehört in den Test von Hand auf
+  dem echten Laufwerk, vor dem Einsatz.
+- **Reihenfolge beim Speichern** (H1): zusammenführen, schreiben, und erst wenn das gelungen ist,
+  die Sitzung ersetzen. Eine Datei, die sich nicht lesen lässt (kaputt, neuere Version, weg),
+  wird nie überschrieben.
+- **Konfliktkommentare** (H2) liegen nicht auf dem Rückgängig-Stapel und sind gekürzt.
+- **Ältere Version** (H8): Hält 0.2.0 die Datei offen, sagt 0.3.0 das schon beim Öffnen.
+- **Kompatibilität** (W9): 10a fügt keinen Befehl und keinen Parameter hinzu, sonst wäre die Datei
+  für 0.2.0 unlesbar. Ein Wächtertest hält die Befehlsliste von 0.2.0 fest.
+- **MCP und CLI** (H9): Texte zur Sperre angepasst; ein kurzer zweiter Versuch, wenn die App
+  gerade speichert.
+- **Bewusst offen:**
+  - Ein eigenes Verschieben im Zeitplan kennt die Abhängigkeiten nicht, die andere inzwischen
+    angelegt haben (W3, Zeitplanwarnung danach sichtbar).
+  - Doppelt angelegte Personen lassen sich nicht zusammenlegen; plnwrk warnt beim Anlegen
+    gleicher Namen (W9).
+  - Neue Dateien haben die Rechte 0600 (H10, Handbuch).
+  - Die Zeitstempel im Verlauf stehen nach dem Zusammenführen nicht mehr streng in
+    Reihenfolge (H3).
+
 ## 3. So sieht es für die Bearbeiter aus
 
 1. Tobi legt die Datei auf dem Laufwerk an und legt die Personen an: „Personen“ →
@@ -70,6 +133,8 @@ der Verlauf zeigt, wer was getan hat.
    deine (Frist von „Einbau“, Ben hatte 20.11.2026).“ Die Aufgabe bekommt einen Kommentar.
 5. Speichert gerade jemand anderes, wartet plnwrk kurz. Bleibt die Datei gesperrt, sagt es
    das; die Änderungen bleiben ungespeichert und in der Wiederherstellungskopie erhalten.
+6. Bei der gemeinsamen Datei braucht niemand ⌘S: plnwrk speichert jede Änderung nach 1–2 s und
+   holt die der anderen alle paar Sekunden ab.
 
 ## 4. Technik
 

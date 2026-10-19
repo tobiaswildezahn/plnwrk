@@ -1,0 +1,338 @@
+//! Several people on one shared file (Phase 10a): own changes set onto what others saved.
+
+#[cfg(test)]
+mod sync {
+    use plnwrk_core::{EntityKey, FixedClock, PersonId, SequentialIds, TaskId, Workspace};
+    use plnwrk_engine::sync::{Dropped, NotContinued};
+    use plnwrk_engine::{Change, Origin, Session};
+    use proptest::prelude::*;
+    use serde_json::{Value, json};
+
+    /// A session on `ws`/`log` whose new ids start at `ids` (two people's computers never hand
+    /// out the same id).
+    fn fork(ws: &Workspace, log: &[Change], ids: u128) -> Session {
+        Session::with_workspace(
+            ws.clone(),
+            log.to_vec(),
+            Box::new(FixedClock::at("2026-10-19").unwrap()),
+            Box::new(SequentialIds::starting_at(ids)),
+        )
+    }
+
+    fn run(s: &mut Session, command: &str, params: Value) -> Option<EntityKey> {
+        s.run(command, &params, Origin::User)
+            .unwrap_or_else(|e| panic!("{command}: {e:?}"))
+            .created
+            .first()
+            .copied()
+    }
+
+    fn person(s: &mut Session, name: &str) -> PersonId {
+        match run(s, "person.create", json!({"name": name})) {
+            Some(EntityKey::Person(id)) => id,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn task(s: &mut Session, project: &str, title: &str, due: &str) -> TaskId {
+        match run(
+            s,
+            "task.create",
+            json!({"project": project, "title": title, "due": due}),
+        ) {
+            Some(EntityKey::Task(id)) => id,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The shared start: a project with two tasks and two people. Returns the base session, the
+    /// people (Anna, Ben) and the tasks (Einbau, Vergabe).
+    fn start() -> (Session, [PersonId; 2], [TaskId; 2]) {
+        let mut s = fork(&Workspace::default(), &[], 1);
+        let anna = person(&mut s, "Anna Berg");
+        let ben = person(&mut s, "Ben Kruse");
+        let project = match run(&mut s, "project.create", json!({"title": "Funk"})) {
+            Some(EntityKey::Project(id)) => id.to_string(),
+            other => panic!("{other:?}"),
+        };
+        let einbau = task(&mut s, &project, "Einbau", "2026-11-10");
+        let vergabe = task(&mut s, &project, "Vergabe", "2026-11-20");
+        (s, [anna, ben], [einbau, vergabe])
+    }
+
+    /// Anna's and Ben's sessions on the shared start, each working as themselves.
+    fn two() -> (Session, Session, usize, [TaskId; 2], [PersonId; 2]) {
+        let (base, people, tasks) = start();
+        let mut anna = fork(base.workspace(), base.log(), 1_000);
+        let mut ben = fork(base.workspace(), base.log(), 2_000);
+        anna.set_actor(Some(people[0]));
+        ben.set_actor(Some(people[1]));
+        (anna, ben, base.log().len(), tasks, people)
+    }
+
+    /// Ben saves after Anna: his changes onto her file.
+    fn ben_saves_after(anna: &Session, ben: &mut Session, base: usize) -> plnwrk_engine::sync::Rebased {
+        ben.rebase_onto(anna.workspace().clone(), anna.log().to_vec(), base)
+            .expect("continues")
+    }
+
+    /// The log replayed from nothing gives the state, and the state keeps every rule – what
+    /// the store checks when the file is opened.
+    fn valid(s: &Session) {
+        let mut ws = Workspace::default();
+        for (n, change) in s.log().iter().enumerate() {
+            assert_eq!(change.seq, n as u64 + 1, "numbered on");
+            for event in &change.events {
+                event.apply(&mut ws).expect("replays");
+            }
+        }
+        assert_eq!(&ws, s.workspace(), "replay gives the state");
+        assert!(s.workspace().check().is_empty(), "{:?}", s.workspace().check());
+    }
+
+    fn title(s: &Session, id: TaskId) -> Option<String> {
+        s.workspace().task(id).map(|t| t.title.clone())
+    }
+
+    #[test]
+    fn changes_to_different_things_both_arrive() {
+        let (mut anna, mut ben, base, [einbau, vergabe], _) = two();
+        run(&mut anna, "task.update", json!({"task": einbau.to_string(), "title": "Einbau Wache 11"}));
+        run(&mut ben, "task.update", json!({"task": vergabe.to_string(), "priority": "high"}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert_eq!(title(&ben, einbau).as_deref(), Some("Einbau Wache 11"));
+        assert_eq!(
+            ben.workspace().task(vergabe).unwrap().priority,
+            plnwrk_core::Priority::High
+        );
+        assert!(merged.conflicts.is_empty() && merged.lost.is_empty());
+        assert_eq!(merged.foreign.len(), 1);
+        assert_eq!(ben.log().len(), base + 2, "hers, then his");
+        valid(&ben);
+    }
+
+    #[test]
+    fn different_fields_of_one_task_both_arrive() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(&mut anna, "task.update", json!({"task": einbau.to_string(), "title": "Einbau neu"}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "priority": "high"}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        let task = ben.workspace().task(einbau).unwrap();
+        assert_eq!(task.title, "Einbau neu");
+        assert_eq!(task.priority, plnwrk_core::Priority::High);
+        assert!(merged.conflicts.is_empty());
+        valid(&ben);
+    }
+
+    #[test]
+    fn the_same_field_the_later_save_wins_and_it_is_named() {
+        let (mut anna, mut ben, base, [einbau, _], [anna_id, _]) = two();
+        run(&mut anna, "task.update", json!({"task": einbau.to_string(), "due": "2026-11-20"}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "due": "2026-11-25"}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert_eq!(
+            ben.workspace().task(einbau).unwrap().due.map(|d| d.to_string()).as_deref(),
+            Some("2026-11-25")
+        );
+        assert_eq!(merged.conflicts.len(), 1);
+        let conflict = &merged.conflicts[0];
+        assert_eq!(conflict.entity, EntityKey::Task(einbau));
+        assert!(conflict.fields.contains(&"due".to_owned()), "{conflict:?}");
+        assert_eq!(conflict.theirs.get("due"), Some(&json!("2026-11-20")));
+        assert_eq!(conflict.ours.get("due"), Some(&json!("2026-11-25")));
+        assert_eq!(conflict.by, Some(anna_id));
+        valid(&ben);
+    }
+
+    #[test]
+    fn dates_go_together_never_one_of_each() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(&mut anna, "task.update", json!({"task": einbau.to_string(), "start": "2026-11-01"}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "due": "2026-11-30"}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        let task = ben.workspace().task(einbau).unwrap();
+        // Ben's dates as a whole: his deadline with the start he saw (none).
+        assert_eq!(task.due.map(|d| d.to_string()).as_deref(), Some("2026-11-30"));
+        assert_eq!(task.start, None);
+        assert_eq!(merged.conflicts.len(), 1, "her start is named");
+        valid(&ben);
+    }
+
+    #[test]
+    fn a_change_to_what_the_other_removed_is_lost_and_named() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(&mut anna, "task.delete", json!({"task": einbau.to_string()}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "title": "Einbau neu"}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert!(ben.workspace().task(einbau).is_none(), "stays removed");
+        assert_eq!(merged.lost.len(), 1);
+        assert!(matches!(
+            merged.lost[0].dropped,
+            Dropped::Gone { entity: EntityKey::Task(id) } if id == einbau
+        ));
+        valid(&ben);
+    }
+
+    #[test]
+    fn removing_what_the_other_changed_removes_it() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(&mut anna, "task.update", json!({"task": einbau.to_string(), "title": "Einbau neu"}));
+        run(&mut ben, "task.delete", json!({"task": einbau.to_string()}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert!(ben.workspace().task(einbau).is_none());
+        assert!(merged.lost.is_empty());
+        valid(&ben);
+    }
+
+    #[test]
+    fn a_circle_of_dependencies_is_not_taken() {
+        let (mut anna, mut ben, base, [einbau, vergabe], _) = two();
+        run(&mut anna, "dependency.add", json!({"from": einbau.to_string(), "to": vergabe.to_string()}));
+        run(&mut ben, "dependency.add", json!({"from": vergabe.to_string(), "to": einbau.to_string()}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert_eq!(merged.lost.len(), 1);
+        assert!(matches!(merged.lost[0].dropped, Dropped::Invalid { .. }), "{:?}", merged.lost);
+        assert_eq!(ben.workspace().dependencies().count(), 1, "hers stays");
+        valid(&ben);
+    }
+
+    #[test]
+    fn undo_takes_back_the_own_step_not_the_others() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(&mut anna, "task.update", json!({"task": einbau.to_string(), "priority": "high"}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "title": "Einbau neu"}));
+        ben_saves_after(&anna, &mut ben, base);
+        assert!(ben.can_undo());
+        run(&mut ben, "undo", json!({}));
+        let task = ben.workspace().task(einbau).unwrap();
+        assert_eq!(task.title, "Einbau", "his step taken back");
+        assert_eq!(task.priority, plnwrk_core::Priority::High, "hers stays");
+        valid(&ben);
+    }
+
+    #[test]
+    fn an_own_undo_points_at_the_own_step_under_its_new_number() {
+        let (mut anna, mut ben, base, [einbau, vergabe], _) = two();
+        run(&mut anna, "task.update", json!({"task": vergabe.to_string(), "priority": "high"}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "title": "Einbau neu"}));
+        let edit = ben.log().last().unwrap().seq;
+        run(&mut ben, "undo", json!({}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        let now = merged.moved[&edit];
+        let undo = ben.log().last().unwrap();
+        assert_eq!(undo.command, "undo");
+        assert_eq!(undo.undoes, Some(now), "renumbered with what it undoes");
+        // Redo still repeats his step, under its new number.
+        assert!(ben.can_redo());
+        run(&mut ben, "redo", json!({}));
+        assert_eq!(title(&ben, einbau).as_deref(), Some("Einbau neu"));
+        assert_eq!(ben.log().last().unwrap().redoes, Some(now));
+        valid(&ben);
+    }
+
+    #[test]
+    fn an_undo_of_a_step_not_taken_goes_with_it() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        run(&mut anna, "task.delete", json!({"task": einbau.to_string()}));
+        run(&mut ben, "task.update", json!({"task": einbau.to_string(), "title": "Einbau neu"}));
+        run(&mut ben, "undo", json!({}));
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert_eq!(merged.lost.len(), 2, "{:?}", merged.lost);
+        assert!(matches!(merged.lost[1].dropped, Dropped::Follows { .. }));
+        assert!(!ben.can_undo() || ben.log().iter().all(|c| c.command != "undo"));
+        valid(&ben);
+    }
+
+    #[test]
+    fn an_own_step_the_file_already_holds_is_left_out() {
+        let (mut anna, mut ben, base, [einbau, _], _) = two();
+        for s in [&mut anna, &mut ben] {
+            run(s, "task.update", json!({"task": einbau.to_string(), "title": "Gleich"}));
+        }
+        let merged = ben_saves_after(&anna, &mut ben, base);
+        assert_eq!(ben.log().len(), base + 1, "no empty step");
+        assert!(merged.conflicts.is_empty() && merged.lost.is_empty());
+        valid(&ben);
+    }
+
+    #[test]
+    fn a_file_that_does_not_continue_the_start_is_refused() {
+        let (anna, mut ben, base, _, _) = two();
+        let (other, _, _) = start();
+        let mut other = fork(other.workspace(), other.log(), 3_000);
+        run(&mut other, "person.create", json!({"name": "Fremd"}));
+        // Another file entirely: its first changes differ.
+        let mut log = other.log().to_vec();
+        log[0].params = json!({"name": "Ganz anders"});
+        let refused = ben.rebase_onto(other.workspace().clone(), log, base);
+        assert_eq!(refused.err(), Some(NotContinued));
+        // And a base longer than the file.
+        let refused = ben.rebase_onto(anna.workspace().clone(), anna.log().to_vec(), base + 5);
+        assert_eq!(refused.err(), Some(NotContinued));
+    }
+
+    // Many random steps by both: the merged file is always valid, holds everything the other
+    // saved, and every own step is either taken or named.
+
+    #[derive(Debug, Clone)]
+    enum Step {
+        Rename(usize, u8),
+        Priority(usize, bool),
+        Due(usize, u8),
+        Delete(usize),
+        Create(u8),
+        Depend(usize, usize),
+        Undo,
+    }
+
+    fn step() -> impl Strategy<Value = Step> {
+        prop_oneof![
+            (0usize..4, any::<u8>()).prop_map(|(t, n)| Step::Rename(t, n)),
+            (0usize..4, any::<bool>()).prop_map(|(t, h)| Step::Priority(t, h)),
+            (0usize..4, 1u8..28).prop_map(|(t, d)| Step::Due(t, d)),
+            (0usize..4).prop_map(Step::Delete),
+            any::<u8>().prop_map(Step::Create),
+            (0usize..4, 0usize..4).prop_map(|(a, b)| Step::Depend(a, b)),
+            Just(Step::Undo),
+        ]
+    }
+
+    /// Does one step if it can (refusals are fine: the person would see them).
+    fn apply(s: &mut Session, step: &Step) {
+        let project = s.workspace().projects().next().map(|p| p.id.to_string());
+        let tasks: Vec<String> = s.workspace().tasks().map(|t| t.id.to_string()).collect();
+        let pick = |n: usize| tasks.get(n % tasks.len().max(1)).cloned();
+        let (command, params) = match step {
+            Step::Rename(t, n) => ("task.update", pick(*t).map(|id| json!({"task": id, "title": format!("T{n}")}))),
+            Step::Priority(t, h) => ("task.update", pick(*t).map(|id| json!({"task": id, "priority": if *h { "high" } else { "low" }}))),
+            Step::Due(t, d) => ("task.update", pick(*t).map(|id| json!({"task": id, "due": format!("2026-12-{d:02}")}))),
+            Step::Delete(t) => ("task.delete", pick(*t).map(|id| json!({"task": id}))),
+            Step::Create(n) => ("task.create", project.map(|p| json!({"project": p, "title": format!("Neu {n}")}))),
+            Step::Depend(a, b) => ("dependency.add", pick(*a).zip(pick(*b)).map(|(f, t)| json!({"from": f, "to": t}))),
+            Step::Undo => ("undo", Some(json!({}))),
+        };
+        if let Some(params) = params {
+            let _ = s.run(command, &params, Origin::User);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn merging_random_work_gives_a_valid_file_with_both(
+            hers in proptest::collection::vec(step(), 0..12),
+            his in proptest::collection::vec(step(), 0..12),
+        ) {
+            let (mut anna, mut ben, base, _, _) = two();
+            for s in &hers { apply(&mut anna, s); }
+            for s in &his { apply(&mut ben, s); }
+            let own = ben.log().len() - base;
+            let merged = ben_saves_after(&anna, &mut ben, base);
+            valid(&ben);
+            prop_assert_eq!(&ben.log()[..anna.log().len()], anna.log(), "everything she saved, unchanged, first");
+            prop_assert!(merged.moved.len() + merged.lost.len() <= own);
+            for lost in &merged.lost {
+                prop_assert!(lost.seq as usize > base);
+            }
+        }
+    }
+}

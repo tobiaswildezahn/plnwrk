@@ -12,6 +12,7 @@ pub mod params;
 pub mod places;
 pub mod query;
 mod session;
+pub mod sync;
 mod tx;
 
 pub use command::{CommandSpec, find, registry, search};

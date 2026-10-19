@@ -52,6 +52,35 @@ impl Session {
         }
     }
 
+    /// Sets the own changes since `base` (the length of the log both had in common) onto the
+    /// file's state and log (Phase 10a): the session then holds the merged state, and undo and
+    /// redo keep their own steps under their new numbers. See [`crate::sync::rebase`].
+    pub fn rebase_onto(
+        &mut self,
+        file_ws: Workspace,
+        file_log: Vec<Change>,
+        base: usize,
+    ) -> Result<crate::sync::Rebased, crate::sync::NotContinued> {
+        let rebased = crate::sync::rebase(file_ws, file_log, &self.log, base)?;
+        let renumber = |stack: &[u64]| -> Vec<u64> {
+            stack
+                .iter()
+                .filter_map(|seq| {
+                    if *seq <= base as u64 {
+                        Some(*seq)
+                    } else {
+                        rebased.moved.get(seq).copied()
+                    }
+                })
+                .collect()
+        };
+        self.undo = renumber(&self.undo);
+        self.redo = renumber(&self.redo);
+        self.ws = rebased.workspace.clone();
+        self.log = rebased.log.clone();
+        Ok(rebased)
+    }
+
     /// The data, read-only.
     pub fn workspace(&self) -> &Workspace {
         &self.ws
