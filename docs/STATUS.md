@@ -1,8 +1,9 @@
 # plnwrk – Stand und offene Punkte
 
-> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17 abends:
-> plnwrk 0.2.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); **Phase 9
-> (Gestaltung) gebaut:** 9a–9g gemergt (#16–#22); offen ist der Wiederholungstest.
+> Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-19:
+> plnwrk 0.3.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de) mit **Phase 10a
+> (gemeinsame Datei)**, gemergt als #24; Phase 9 (Gestaltung) 9a–9g gemergt (#16–#22); offen sind
+> der Wiederholungstest und ein Durchgang von Hand mit zwei Rechnern auf einem echten Netzlaufwerk.
 > 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
@@ -26,9 +27,9 @@ sind Aufgaben mit Merkmal `milestone`.
 | 5 Zeitplanung (jeder Tag zählt, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
 | 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6a+ (jeder Tag zählt, `move_task`, sprechende Antworten) **fertig**; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10), [#11](https://github.com/tobiaswildezahn/plnwrk/pull/11) |
 | 7 VS-Härtung | offen | – |
-| 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0); **0.2.0** (2026-10-17, Phase 9): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.2.0); Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
+| 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0); **0.2.0** (2026-10-17, Phase 9): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.2.0); **0.3.0** (2026-10-19, Phase 10a): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.3.0); Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
 | 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board, 9f Dialoge/Start/Übersicht/Liste/Details/Leerzustände, 9g Meldungen/Klickpfade/Überholte Meilensteine **fertig**, je Review + Nachreview; offen: Wiederholungstest | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#22](https://github.com/tobiaswildezahn/plnwrk/pull/22) |
-| 10 Team | **10a Gemeinsame Datei** (mehrere Bearbeiter an einer Datei, Personen anlegen und ändern): gebaut, Review (18) und Nachreview (7) behoben, PR offen | – |
+| 10 Team | **10a Gemeinsame Datei** (mehrere Bearbeiter an einer Datei, Personen anlegen und ändern): gemergt und mit **0.3.0** veröffentlicht: [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.3.0) | [#24](https://github.com/tobiaswildezahn/plnwrk/pull/24) |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
@@ -82,10 +83,13 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
-0. **Phase 10a – Gemeinsame Datei** (Plan `docs/plans/2026-10-19-phase-10a-gemeinsame-datei.md`,
-   Branch `phase-10a`): Sperre nur beim Speichern, Zusammenführen Feld für Feld, Abholen fremder
-   Änderungen, Personen bearbeiten, „Ich arbeite als“ gemerkt. Schritte 10a-1 bis 10a-5, danach
-   Review, Nachreview, PR, Version 0.3.0.
+0. **Phase 10a – Gemeinsame Datei** (Plan `docs/plans/2026-10-19-phase-10a-gemeinsame-datei.md`):
+   **gemergt** (#24, `04ed4b2`) und **mit 0.3.0 veröffentlicht**. Sperre nur beim Speichern,
+   Zusammenführen Feld für Feld, Abholen fremder Änderungen, Personen bearbeiten, „Ich arbeite
+   als“ gemerkt; Review (18) und Nachreview (7) behoben. **Offen:** Durchgang von Hand mit zwei
+   Rechnern (Windows, verschlüsselte Datei) auf dem Abteilungslaufwerk – Sperre und Erkennung
+   fremder Speicherungen sind dort nicht automatisch prüfbar. Beim Umstieg: alle gleichzeitig,
+   denn ein offenes 0.2.0 sperrt die Datei für alle anderen.
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
    **9a–9f gemergt** (#16–#21; 9f: Anlegen-Dialog Vorgang | Projekt mit einer Regel
    `Project::is_case`, Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten,
