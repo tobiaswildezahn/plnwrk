@@ -28,6 +28,7 @@ sind Aufgaben mit Merkmal `milestone`.
 | 7 VS-Härtung | offen | – |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0); **0.2.0** (2026-10-17, Phase 9): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.2.0); Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
 | 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board, 9f Dialoge/Start/Übersicht/Liste/Details/Leerzustände, 9g Meldungen/Klickpfade/Überholte Meilensteine **fertig**, je Review + Nachreview; offen: Wiederholungstest | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#22](https://github.com/tobiaswildezahn/plnwrk/pull/22) |
+| 10 Team | **10a Gemeinsame Datei** (mehrere Bearbeiter an einer Datei, Personen anlegen und ändern): Plan steht, Umsetzung läuft | – |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
@@ -81,6 +82,10 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 
 ## 3. Nächste Schritte (in dieser Reihenfolge)
 
+0. **Phase 10a – Gemeinsame Datei** (Plan `docs/plans/2026-10-19-phase-10a-gemeinsame-datei.md`,
+   Branch `phase-10a`): Sperre nur beim Speichern, Zusammenführen Feld für Feld, Abholen fremder
+   Änderungen, Personen bearbeiten, „Ich arbeite als“ gemerkt. Schritte 10a-1 bis 10a-5, danach
+   Review, Nachreview, PR, Version 0.3.0.
 0. **Phase 9 – Gestaltung und Bedienbarkeit** (Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`):
    **9a–9f gemergt** (#16–#21; 9f: Anlegen-Dialog Vorgang | Projekt mit einer Regel
    `Project::is_case`, Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten,

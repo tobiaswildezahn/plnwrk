@@ -33,7 +33,7 @@ Strukturen. Der Einsatz in der Stabsarbeit ist eine Option, nicht der Zweck.
 Behördenkontext wird vor Veröffentlichung entschieden). Repo erst privat, dann öffentlich.
 
 **Nicht-Ziele (vorerst):** Zeiterfassung/Abrechnung, Ressourcenkostenrechnung, Chat, Dateiablage,
-Mehrbenutzer-Echtzeit. Letzteres ist durch die Architektur vorbereitet (Abschnitt 3.4), aber nicht
+Mehrbenutzer-Echtzeit (mehrere Bearbeiter einer gemeinsamen Datei, ohne Echtzeit: Phase 10a). Letzteres ist durch die Architektur vorbereitet (Abschnitt 3.4), aber nicht
 Teil der ersten Version.
 
 ## 2. Nicht verhandelbare Regeln
@@ -330,9 +330,17 @@ Oberfläche kommt erst, wenn der Kern vollständig getestet ist.
 Plan `docs/plans/2026-10-17-phase-9-gestaltung.md`: Gestaltungssystem (KERN-nah), Ribbon,
 Zeitplan, Meilensteine (mit Bestätigung), Board, Dialoge; Klicktests und Wiederholungstest.
 
-### Phase 10 – Team (Zukunft, nicht geplant)
+### Phase 10 – Team
 
-`server`-Crate (axum), Event-Abgleich, Anmeldung. Erst nach 0.1.0 entscheiden.
+- **10a – Gemeinsame Datei** (Tobi, 2026-10-19; Plan
+  `docs/plans/2026-10-19-phase-10a-gemeinsame-datei.md`): Mehrere Bearbeiter arbeiten an einer
+  Datei auf dem Laufwerk. Die Datei ist nur beim Speichern gesperrt; eigene Änderungen werden
+  Feld für Feld mit den inzwischen gespeicherten fremden zusammengeführt (wer später speichert,
+  gewinnt; Konflikte als Kommentar). Ohne Ungespeichertes holt plnwrk fremde Änderungen von
+  selbst ab. Personen lassen sich anlegen und ändern; „Ich arbeite als“ wird je Gerät und Datei
+  gemerkt. Kein Server.
+- **Später** (nicht geplant): `server`-Crate (axum) für Echtzeit und Benachrichtigungen,
+  Anmeldung mit nachgewiesener Identität (STATUS 4.7), Rechte und Rollen.
 
 ## 8. Risiken und Gegenmaßnahmen
 
@@ -441,6 +449,7 @@ Zeitplan, Meilensteine (mit Bestätigung), Board, Dialoge; Klicktests und Wieder
 | 2026-10-17 | **Review 9g** (unabhängiger Agent, eigene Arbeitskopie; keine Blocker, 4 Fehler, 4 Kleinigkeiten, 4 Testlücken, alles nachgestellt) → behoben, je mit Test und Gegenprobe (20 Mutationen, **jede Teilkorrektur einzeln**; zwei Sicherungen am Beginn-Feld decken sich und sind gemeinsam rot): **(F1)** ein getipptes, nicht lesbares Datum ging über „Ungespeichert → Speichern“ und beim Fensterschließen verloren – es steht jetzt in der Frage; **(F2)** die Meilenstein-Rückfrage verdrängte einen gerade geöffneten Dialog (Palette, „+ Neu“) – Öffnen übernimmt zuerst Getipptes und öffnet nach der Antwort; **(F4)** ein Sprung über die Palette warf aus Board/Zeitplan in die Liste – im selben Projekt bleibt der Reiter; **(K1)** ein Notkopie-Fehler erschien als Ablehnung des offenen Dialogs – App-Meldungen gehen in die Leiste (`say_in_bar`); **(K2)** eine Feldmeldung verschwand bei jedem anderen Befehl, obwohl das Feld weiter falsch war – sie bleibt, bis das Feld selbst wieder lesbar ist; **(K3)** über eine Aufgabe ohne Termin wurde diese als Ursache genannt – jetzt die verspätete mit Termin; **(K4)** die Links der Übersicht setzen den Cursor wie die Palette. Testlücken: Filter des Blocks (Vorlage, erledigtes Projekt, erledigter Vorgänger), Reiter in den Tastaturpfaden, Fokus direkt geprüft, jeder Klickpfad prüft am Ende „Meldung genau einmal sichtbar“. **Offen für Tobi:** Escape im Detailbereich übernimmt statt zu verwerfen (F3) → STATUS 4.18. |
 | 2026-10-17 | **Nachreview 9g** (unabhängiger Agent; keine Blocker, 2 Fehler in den Korrekturen, 2 Kleinigkeiten, 4 Testlücken, alles nachgestellt) → behoben, je mit Test und Gegenprobe (14 Mutationen, alle rot; ein Test maß zuerst falsch – nach ⌘S ersetzt „Gespeichert.“ jede Meldung –, auf „Detailbereich schließen“ umgestellt): **(N1)** seit K2 las `flush_draft` eine stehende Feldmeldung als Ablehnung und meldete eine gelungene Übernahme als „Nicht übernommen“ – es wertet jetzt den Rückgabewert von `run` aus, und was es übernimmt, nimmt die Meldung des Felds zurück (Detailbereich, Meilensteinkarte, Projektformular; Kennungen je Feld als Funktion); **(N2)** bei einer Raute aus Aufgaben ohne Termin wurde eine davon als Ursache genannt – ein zweites Mal erreicht, zählt sie nicht; der Eigenschaftstest prüft jetzt, dass alles Genannte einen Termin hat; **(NK1)** eine App-Meldung (Notkopie, Upload) verschwand ungesehen, wenn der offene Dialog danach gelang – eigener Ursprung `App`, den kein gelungener Befehl wegnimmt; **(NK2)** eine beim Öffnen übernommene Warnung stand in fachfremden Dialogen wie deren Ablehnung – sie wartet auf die Leiste; nur die Frage „Ungespeichert“ zeigt sie, weil sie dort entscheidet. Testlücken: Fokus aus „Heute und überfällig“, Upload hinter einem Dialog. **Ablauf (Vorschlag):** Ergebnisse von Befehlen nie über den Meldungszustand lesen – drei Funde dieser Phase hatten diese Ursache. |
 | 2026-10-17 | **9g gemergt** (#22, `70557f9`; Tobi: „Ja merge“, CI grün inkl. Windows und Release-Probebauten) und **plnwrk 0.2.0 veröffentlicht** (Tobi: „veröffentliche die neueste Version“): Tag `v0.2.0` auf `main` nach grüner CI dieses Commits; der Job `check` des Release-Ablaufs prüft Herkunft und CI selbst. README „Stand“ auf 0.2.0 mit diesem Doku-PR. **Browser-Version:** Der Pages-Ablauf startet nur von Hand – der Agent hatte fälschlich gesagt, sie folge `main` von selbst; auf Tobis Nachfrage am 18.10. von Hand auf `70557f9` gestartet. Ab jetzt gehört zu „veröffentlichen“: Tag **und** Pages-Ablauf. |
+| 2026-10-19 | **Phase 10a – Gemeinsame Datei** (Tobi: „leichtgewichtig für mehrere Nutzer … mit einer gemeinsamen Datei … Nutzer/Sachbearbeiter anlegen und ändern … Mache uns einen Plan. Aktualisiere die Dokumentation. Wenn alles grün ist, setze um.“). Plan `docs/plans/2026-10-19-phase-10a-gemeinsame-datei.md`. **Entscheidungen des Agenten:** Sperre nur beim Speichern statt während der ganzen Sitzung; Zusammenführen Feld für Feld, wer später speichert gewinnt, Konflikte in Aufgaben als Kommentar (PLAN §3.4); Löschen vor Ändern; Regelverstöße beim Zusammenführen → eigene Änderung nicht übernommen und genannt; Rückgängig nur für eigene Schritte; „Ich arbeite als“ je Gerät und Datei gemerkt, bei gemeinsamer Datei einmal gefragt; Personen bearbeiten, nicht löschen; kein neues Dateiformat. Vorher auch geklärt: der lokale MCP-Server war veraltet (0.0.0 vom 15.10., ohne Meilenstein-Rückfrage) → aus `main` neu installiert und am Verhalten geprüft; auf dem Pi läuft kein plnwrk (bewusst: Datenhoheit). |
 | Phase | Status |
 | --- | --- |
 | 0 Fundament | fertig (2026-10-14) |
@@ -453,3 +462,4 @@ Zeitplan, Meilensteine (mit Bestätigung), Board, Dialoge; Klicktests und Wieder
 | 7 VS-Härtung | offen |
 | 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): Release für macOS/Windows/Linux, Browser unter plnwrk.wildezahn.de; **0.2.0** (2026-10-17) mit Phase 9 |
 | 9 Gestaltung und Bedienbarkeit | 9a–9g gemergt (#16–#22), mit 0.2.0 veröffentlicht; offen: Wiederholungstest mit dem Sachbearbeiter, Entscheidung STATUS 4.18 |
+| 10 Team | 10a Gemeinsame Datei: Plan steht, Umsetzung läuft (Branch `phase-10a`) |
