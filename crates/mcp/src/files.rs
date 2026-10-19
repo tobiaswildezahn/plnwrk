@@ -48,9 +48,9 @@ impl Refusal {
             Self::Encrypted => "This file is encrypted with a passphrase. plnwrk does not open \
                 encrypted files over MCP: work on it in the plnwrk app."
                 .to_owned(),
-            Self::InUse => "This file is open in the plnwrk app (or another plnwrk program). \
-                Changes over MCP would clash with it: close it there first, or make the change \
-                there."
+            Self::InUse => "Someone is saving this file right now, or an older plnwrk (0.2 or \
+                earlier, which keeps a file locked while it is open) has it open. Try again in a \
+                moment; with an older plnwrk, once it is closed there."
                 .to_owned(),
             Self::Store(error) => format!("The file cannot be used: {error}"),
         }
@@ -206,7 +206,8 @@ impl Changing {
             },
             None => check(&bytes)?,
         };
-        let lock = file::lock(path)?;
+        // The app locks a shared file only while it saves (Phase 10a): wait a moment for it.
+        let lock = file::lock_waiting(path, std::time::Duration::from_millis(1500))?;
         // Changed between the check and the lock: checked again as it is now.
         let now = file::read(path)?;
         let opened = if now == bytes { opened } else { check(&now)? };

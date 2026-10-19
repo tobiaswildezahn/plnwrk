@@ -297,3 +297,147 @@ fn saving_by_hand_notes_a_conflict_too() {
     );
     assert!(!app.has_unsaved_changes());
 }
+
+/// The people of the sample, shown.
+fn people_view() -> Harness<'static, PlnwrkApp> {
+    let mut h = harness_with_sample();
+    h.state_mut().apply(crate::Intent::Go(View::People));
+    h.run();
+    h
+}
+
+fn person(h: &Harness<'_, PlnwrkApp>, name: &str) -> Option<plnwrk_core::Person> {
+    h.state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .people()
+        .find(|p| p.name == name)
+        .cloned()
+}
+
+/// Types into the text field called `label` (by its label or placeholder) – the last one, so
+/// a field in a dialog wins over one behind it – and optionally presses Enter.
+fn type_in_field(h: &mut Harness<'static, PlnwrkApp>, label: &str, typed: &str, enter: bool) {
+    h.query_all_by(|n| {
+        n.role() == egui::accesskit::Role::TextInput
+            && (n.label().as_deref() == Some(label) || n.placeholder() == Some(label))
+    })
+    .last()
+    .unwrap_or_else(|| panic!("no field {label}"))
+    .focus();
+    h.run();
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.run();
+    if typed.is_empty() {
+        h.key_press(Key::Backspace);
+    } else {
+        type_text_into(h, label, typed);
+    }
+    h.run();
+    if enter {
+        h.key_press(Key::Enter);
+        h.run();
+    }
+}
+
+fn type_text_into(h: &Harness<'static, PlnwrkApp>, label: &str, typed: &str) {
+    h.query_all_by(|n| {
+        n.role() == egui::accesskit::Role::TextInput
+            && (n.label().as_deref() == Some(label) || n.placeholder() == Some(label))
+    })
+    .last()
+    .unwrap_or_else(|| panic!("no field {label}"))
+    .type_text(typed);
+}
+
+fn edit_button(name: &str) -> String {
+    format!("{} · {name}", text::t().edit_person)
+}
+
+/// Phase 10a (Tobi: „anlegen und natürlich auch ändern“): a person is changed in its dialog –
+/// name, initials, role, e-mail; an emptied role is removed.
+#[test]
+fn a_person_is_changed() {
+    let mut h = people_view();
+    let anna = person(&h, "Anna Berg").unwrap();
+    click(&mut h, &edit_button("Anna Berg"));
+    assert!(matches!(
+        h.state().state.dialog,
+        Some(Dialog::EditPerson { .. })
+    ));
+    type_in_field(&mut h, text::t().name, "Anna Berg-Kruse", false);
+    type_in_field(&mut h, text::t().role, "", false);
+    type_in_field(&mut h, text::t().email, "anna@example.org", false);
+    click(&mut h, text::t().apply);
+    assert!(h.state().state.dialog.is_none());
+    let changed = h
+        .state()
+        .doc()
+        .unwrap()
+        .session
+        .workspace()
+        .person(anna.id)
+        .unwrap()
+        .clone();
+    assert_eq!(changed.name, "Anna Berg-Kruse");
+    assert_eq!(changed.role, None, "emptied: removed");
+    assert_eq!(changed.email.as_deref(), Some("anna@example.org"));
+}
+
+/// Phase 10a: the keyboard only – Enter in a field takes the change; unchanged, nothing is
+/// recorded.
+#[test]
+fn a_person_is_changed_with_the_keyboard_and_nothing_unchanged_is_recorded() {
+    let mut h = people_view();
+    let before = h.state().doc().unwrap().log_len();
+    click(&mut h, &edit_button("Anna Berg"));
+    click(&mut h, text::t().apply);
+    assert!(h.state().state.dialog.is_none());
+    assert_eq!(
+        h.state().doc().unwrap().log_len(),
+        before,
+        "nothing changed, nothing recorded"
+    );
+    click(&mut h, &edit_button("Anna Berg"));
+    type_in_field(&mut h, text::t().initials, "ABK", true);
+    assert!(h.state().state.dialog.is_none(), "Enter took it");
+    assert_eq!(person(&h, "Anna Berg").unwrap().initials, "ABK");
+}
+
+/// Phase 10a (W9): the same person twice by mistake – a hint when adding or changing.
+#[test]
+fn the_same_person_twice_is_pointed_out() {
+    let mut h = people_view();
+    type_in_field(&mut h, text::t().name, "anna berg", false);
+    assert!(
+        h.query_by_label(&text::same_person("Anna Berg")).is_some(),
+        "adding"
+    );
+    let mut h = people_view();
+    click(&mut h, &edit_button("Tobias Wildezahn"));
+    let anna = person(&h, "Anna Berg").unwrap();
+    type_in_field(&mut h, text::t().initials, &anna.initials, false);
+    assert!(
+        h.query_by_label(&text::same_person("Anna Berg")).is_some(),
+        "changing"
+    );
+    // Its own name is no double.
+    let mut h = people_view();
+    click(&mut h, &edit_button("Anna Berg"));
+    assert!(h.query_by_label(&text::same_person("Anna Berg")).is_none());
+}
+
+/// Phase 10a: who I am is marked in the list.
+#[test]
+fn i_am_marked_in_the_list_of_people() {
+    let mut h = people_view();
+    let anna = person(&h, "Anna Berg").unwrap();
+    h.state_mut().apply(crate::Intent::Actor(Some(anna.id)));
+    h.run();
+    assert!(
+        h.query_by_label(&format!("Anna Berg {}", text::t().me_marker))
+            .is_some()
+    );
+}

@@ -296,6 +296,62 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         out.push(Intent::OnlyMe);
                     }
                 }
+                Dialog::EditPerson { person, form } => {
+                    ui.heading(text::t().edit_person);
+                    ui.add_space(space::S);
+                    let mut enter = false;
+                    egui::Grid::new("edit-person")
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            for (caption, value) in [
+                                (text::t().name, &mut form.name),
+                                (text::t().initials, &mut form.initials),
+                                (text::t().role, &mut form.role),
+                                (text::t().email, &mut form.email),
+                            ] {
+                                let label = ui.label(caption);
+                                let field = ui
+                                    .add(
+                                        egui::TextEdit::singleline(value)
+                                            .id_salt(("edit-person", caption))
+                                            .desired_width(240.0),
+                                    )
+                                    .labelled_by(label.id);
+                                enter |=
+                                    field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                                ui.end_row();
+                            }
+                        });
+                    if let Some(ws) = doc.map(|d| d.session.workspace())
+                        && let Some(same) = super::people::same_person(
+                            ws,
+                            &form.name,
+                            &form.initials,
+                            Some(*person),
+                        )
+                    {
+                        w::field_error(ui, &text::same_person(&same));
+                    }
+                    ui.add_space(space::S);
+                    ui.horizontal(|ui| {
+                        let apply = w::button(ui, Kind::Primary, text::t().apply).clicked();
+                        if apply || enter {
+                            let stored = doc.and_then(|d| d.session.workspace().person(*person));
+                            match stored.map(|p| form.update_params(p)) {
+                                Some(params) => out.push(Intent::Run {
+                                    command: "person.update",
+                                    params,
+                                    then: Then::Nothing,
+                                    clear: Some(Clear::Dialog),
+                                }),
+                                None => out.push(Intent::CloseDialog),
+                            }
+                        }
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
+                            out.push(Intent::CloseDialog);
+                        }
+                    });
+                }
                 Dialog::DeleteAllStoredCopies => {
                     ui.heading(format!("{}?", text::t().delete_all_copies));
                     ui.label(text::t().delete_all_copies_question);

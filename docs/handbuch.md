@@ -152,7 +152,52 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   - **Als Tabelle exportieren (Excel):** speichert den Zeitplan als Datei, die Excel direkt
     öffnet.
 
-## 4. Nützlich zu wissen
+## 4. Gemeinsam an einer Datei arbeiten
+
+Mehrere Personen können **dieselbe Datei** nutzen, etwa auf dem Abteilungslaufwerk. Einen
+Server braucht es dafür nicht.
+
+- **Personen anlegen und ändern:** Ansicht **Personen** → „+ Person“ (Name, Kürzel, Rolle,
+  E-Mail). **Bearbeiten** ändert eine Person. Löschen geht nicht, weil der Verlauf auf sie
+  verweist. Gibt es Name oder Kürzel schon, weist plnwrk darauf hin.
+- **Wer bist du?** Beim ersten Öffnen einer Datei mit Personen fragt plnwrk, als wer man arbeitet:
+  - eine Person wählen,
+  - sich gleich neu anlegen,
+  - oder „Nur ich nutze diese Datei“.
+
+  plnwrk merkt sich die Antwort auf diesem Rechner für diese Datei, auch wenn sie umbenannt oder
+  verschoben wird. Wechseln geht unten in der Statuszeile („Person wechseln“) oder in der Ansicht
+  **Personen**.
+- **Gemeinsame Datei:** Hat man eine Person gewählt, steht unten „Gemeinsam · Name“. Dann gilt:
+  - **Speichern von selbst:** Jede Änderung wird nach 1–2 Sekunden gespeichert; ⌘S braucht man
+    nicht.
+  - **Änderungen der anderen** erscheinen nach wenigen Sekunden von selbst, mit einer Meldung
+    wie „Aktualisiert: 2 Änderungen von Ben Kruse“. Solange man tippt oder eine Frage offen ist,
+    wartet plnwrk damit.
+- **Gleichzeitig dasselbe geändert:**
+  - **Feld:** Wer später speichert, dessen Wert gilt. Die Aufgabe bekommt einen Kommentar mit
+    dem anderen Wert, sodass beide ihn sehen.
+  - **Gelöscht und geändert:** Hat jemand eine Aufgabe gelöscht, die man selbst geändert hat,
+    bleibt sie gelöscht. Die Meldung nennt, was nicht übernommen werden konnte, die
+    Wiederherstellungskopie bleibt erhalten.
+- **Rückgängig** nimmt die eigenen Schritte zurück, nicht die der anderen. Hat jemand anderes
+  inzwischen an derselben Stelle geändert, lehnt plnwrk das Rückgängig ab und sagt es.
+- **Gut zu wissen:**
+  - **Gleiche Version für alle:** Eine ältere Version (0.2) sperrt die Datei, solange sie dort
+    offen ist. Dann kann niemand sonst speichern, und plnwrk sagt das beim Öffnen.
+  - **Identität:** Die gewählte Person ist eine Angabe, kein Nachweis. Wer an welchem Rechner
+    sitzt, prüft plnwrk nicht.
+  - **Netzlaufwerk:** Ob die Sperre beim Speichern auf eurem Laufwerk wirkt, hängt vom
+    Laufwerk ab. Bitte einmal mit zwei Rechnern ausprobieren, bevor ihr damit arbeitet. plnwrk
+    prüft zusätzlich unmittelbar vor dem Schreiben, ob jemand dazwischen gespeichert hat, und
+    überschreibt dann nichts.
+  - **Verschlüsselte gemeinsame Datei:** Alle brauchen dieselbe Passphrase. Wer sie weitergibt,
+    regelt die Abteilung (Verschlusssachen: Geheimschutzstelle).
+  - **Rechte:** Neue Dateien sind zunächst nur für die eigene Person lesbar. Auf dem Laufwerk
+    bestimmt meist die Freigabe, wer sie öffnen darf.
+  - **Browser-Version:** Gemeinsame Dateien gibt es nur in der App, nicht im Browser.
+
+## 5. Nützlich zu wissen
 
 - **Menüband (Ribbon):** Oben stehen die Reiter **Datei**, **Start** und **Ansicht**, darunter die
   Befehle in Gruppen. Ist eine Aufgabe gewählt, kommt der Reiter **Aufgabe** dazu (Status,
@@ -176,7 +221,7 @@ Verschlusssachen** – VS-NfD lehnt die Browser-Version ab.
   Programm dafür (`plnwrk-cli`) liegt in jedem Paket neben der App. Über diese Schnittstelle
   bekommt die KI VS-NfD-Dateien und verschlüsselte Dateien nie zu sehen.
 
-## 5. Fragen und Fehler
+## 6. Fragen und Fehler
 
 **Wo steht, was nicht geklappt hat?** Dort, wo es passiert ist:
 - Ein Datum, das plnwrk nicht lesen kann, steht rot direkt unter seinem Feld.

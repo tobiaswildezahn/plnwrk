@@ -86,6 +86,8 @@ pub struct Texts {
     pub shared_badge: &'static str,
     pub change_me: &'static str,
     pub held_elsewhere: &'static str,
+    pub me_marker: &'static str,
+    pub edit_person: &'static str,
     pub welcome: &'static str,
     pub new_file: &'static str,
     pub open_file: &'static str,
@@ -382,6 +384,8 @@ pub static DE: Texts = Texts {
     shared_badge: "Gemeinsam",
     change_me: "Person wechseln",
     held_elsewhere: "Die Datei ist in einer älteren plnwrk-Version geöffnet. Speichern geht erst, wenn sie dort geschlossen ist.",
+    me_marker: "(ich)",
+    edit_person: "Person bearbeiten",
     welcome: "Projekte und Vorgänge – in einer Datei, die dir gehört.",
     new_file: "Neue Datei",
     open_file: "Datei öffnen…",
@@ -676,6 +680,8 @@ pub static EN: Texts = Texts {
     shared_badge: "Shared",
     change_me: "Change person",
     held_elsewhere: "The file is open in an older plnwrk. Saving works once it is closed there.",
+    me_marker: "(me)",
+    edit_person: "Edit person",
     welcome: "Projects and cases – in one file that belongs to you.",
     new_file: "New file",
     open_file: "Open file…",
@@ -1624,6 +1630,15 @@ pub fn fields_shown(values: &serde_json::Map<String, serde_json::Value>) -> Stri
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Another person has this name or these initials already (adding the same person twice by
+/// mistake in a shared file, Phase 10a).
+pub fn same_person(name: &str) -> String {
+    pick(
+        format!("Es gibt schon „{name}“ mit diesem Namen oder Kürzel."),
+        format!("“{name}” has this name or initials already."),
+    )
 }
 
 /// The comment a conflict leaves on a task: both values, who had which.

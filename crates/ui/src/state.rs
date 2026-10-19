@@ -175,6 +175,9 @@ pub enum Dialog {
     /// Who works here? Asked once per device for a file with people (Phase 10a); `name` is a
     /// person being added.
     WhoAmI { name: String },
+    /// Change a person (Phase 10a: people are added and changed, never deleted – the history
+    /// refers to them).
+    EditPerson { person: PersonId, form: PersonForm },
 }
 
 /// What the last action has to say: a refusal or a note.
@@ -525,6 +528,44 @@ pub struct PersonForm {
 }
 
 impl PersonForm {
+    /// The fields of `person` to edit.
+    pub fn of(person: &plnwrk_core::Person) -> Self {
+        Self {
+            name: person.name.clone(),
+            role: person.role.clone().unwrap_or_default(),
+            initials: person.initials.clone(),
+            email: person.email.clone().unwrap_or_default(),
+        }
+    }
+
+    /// Parameters of `person.update`: what differs from `person` (an emptied role or e-mail
+    /// is removed). Nothing different changes nothing (the engine records no empty step).
+    pub fn update_params(&self, person: &plnwrk_core::Person) -> Value {
+        let mut map = Map::new();
+        if self.name.trim() != person.name {
+            map.insert("name".to_owned(), json!(self.name.trim()));
+        }
+        if self.initials.trim() != person.initials {
+            map.insert("initials".to_owned(), json!(self.initials.trim()));
+        }
+        for (key, typed, stored) in [
+            ("role", &self.role, &person.role),
+            ("email", &self.email, &person.email),
+        ] {
+            let typed = typed.trim();
+            if typed != stored.as_deref().unwrap_or_default() {
+                let value = if typed.is_empty() {
+                    Value::Null
+                } else {
+                    json!(typed)
+                };
+                map.insert(key.to_owned(), value);
+            }
+        }
+        map.insert("person".to_owned(), json!(person.id.to_string()));
+        Value::Object(map)
+    }
+
     /// Parameters of `person.create`.
     pub fn params(&self) -> Value {
         let mut map = Map::new();

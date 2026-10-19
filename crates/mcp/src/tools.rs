@@ -85,7 +85,7 @@ pub fn list() -> Value {
         {
             "name": "run_command",
             "title": "Change a plnwrk file",
-            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (every calendar day counts, weekends and holidays too), in the same step. Refused for files open in the plnwrk app, encrypted files and anything classified VS-NfD. A change of a milestone (its date, title, status, deletion, or making a task one or not) is refused until the person confirmed it in the chat: ask first, then repeat with \"confirmed\": true.",
+            "description": "Runs one command (see search_commands) and saves the file. Each command is one undo step, marked in the history as made by an AI; \"undo\" and \"redo\" reach the steps made in this conversation, as long as the file was not changed elsewhere in between (never a person's change). Changing start or due of a task with task.update moves every task that waits for it as far later as needed (every calendar day counts, weekends and holidays too), in the same step. Refused while someone else is saving the file or an older plnwrk has it open, for encrypted files and anything classified VS-NfD. The plnwrk app (0.3 and later) shows the change by itself. A change of a milestone (its date, title, status, deletion, or making a task one or not) is refused until the person confirmed it in the chat: ask first, then repeat with \"confirmed\": true.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -212,7 +212,7 @@ fn read(arguments: &Map<String, Value>, answer: impl FnOnce(&Session) -> Answer)
     let value = answer(&opened.session)?;
     Ok(if open_elsewhere {
         json!({
-            "note": "The file is open in the plnwrk app: this is the state last saved there.",
+            "note": "The file is locked right now (someone is saving it, or an older plnwrk has it open): this is the state last saved.",
             "result": value,
         })
     } else {
