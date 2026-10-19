@@ -863,7 +863,7 @@ fn encrypted_files_are_not_opened() {
 }
 
 #[test]
-fn a_file_open_in_the_app_is_read_but_not_changed() {
+fn a_file_locked_by_another_plnwrk_is_read_but_not_changed() {
     let (path, first, _) = sample("in-use");
     let before = std::fs::read(&path).unwrap();
     let held = plnwrk_store::file::lock(&plnwrk_store::file::resolve(&path).unwrap()).unwrap();
@@ -874,7 +874,10 @@ fn a_file_open_in_the_app_is_read_but_not_changed() {
     );
     assert!(error);
     assert!(
-        reason.as_str().unwrap().contains("open in the plnwrk app"),
+        reason
+            .as_str()
+            .unwrap()
+            .contains("Someone is saving this file right now"),
         "{reason}"
     );
     assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -1206,5 +1209,31 @@ fn overtaken_milestones_are_a_query() {
     assert!(
         described.contains("overtaken_milestones (open milestones that come before"),
         "{described}"
+    );
+}
+
+/// Phase 10a: the app locks a shared file only while it saves – a change over MCP waits for
+/// that moment instead of being refused.
+#[test]
+fn a_change_waits_while_someone_saves() {
+    let (path, first, _) = sample("waits");
+    let resolved = plnwrk_store::file::resolve(&path).unwrap();
+    let held = plnwrk_store::file::lock(&resolved).unwrap();
+    let saving = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(held);
+    });
+    let (answer, error) = tool(
+        "run_command",
+        json!({"file": s(&path), "command": "task.update",
+               "params": {"task": first.to_string(), "title": "Nach dem Speichern"}}),
+    );
+    saving.join().unwrap();
+    assert!(!error, "{answer}");
+    assert!(
+        open(&path)
+            .workspace()
+            .tasks()
+            .any(|t| t.title == "Nach dem Speichern")
     );
 }

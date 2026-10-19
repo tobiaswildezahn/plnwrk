@@ -79,6 +79,17 @@ fn pick<T>(german: T, english: T) -> T {
 #[derive(Debug)]
 pub struct Texts {
     pub untitled: &'static str,
+    pub shared_file_replaced: &'static str,
+    pub who_am_i_title: &'static str,
+    pub who_am_i_question: &'static str,
+    pub only_me: &'static str,
+    pub shared_badge: &'static str,
+    pub change_me: &'static str,
+    pub held_elsewhere: &'static str,
+    pub me_marker: &'static str,
+    pub file_passphrase_question: &'static str,
+    pub lost_copy_kept: &'static str,
+    pub edit_person: &'static str,
     pub welcome: &'static str,
     pub new_file: &'static str,
     pub open_file: &'static str,
@@ -368,6 +379,17 @@ pub struct RibbonTexts {
 /// German.
 pub static DE: Texts = Texts {
     untitled: "Unbenannt",
+    shared_file_replaced: "Die gemeinsame Datei wurde durch eine andere ersetzt. Bitte mit „Speichern unter“ an einem anderen Ort sichern.",
+    who_am_i_title: "Wer bist du?",
+    who_am_i_question: "In dieser Datei arbeiten mehrere Personen. Als wer arbeitest du hier? plnwrk merkt es sich auf diesem Gerät, speichert dann jede Änderung von selbst und zeigt die der anderen.",
+    only_me: "Nur ich nutze diese Datei",
+    shared_badge: "Gemeinsam",
+    change_me: "Person wechseln",
+    held_elsewhere: "Die Datei ist in einer älteren plnwrk-Version geöffnet. Speichern geht erst, wenn sie dort geschlossen ist.",
+    me_marker: "(ich)",
+    file_passphrase_question: "Jemand hat die gemeinsame Datei inzwischen mit einer Passphrase geschützt. Mit ihr speichert und holt plnwrk weiter.",
+    lost_copy_kept: "Dein Stand von vorher liegt auf der Startseite unter „Wiederherstellen“.",
+    edit_person: "Person bearbeiten",
     welcome: "Projekte und Vorgänge – in einer Datei, die dir gehört.",
     new_file: "Neue Datei",
     open_file: "Datei öffnen…",
@@ -655,6 +677,17 @@ pub static DE: Texts = Texts {
 /// English.
 pub static EN: Texts = Texts {
     untitled: "Untitled",
+    shared_file_replaced: "The shared file was replaced by another one. Please keep your work with “Save as” in another place.",
+    who_am_i_title: "Who are you?",
+    who_am_i_question: "Several people work in this file. Who are you here? plnwrk remembers it on this device, then saves every change by itself and shows the others' changes.",
+    only_me: "Only I use this file",
+    shared_badge: "Shared",
+    change_me: "Change person",
+    held_elsewhere: "The file is open in an older plnwrk. Saving works once it is closed there.",
+    me_marker: "(me)",
+    file_passphrase_question: "Someone protected the shared file with a passphrase meanwhile. With it, plnwrk goes on saving and fetching.",
+    lost_copy_kept: "Your work as it was is on the start page under “Recover”.",
+    edit_person: "Edit person",
     welcome: "Projects and cases – in one file that belongs to you.",
     new_file: "New file",
     open_file: "Open file…",
@@ -1489,7 +1522,12 @@ pub fn command_error(error: &CommandError) -> String {
             ),
             None => pick("Nicht erlaubt.", "Not allowed.").to_owned(),
         },
-        CommandError::Conflict { reason } => format!("{} {reason}", pick("Konflikt:", "Conflict:")),
+        // Undo or redo of a step someone else changed since (a shared file, Phase 10a).
+        CommandError::Conflict { .. } => pick(
+            "Das geht nicht mehr: Inzwischen hat jemand anderes an derselben Stelle geändert.",
+            "Not possible any more: someone else changed the same thing meanwhile.",
+        )
+        .to_owned(),
         CommandError::UnknownCommand { command } => {
             format!(
                 "{} {command}",
@@ -1550,14 +1588,148 @@ pub fn store_error(error: &StoreError) -> String {
             format!("Encryption failed: {reason}"),
         ),
         StoreError::InUse { path } => pick(
-            format!("{path} ist schon in einem anderen plnwrk geöffnet."),
-            format!("{path} is already open in another plnwrk."),
+            format!(
+                "{path} wird gerade von jemand anderem gespeichert oder ist in einer älteren \
+                 plnwrk-Version geöffnet. Bitte gleich noch einmal versuchen."
+            ),
+            format!(
+                "{path} is being saved by someone else right now or is open in an older plnwrk. \
+                 Please try again in a moment."
+            ),
+        ),
+        StoreError::ChangedMeanwhile { path } => pick(
+            format!(
+                "{path} hat sich beim Speichern geändert (das Laufwerk hat die Sperre nicht \
+                 beachtet). Nichts wurde überschrieben – beim nächsten Speichern wird \
+                 zusammengeführt."
+            ),
+            format!(
+                "{path} changed while saving (the drive ignored the lock). Nothing was \
+                 overwritten – the next save merges."
+            ),
         ),
         StoreError::Io { reason } => pick(
             format!("Dateizugriff fehlgeschlagen: {reason}"),
             format!("File access failed: {reason}"),
         ),
     }
+}
+
+/// A value of a field as people read it: a date as a date, nothing as a dash, lists joined.
+pub fn value_shown(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "–".to_owned(),
+        serde_json::Value::String(text) => match text.parse::<jiff::civil::Date>() {
+            Ok(day) => crate::dates::format(day),
+            Err(_) => text.clone(),
+        },
+        serde_json::Value::Array(items) => {
+            items.iter().map(value_shown).collect::<Vec<_>>().join(", ")
+        }
+        serde_json::Value::Bool(true) => pick("ja", "yes").to_owned(),
+        serde_json::Value::Bool(false) => pick("nein", "no").to_owned(),
+        other => other.to_string(),
+    }
+}
+
+/// Fields and their values, e.g. "Frist 20.11.2026, Uhrzeit –".
+pub fn fields_shown(values: &serde_json::Map<String, serde_json::Value>) -> String {
+    values
+        .iter()
+        .filter_map(|(name, value)| {
+            field(name).map(|name| format!("{name} {}", value_shown(value)))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Another person has this name or these initials already (adding the same person twice by
+/// mistake in a shared file, Phase 10a).
+pub fn same_person(name: &str) -> String {
+    pick(
+        format!("Es gibt schon „{name}“ mit diesem Namen oder Kürzel."),
+        format!("“{name}” has this name or initials already."),
+    )
+}
+
+/// The comment a conflict leaves on a task: both values, who had which.
+pub fn conflict_comment(theirs: &str, by: &str, ours: &str, me: &str) -> String {
+    pick(
+        format!("Gleichzeitig geändert: {by} hatte {theirs}; gespeichert wurde {ours} ({me})."),
+        format!("Changed at the same time: {by} had {theirs}; saved was {ours} ({me})."),
+    )
+}
+
+/// Saved and merged with what others saved meanwhile. `noted`: conflicts noted as a comment on
+/// their task (only tasks have comments).
+pub fn merged_saved(
+    taken: usize,
+    from: &str,
+    conflicts: usize,
+    noted: usize,
+    lost: &[String],
+    swept: &[String],
+) -> String {
+    let mut said = pick(
+        format!("Gespeichert und zusammengeführt: {taken} Änderung(en) von {from} übernommen."),
+        format!("Saved and merged: {taken} change(s) by {from} taken."),
+    );
+    if conflicts > 0 {
+        said.push(' ');
+        said.push_str(&pick(
+            format!("Bei {conflicts} Angabe(n) galt deine."),
+            format!("For {conflicts} value(s) yours was kept."),
+        ));
+        if noted > 0 {
+            said.push(' ');
+            said.push_str(pick(
+                "Der andere Wert steht als Kommentar an der Aufgabe.",
+                "The other value is a comment on the task.",
+            ));
+        }
+    }
+    if !swept.is_empty() {
+        said.push(' ');
+        said.push_str(&pick(
+            format!(
+                "Mitgelöscht, obwohl inzwischen von anderen ergänzt oder geändert: {}.",
+                swept.join("; ")
+            ),
+            format!(
+                "Deleted along, though others added or changed it meanwhile: {}.",
+                swept.join("; ")
+            ),
+        ));
+    }
+    if !lost.is_empty() {
+        said.push(' ');
+        said.push_str(&pick(
+            format!(
+                "Nicht übernommen, weil inzwischen anders: {}.",
+                lost.join("; ")
+            ),
+            format!("Not taken, as it changed meanwhile: {}.", lost.join("; ")),
+        ));
+    }
+    said
+}
+
+/// Others' changes fetched from the shared file.
+pub fn fetched(taken: usize, from: &str) -> String {
+    pick(
+        format!("Aktualisiert: {taken} Änderung(en) von {from}."),
+        format!("Updated: {taken} change(s) by {from}."),
+    )
+}
+
+/// Someone unknown (a change without a person: the command line, an AI) – after "von".
+pub fn someone() -> &'static str {
+    pick("jemand anderem", "someone else")
+}
+
+/// The same as the subject of a sentence ("jemand anderes hatte …").
+pub fn someone_subject() -> &'static str {
+    pick("Jemand anderes", "Someone else")
 }
 
 #[cfg(test)]
@@ -1682,6 +1854,7 @@ mod tests {
     const NOT_INTERFACE: &[&str] = &[
         " – Wiederherstellung ",
         "{} – Wiederherstellung {}.plnwrk",
+        " – nicht übernommen",
         "Notkopien",
     ];
 

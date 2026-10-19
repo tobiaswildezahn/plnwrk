@@ -42,6 +42,11 @@ cd apps/plnwrk-web && trunk serve       # Browser-Version
   Müll-Parameter-Test (`tests/junk.rs`) erfasst ihn automatisch.
 - Abfragen: `QuerySpec` in `crates/engine/src/query/mod.rs`; Snapshots mit
   `INSTA_UPDATE=always cargo test -p plnwrk-engine --test queries` erneuern und Diff prüfen.
+- **Gemeinsame Dateien (Phase 10a):** Mehrere plnwrk-Versionen lesen dieselbe Datei. Ein neuer
+  Befehl oder ein neuer Parameter macht eine Datei für ältere Versionen unlesbar (sie prüfen jeden
+  Logeintrag gegen ihre Befehle) – nur zusammen mit einer neuen Formatversion; der Wächtertest
+  `the_commands_stay_those_of_0_2_0` (`crates/store/tests/store.rs`) hält die Liste fest.
+  Zusammenführen nur über `plnwrk_engine::sync::rebase` / `Session::rebase_onto`, nie selbst.
 - Dateiformat (`crates/store`): jede Änderung am Format braucht eine neue `manifest::VERSION`
   und einen Migrationsschritt; Tests in `crates/store/tests/store.rs` decken Manipulationen ab.
   Neue Felder im Modell immer mit `#[serde(default, skip_serializing_if = …)]`, sonst passen

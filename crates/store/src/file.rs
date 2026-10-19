@@ -152,6 +152,49 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     result
 }
 
+/// What a file looked like on disk: its size and when it was last changed. Equal stamps mean,
+/// as far as the system can tell, unchanged content (Phase 10a: a shared file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp {
+    /// Size in bytes.
+    pub len: u64,
+    /// Last change.
+    pub modified: std::time::SystemTime,
+}
+
+/// The stamp of `path`, if it can be read.
+pub fn stamp(path: &Path) -> Option<Stamp> {
+    let meta = fs::metadata(path).ok()?;
+    Some(Stamp {
+        len: meta.len(),
+        modified: meta.modified().ok()?,
+    })
+}
+
+/// Replaces `path` with `bytes` atomically – unless it changed since it was read as `seen`
+/// (`None`: it did not exist): then nothing is written ([`StoreError::ChangedMeanwhile`]). The
+/// check comes right before the rename, so a writer that ignored the lock is noticed.
+pub fn replace_if_unchanged(
+    path: &Path,
+    bytes: &[u8],
+    seen: Option<Stamp>,
+) -> Result<(), StoreError> {
+    let temp = write_temporary(path, bytes)?;
+    let result = if stamp(path) == seen {
+        keep_permissions(path, &temp).and_then(|()| fs::rename(&temp, path).map_err(io))
+    } else {
+        Err(StoreError::ChangedMeanwhile {
+            path: path.display().to_string(),
+        })
+    };
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    } else {
+        sync_folder(path);
+    }
+    result
+}
+
 /// Writes a new file; never replaces an existing one, even if it appears in the meantime.
 pub fn write_new(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let temp = write_temporary(path, bytes)?;
@@ -233,6 +276,20 @@ pub fn lock(path: &Path) -> Result<Lock, StoreError> {
             path: path.display().to_string(),
         }),
         Err(fs::TryLockError::Error(e)) => Err(io(e)),
+    }
+}
+
+/// Like [`lock`], but waits up to `wait` for another program to finish (a shared file is
+/// locked only while someone saves).
+pub fn lock_waiting(path: &Path, wait: std::time::Duration) -> Result<Lock, StoreError> {
+    let started = std::time::Instant::now();
+    loop {
+        match lock(path) {
+            Err(StoreError::InUse { .. }) if started.elapsed() < wait => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            other => return other,
+        }
     }
 }
 

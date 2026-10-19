@@ -17,6 +17,15 @@ pub struct Outcome {
     pub created: Vec<plnwrk_core::EntityKey>,
 }
 
+/// A state of a session to go back to.
+#[derive(Debug, Clone)]
+pub struct Checkpoint {
+    ws: Workspace,
+    log: Vec<Change>,
+    undo: Vec<u64>,
+    redo: Vec<u64>,
+}
+
 /// One open workspace with its history.
 pub struct Session {
     ws: Workspace,
@@ -50,6 +59,54 @@ impl Session {
             ids,
             actor: None,
         }
+    }
+
+    /// Sets the own changes since `base` (the length of the log both had in common) onto the
+    /// file's state and log (Phase 10a): the session then holds the merged state, and undo and
+    /// redo keep their own steps under their new numbers. See [`crate::sync::rebase`].
+    pub fn rebase_onto(
+        &mut self,
+        file_ws: Workspace,
+        file_log: Vec<Change>,
+        base: usize,
+    ) -> Result<crate::sync::Rebased, crate::sync::NotContinued> {
+        let rebased = crate::sync::rebase(file_ws, file_log, &self.log, base)?;
+        let renumber = |stack: &[u64]| -> Vec<u64> {
+            stack
+                .iter()
+                .filter_map(|seq| {
+                    if *seq <= base as u64 {
+                        Some(*seq)
+                    } else {
+                        rebased.moved.get(seq).copied()
+                    }
+                })
+                .collect()
+        };
+        self.undo = renumber(&self.undo);
+        self.redo = renumber(&self.redo);
+        self.ws = rebased.workspace.clone();
+        self.log = rebased.log.clone();
+        Ok(rebased)
+    }
+
+    /// The state as it is now – data, history, undo and redo – to go back to with
+    /// [`Self::restore`] (a merge whose writing failed: review 10a, N1).
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            ws: self.ws.clone(),
+            log: self.log.clone(),
+            undo: self.undo.clone(),
+            redo: self.redo.clone(),
+        }
+    }
+
+    /// Goes back to a state taken with [`Self::checkpoint`]; who works stays.
+    pub fn restore(&mut self, checkpoint: Checkpoint) {
+        self.ws = checkpoint.ws;
+        self.log = checkpoint.log;
+        self.undo = checkpoint.undo;
+        self.redo = checkpoint.redo;
     }
 
     /// The data, read-only.
@@ -142,6 +199,21 @@ impl Session {
     #[cfg(test)]
     pub(crate) fn workspace_mut(&mut self) -> &mut Workspace {
         &mut self.ws
+    }
+
+    /// Runs a command as bookkeeping, not as a step of the person's own (Phase 10a – a comment
+    /// noting a conflict): undo and redo stay as they were.
+    pub fn run_aside(
+        &mut self,
+        command: &str,
+        params: &Value,
+        origin: Origin,
+    ) -> Result<Outcome, CommandError> {
+        let (undo, redo) = (self.undo.clone(), self.redo.clone());
+        let result = self.run(command, params, origin);
+        self.undo = undo;
+        self.redo = redo;
+        result
     }
 
     /// Whether `undo` would do something.
@@ -296,7 +368,18 @@ impl Session {
             .rev()
             .map(Event::inverse)
             .collect();
-        self.apply_all(&inverse)?;
+        if let Err(error) = self.apply_all(&inverse) {
+            // Changed by someone else since (a shared file), or the rules no longer allow it
+            // (someone added to what it created): this step cannot be undone – it goes, so
+            // older own steps stay reachable (review 10a, F11, N2).
+            if matches!(
+                error,
+                CommandError::Conflict { .. } | CommandError::Invalid { .. }
+            ) {
+                self.undo.pop();
+            }
+            return Err(error);
+        }
         self.undo.pop();
         self.redo.push(seq);
         let change = self.append("undo", json!({}), inverse, origin, Some(seq), None);
@@ -312,7 +395,15 @@ impl Session {
             reason: "nothing to redo".to_owned(),
         })?;
         let events = self.events_of(seq)?;
-        self.apply_all(&events)?;
+        if let Err(error) = self.apply_all(&events) {
+            if matches!(
+                error,
+                CommandError::Conflict { .. } | CommandError::Invalid { .. }
+            ) {
+                self.redo.pop();
+            }
+            return Err(error);
+        }
         self.redo.pop();
         self.undo.push(seq);
         let change = self.append("redo", json!({}), events, origin, None, Some(seq));

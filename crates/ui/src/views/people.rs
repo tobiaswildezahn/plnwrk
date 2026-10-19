@@ -34,20 +34,42 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<I
     {
         state.focus_new_person = true;
     }
+    let me = doc.session.actor();
     egui::Grid::new("people")
-        .num_columns(4)
+        .num_columns(5)
         .striped(true)
         .show(ui, |ui| {
             ui.strong(text::t().name);
             ui.strong(text::t().initials);
             ui.strong(text::t().role);
             ui.strong(text::t().email);
+            ui.label("");
             ui.end_row();
             for person in &people {
-                ui.label(&person.name);
+                if me == Some(person.id) {
+                    ui.label(format!("{} {}", person.name, text::t().me_marker));
+                } else {
+                    ui.label(&person.name);
+                }
                 ui.label(&person.initials);
                 ui.label(person.role.as_deref().unwrap_or_default());
                 ui.label(person.email.as_deref().unwrap_or_default());
+                // Named for the screen reader: which person it changes.
+                let name = format!("{} · {}", text::t().edit_person, person.name);
+                let edit = crate::design::widgets::button(
+                    ui,
+                    crate::design::widgets::Kind::Quiet,
+                    text::t().edit,
+                );
+                edit.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
+                });
+                if edit.clicked() {
+                    out.push(Intent::Open(crate::state::Dialog::EditPerson {
+                        person: person.id,
+                        form: crate::state::PersonForm::of(person),
+                    }));
+                }
                 ui.end_row();
             }
         });
@@ -78,6 +100,9 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<I
                 .hint_text(text::t().email)
                 .desired_width(180.0),
         );
+        if let Some(same) = same_person(ws, &form.name, &form.initials, None) {
+            crate::design::widgets::field_error(ui, &text::same_person(&same));
+        }
         if ui.button(text::t().new_person).clicked() {
             out.push(Intent::Run {
                 command: "person.create",
@@ -87,4 +112,22 @@ pub fn show(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut State, out: &mut Vec<I
             });
         }
     });
+}
+
+/// Someone else (not `except`) with this name or these initials, ignoring case – to warn
+/// before the same person is added twice (Phase 10a, shared files).
+pub(crate) fn same_person(
+    ws: &plnwrk_core::Workspace,
+    name: &str,
+    initials: &str,
+    except: Option<PersonId>,
+) -> Option<String> {
+    let (name, initials) = (name.trim().to_lowercase(), initials.trim().to_lowercase());
+    ws.people()
+        .filter(|p| Some(p.id) != except)
+        .find(|p| {
+            (!name.is_empty() && p.name.to_lowercase() == name)
+                || (!initials.is_empty() && p.initials.to_lowercase() == initials)
+        })
+        .map(|p| p.name.clone())
 }

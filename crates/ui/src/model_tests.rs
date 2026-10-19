@@ -116,7 +116,7 @@ impl World {
             )
             .unwrap();
         let task = doc.session.workspace().tasks().next().unwrap().id;
-        doc.save_as(&file).unwrap();
+        doc.save_as(&file, |_, _| ()).unwrap();
         drop(doc);
         let saved = read(&file);
         let app = Self::start(&file, &recovery, background);

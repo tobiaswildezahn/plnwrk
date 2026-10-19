@@ -123,7 +123,8 @@ pub fn open(path: &Path, saving_plain: bool) -> Result<Open, Failure> {
 
 /// Locks a file against other plnwrk processes, then opens it – for anything that changes it.
 pub fn open_for_change(path: &Path, saving_plain: bool) -> Result<(Open, file::Lock), Failure> {
-    let lock = file::lock(path)?;
+    // The app locks a shared file only while it saves (Phase 10a): wait a moment for it.
+    let lock = file::lock_waiting(path, std::time::Duration::from_millis(1500))?;
     Ok((open(path, saving_plain)?, lock))
 }
 

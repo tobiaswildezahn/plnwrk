@@ -38,8 +38,11 @@ lesen und ändern, etwa so:
   - **VS-NfD:** Eine Datei, die VS-NfD ist (oder es je war), wird nicht geöffnet. Ein Befehl,
     der etwas auf VS-NfD hebt, wird abgelehnt.
   - **Verschlüsselte Dateien** werden nicht geöffnet.
-  - **Dateien, die in der App geöffnet sind**, werden nicht geändert. Lesen geht, Claude sieht
-    dann den zuletzt gespeicherten Stand.
+  - **Während jemand die Datei gerade speichert**, wartet eine Änderung kurz (bis 1,5 s).
+    Ab plnwrk 0.3 hält die App die Datei nicht mehr gesperrt, solange sie offen ist. Claude darf
+    also ändern, und die App zeigt die Änderung nach wenigen Sekunden von selbst (gemeinsame
+    Datei, siehe Handbuch). Eine ältere App (0.2 und früher) sperrt die Datei, solange sie offen
+    ist. Dann lehnt plnwrk die Änderung ab, Lesen geht weiter.
   - **Schreibgeschützte Dateien** (im Finder „Nur Lesen“) werden nicht geändert.
 
 ## Einrichten

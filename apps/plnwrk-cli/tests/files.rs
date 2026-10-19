@@ -303,6 +303,24 @@ mod files {
         ok(&["run", s(&file), "task.create", &params], None);
     }
 
+    /// Phase 10a: the app locks a shared file only while saving – the command line waits for
+    /// that moment instead of refusing.
+    #[test]
+    fn a_change_waits_while_someone_saves() {
+        let dir = Dir::new("waits");
+        let file = dir.file();
+        ok(&["new", s(&file), "--sample"], None);
+        let held = plnwrk_store::file::lock(&plnwrk_store::file::resolve(&file).unwrap()).unwrap();
+        let saving = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            drop(held);
+        });
+        let project = project_id(s(&file), None);
+        let params = json!({"project": project, "title": "Nach dem Speichern"}).to_string();
+        ok(&["run", s(&file), "task.create", &params], None);
+        saving.join().unwrap();
+    }
+
     #[test]
     fn new_never_replaces_a_file_that_appears_meanwhile() {
         // Without any early check in the CLI, only the never-overwrite write protects the file.

@@ -165,6 +165,24 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         }
                     });
                 }
+                Dialog::FilePassphrase { text: secret } => {
+                    ui.heading(text::t().passphrase);
+                    ui.label(text::t().file_passphrase_question);
+                    let field = ui.add(egui::TextEdit::singleline(secret).password(true));
+                    focus_once(&field, serial);
+                    let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                    ui.horizontal(|ui| {
+                        if (w::button(ui, Kind::Primary, text::t().apply).clicked() || entered)
+                            && !secret.is_empty()
+                        {
+                            let secret = SecretString::from(std::mem::take(secret));
+                            out.push(Intent::FilePassphrase(secret));
+                        }
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
+                            out.push(Intent::CloseDialog);
+                        }
+                    });
+                }
                 Dialog::Unsaved(action) => {
                     ui.heading(text::t().unsaved_title);
                     ui.label(text::t().unsaved_question);
@@ -256,6 +274,96 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                     ui.horizontal(|ui| {
                         if w::button(ui, Kind::Destructive, text::t().delete).clicked() {
                             out.push(Intent::DeleteStoredCopy(key.clone()));
+                        }
+                        if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
+                            out.push(Intent::CloseDialog);
+                        }
+                    });
+                }
+                Dialog::WhoAmI { name } => {
+                    ui.heading(text::t().who_am_i_title);
+                    ui.label(text::t().who_am_i_question);
+                    ui.add_space(space::S);
+                    for (id, person) in &people {
+                        if w::button(ui, Kind::Secondary, person).clicked() {
+                            out.push(Intent::Actor(Some(*id)));
+                            out.push(Intent::CloseDialog);
+                        }
+                    }
+                    ui.add_space(space::S);
+                    ui.horizontal(|ui| {
+                        let field = ui.add(
+                            egui::TextEdit::singleline(name)
+                                .id_salt("who-am-i-new")
+                                .hint_text(text::t().name)
+                                .desired_width(200.0),
+                        );
+                        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        let add = w::button(ui, Kind::Secondary, text::t().add_person).clicked();
+                        if (add || entered) && !name.trim().is_empty() {
+                            out.push(Intent::Run {
+                                command: "person.create",
+                                params: json!({"name": name.trim()}),
+                                then: Then::MeOfNew,
+                                clear: None,
+                            });
+                        }
+                    });
+                    ui.add_space(space::S);
+                    if w::button(ui, Kind::Quiet, text::t().only_me).clicked() {
+                        out.push(Intent::OnlyMe);
+                    }
+                }
+                Dialog::EditPerson { person, form } => {
+                    ui.heading(text::t().edit_person);
+                    ui.add_space(space::S);
+                    let mut enter = false;
+                    egui::Grid::new("edit-person")
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            for (caption, value) in [
+                                (text::t().name, &mut form.name),
+                                (text::t().initials, &mut form.initials),
+                                (text::t().role, &mut form.role),
+                                (text::t().email, &mut form.email),
+                            ] {
+                                let label = ui.label(caption);
+                                let field = ui
+                                    .add(
+                                        egui::TextEdit::singleline(value)
+                                            .id_salt(("edit-person", caption))
+                                            .desired_width(240.0),
+                                    )
+                                    .labelled_by(label.id);
+                                enter |=
+                                    field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                                ui.end_row();
+                            }
+                        });
+                    if let Some(ws) = doc.map(|d| d.session.workspace())
+                        && let Some(same) = super::people::same_person(
+                            ws,
+                            &form.name,
+                            &form.initials,
+                            Some(*person),
+                        )
+                    {
+                        w::field_error(ui, &text::same_person(&same));
+                    }
+                    ui.add_space(space::S);
+                    ui.horizontal(|ui| {
+                        let apply = w::button(ui, Kind::Primary, text::t().apply).clicked();
+                        if apply || enter {
+                            let stored = doc.and_then(|d| d.session.workspace().person(*person));
+                            match stored.map(|p| form.update_params(p)) {
+                                Some(params) => out.push(Intent::Run {
+                                    command: "person.update",
+                                    params,
+                                    then: Then::Nothing,
+                                    clear: Some(Clear::Dialog),
+                                }),
+                                None => out.push(Intent::CloseDialog),
+                            }
                         }
                         if w::button(ui, Kind::Secondary, text::t().cancel).clicked() {
                             out.push(Intent::CloseDialog);

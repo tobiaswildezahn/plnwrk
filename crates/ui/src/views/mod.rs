@@ -84,7 +84,7 @@ pub fn shortcuts(ctx: &egui::Context, open: bool, out: &mut Vec<Intent>) {
 pub fn show(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &mut State, out: &mut Vec<Intent>) {
     ribbon::show(ui, doc, state, out);
     message_bar(ui, state, out);
-    status_bar(ui, doc, state);
+    status_bar(ui, doc, state, out);
     match doc {
         None => {
             egui::CentralPanel::default().show(ui, |ui| start(ui, state, out));
@@ -118,7 +118,7 @@ pub fn themes() -> [(egui::ThemePreference, &'static str); 3] {
 }
 
 /// The status bar: the file, whether it is saved, its recovery copy, the browser's limits.
-fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
+fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State, out: &mut Vec<Intent>) {
     egui::Panel::bottom("status").show(ui, |ui| {
         ui.horizontal(|ui| {
             if let Some(doc) = doc {
@@ -127,6 +127,20 @@ fn status_bar(ui: &mut egui::Ui, doc: Option<&OpenDoc>, state: &State) {
                     |p| p.display().to_string(),
                 );
                 ui.weak(place);
+                // Shared with others (Phase 10a): as whom, and a way to change it.
+                if doc.shared {
+                    let me = doc
+                        .session
+                        .actor()
+                        .and_then(|id| doc.session.workspace().person(id))
+                        .map_or_else(String::new, |p| p.name.clone());
+                    ui.label(format!("{} · {me}", text::t().shared_badge));
+                    if ui.small_button(text::t().change_me).clicked() {
+                        out.push(Intent::Open(crate::state::Dialog::WhoAmI {
+                            name: String::new(),
+                        }));
+                    }
+                }
                 if doc.encrypted() {
                     ui.weak("🔒");
                 }

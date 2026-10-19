@@ -172,6 +172,15 @@ pub enum Dialog {
     DeleteAllStoredCopies,
     /// The command palette: what is typed and the highlighted line.
     Palette { query: String, selected: usize },
+    /// Who works here? Asked once per device for a file with people (Phase 10a); `name` is a
+    /// person being added.
+    WhoAmI { name: String },
+    /// Change a person (Phase 10a: people are added and changed, never deleted – the history
+    /// refers to them).
+    EditPerson { person: PersonId, form: PersonForm },
+    /// Someone protected the shared file meanwhile: its passphrase, to go on saving and
+    /// fetching (review 10a, F7).
+    FilePassphrase { text: String },
 }
 
 /// What the last action has to say: a refusal or a note.
@@ -522,6 +531,44 @@ pub struct PersonForm {
 }
 
 impl PersonForm {
+    /// The fields of `person` to edit.
+    pub fn of(person: &plnwrk_core::Person) -> Self {
+        Self {
+            name: person.name.clone(),
+            role: person.role.clone().unwrap_or_default(),
+            initials: person.initials.clone(),
+            email: person.email.clone().unwrap_or_default(),
+        }
+    }
+
+    /// Parameters of `person.update`: what differs from `person` (an emptied role or e-mail
+    /// is removed). Nothing different changes nothing (the engine records no empty step).
+    pub fn update_params(&self, person: &plnwrk_core::Person) -> Value {
+        let mut map = Map::new();
+        if self.name.trim() != person.name {
+            map.insert("name".to_owned(), json!(self.name.trim()));
+        }
+        if self.initials.trim() != person.initials {
+            map.insert("initials".to_owned(), json!(self.initials.trim()));
+        }
+        for (key, typed, stored) in [
+            ("role", &self.role, &person.role),
+            ("email", &self.email, &person.email),
+        ] {
+            let typed = typed.trim();
+            if typed != stored.as_deref().unwrap_or_default() {
+                let value = if typed.is_empty() {
+                    Value::Null
+                } else {
+                    json!(typed)
+                };
+                map.insert(key.to_owned(), value);
+            }
+        }
+        map.insert("person".to_owned(), json!(person.id.to_string()));
+        Value::Object(map)
+    }
+
     /// Parameters of `person.create`.
     pub fn params(&self) -> Value {
         let mut map = Map::new();
@@ -588,6 +635,9 @@ pub struct State {
     pub theme: egui::ThemePreference,
     /// The field for a new task takes the cursor in the next frame.
     pub focus_new_task: bool,
+    /// Who works in which file on this device (Phase 10a): the file's identity → the person's
+    /// id, or empty for "only I use this file". Kept in the app's settings.
+    pub actors: std::collections::BTreeMap<String, String>,
     /// The title in the details takes the cursor in the next frame (a task chosen in the
     /// palette: the keyboard goes on there, not from the top of the window).
     pub focus_details: bool,
@@ -695,7 +745,9 @@ impl State {
     /// Closes the dialog; a typed passphrase is wiped from memory.
     pub fn close_dialog(&mut self) {
         match &mut self.dialog {
-            Some(Dialog::Passphrase { text, .. }) => text.zeroize(),
+            Some(Dialog::Passphrase { text, .. } | Dialog::FilePassphrase { text }) => {
+                text.zeroize();
+            }
             Some(Dialog::Protect { first, second }) => {
                 first.zeroize();
                 second.zeroize();

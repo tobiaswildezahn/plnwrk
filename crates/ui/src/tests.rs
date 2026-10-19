@@ -15,6 +15,7 @@ use crate::{PlnwrkApp, text};
 mod nachreview;
 mod paths;
 mod review9g;
+mod shared;
 
 fn harness(app: PlnwrkApp) -> Harness<'static, PlnwrkApp> {
     // Short steps, like real frames: two clicks a few steps apart count as a double click.
@@ -1031,7 +1032,11 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
     harness.run();
     let app = harness.state();
     assert!(app.doc().is_some_and(crate::OpenDoc::encrypted));
-    assert!(app.state.dialog.is_none());
+    // The sample has people: who works here is asked once (Phase 10a), nothing else.
+    assert!(matches!(
+        app.state.dialog,
+        None | Some(crate::state::Dialog::WhoAmI { .. })
+    ));
 }
 
 #[test]
@@ -8044,10 +8049,12 @@ fn messages_go_with_the_view_and_cards_fit_the_window() {
         .apply(crate::Intent::Go(crate::state::View::Overview));
     harness.set_size(egui::vec2(1600.0, 900.0));
     harness.run();
+    // The card, not a line of "Heute und überfällig" above it with the same name (the case is
+    // due on 19.10.2026: on that day the test once took the line).
     let card = |h: &Harness<'_, PlnwrkApp>, title: &str| {
         h.get_all_by_label(title)
             .map(|n| n.rect())
-            .find(|r| r.left() > 250.0)
+            .rfind(|r| r.left() > 250.0)
             .unwrap()
     };
     let first = card(&harness, "SKA 23/1234 Sirenenwarnung");
