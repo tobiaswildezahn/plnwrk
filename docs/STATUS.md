@@ -1,8 +1,8 @@
 # plnwrk – Stand und offene Punkte
 
 > Übergabedokument für die nächste Session (Mensch oder Agent). Stand: **2026-10-17 abends:
-> plnwrk 0.1.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); **Phase 9
-> (Gestaltung) läuft:** 9a–9f gemergt (#16–#21), 9g fertig geprüft (PR #22), wartet auf Merge.
+> plnwrk 0.2.0 veröffentlicht** (Release + Browser unter plnwrk.wildezahn.de); **Phase 9
+> (Gestaltung) gebaut:** 9a–9g gemergt (#16–#22); offen ist der Wiederholungstest.
 > 6b (Assistent in der App) ist ausgesetzt. Verbindlich bleibt [PLAN.md](PLAN.md) (Entscheidungsprotokoll §9);
 > dieses Dokument fasst den Ist-Zustand und alles Offene zusammen. Nach jeder Phase aktualisieren.
 
@@ -26,8 +26,8 @@ sind Aufgaben mit Merkmal `milestone`.
 | 5 Zeitplanung (jeder Tag zählt, Nachfolger schieben, kritischer Pfad, Gantt) | **fertig**, Review + Nachreview + Kurzprüfung | [#9](https://github.com/tobiaswildezahn/plnwrk/pull/9) |
 | 6 KI (MCP, Assistent) | 6a MCP-Server **fertig**, Review + Nachreview; 6a+ (jeder Tag zählt, `move_task`, sprechende Antworten) **fertig**; 6b ausgesetzt (Tobi) | [#10](https://github.com/tobiaswildezahn/plnwrk/pull/10), [#11](https://github.com/tobiaswildezahn/plnwrk/pull/11) |
 | 7 VS-Härtung | offen | – |
-| 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0), Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
-| 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board, 9f Dialoge/Start/Übersicht/Liste/Details/Leerzustände **fertig**, je Review + Nachreview; **9g läuft** | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#21](https://github.com/tobiaswildezahn/plnwrk/pull/21) |
+| 8 Veröffentlichung | **0.1.0 veröffentlicht** (2026-10-17): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.1.0); **0.2.0** (2026-10-17, Phase 9): [Release](https://github.com/tobiaswildezahn/plnwrk/releases/tag/v0.2.0); Browser unter [plnwrk.wildezahn.de](https://plnwrk.wildezahn.de) | [#14](https://github.com/tobiaswildezahn/plnwrk/pull/14) |
+| 9 Gestaltung und Bedienbarkeit | 9a Bedienfehler + Gestaltungssystem, 9b Ribbon, 9c Zeitplan, 9d Meilensteine (+ Bestätigung jeder Meilenstein-Änderung), 9e Board, 9f Dialoge/Start/Übersicht/Liste/Details/Leerzustände, 9g Meldungen/Klickpfade/Überholte Meilensteine **fertig**, je Review + Nachreview; offen: Wiederholungstest | [#16](https://github.com/tobiaswildezahn/plnwrk/pull/16)–[#22](https://github.com/tobiaswildezahn/plnwrk/pull/22) |
 
 Alle Phasen ab 3a: Review + Nachreview durch unabhängigen Agenten, Befunde eingearbeitet,
 Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
@@ -35,7 +35,12 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
 ## 2. Technischer Ist-Zustand
 
 - **Repo:** `~/projekte/plnwrk/`, GitHub öffentlich (seit 2026-10-15) `tobiaswildezahn/plnwrk`. `main` enthält
-  Phase 0–8 und 9a–9f (Stand `4400e9b`). Neue Phase immer auf eigenem Branch (`phase-…`).
+  Phase 0–9 (Stand `70557f9`, Version 0.2.0). Neue Phase immer auf eigenem Branch (`phase-…`).
+- **Veröffentlichen** (nur auf Tobis „veröffentlichen“), drei Schritte: (1) Version in `Cargo.toml`
+  per PR, gemergt, CI auf `main` grün; (2) Tag `v<version>` auf diesen Commit pushen – der
+  Release-Ablauf baut und veröffentlicht die Pakete; (3) **Pages-Ablauf von Hand starten**
+  (`gh workflow run pages.yml --ref main`) – die Browser-Version folgt `main` **nicht** von
+  selbst. Danach README „Stand“ per Doku-PR.
 - **Toolchain:** Rust 1.99.0 (rustup, `rust-toolchain.toml`), Werkzeuge per Homebrew:
   cargo-deny, trunk, cargo-llvm-cov. Neue Shell: `source ~/.cargo/env` falls `cargo` fehlt.
 - **Schranke:** `cargo xtask ci` – Format, Schichtregeln, Reinheit core/engine, Clippy nativ +
@@ -80,12 +85,11 @@ Mutationsproben, CI grün auf Linux, macOS, Windows und Web.
    **9a–9f gemergt** (#16–#21; 9f: Anlegen-Dialog Vorgang | Projekt mit einer Regel
    `Project::is_case`, Startseite, Übersicht „Heute und überfällig“ mit Ampeln, Liste mit Spalten,
    Detailbereich in Gruppen, Leerzustände, Meldungsleiste, angeheftete Datumsleiste).
-   **9g fertig geprüft** (PR #22, Review + Nachreview eingearbeitet; Merge auf Tobis „ja, merge“):
+   **9g gemergt** (#22, Review + Nachreview eingearbeitet), **0.2.0 veröffentlicht**:
    (1) Meldung mit Ursprung (4.16), (2) Klickpfade, jeder auch
    nur mit Tastatur (4.17), (3) Übersicht-Block „Überholte Meilensteine“, (4) Durchgang von Hand,
-   (5) Version 0.2.0 vorbereitet – veröffentlicht erst auf Tobis „veröffentlichen“ (dann README
-   „Stand“ auf 0.2.0, Tag `v0.2.0`). Offen: Wiederholungstest mit dem Sachbearbeiter (dabei 4.14,
-   4.15) und Entscheidung 4.18.
+   (5) Version 0.2.0. **Offen:** Wiederholungstest mit dem Sachbearbeiter (dabei 4.14, 4.15) und
+   Entscheidung 4.18.
 1. ~~Realitätstest~~ erledigt (2026-10-17), Wiederholungstest nach Phase 9f/9g.
 2. **Tobi testet 3b-3** (Demo im Plan `docs/plans/2026-10-14-phase-3b-3.md`): ⌘K, Englisch,
    Dunkel. Palette, Englisch und Dunkelmodus (Lesbarkeit, Überfällig-Rot) hat der Agent in der
