@@ -122,7 +122,7 @@ fn only_me_keeps_the_file_to_myself() {
 fn a_new_person_adds_themself_when_asked() {
     let path = shared_file("new-person");
     let mut h = app_on(&path);
-    type_into(&mut h, text::t().new_person, "Carla Meier", true);
+    type_into(&mut h, text::t().name, "Carla Meier", true);
     let doc = h.state().doc().unwrap();
     let me = doc
         .session

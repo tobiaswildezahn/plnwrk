@@ -277,7 +277,7 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         let field = ui.add(
                             egui::TextEdit::singleline(name)
                                 .id_salt("who-am-i-new")
-                                .hint_text(text::t().new_person)
+                                .hint_text(text::t().name)
                                 .desired_width(200.0),
                         );
                         let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
