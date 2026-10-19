@@ -173,6 +173,16 @@ impl Session {
         &mut self.ws
     }
 
+    /// Takes the last change off the undo stack: bookkeeping that is no step of the person's
+    /// own (Phase 10a – a comment noting a conflict), so undo goes back to what they did.
+    pub fn keep_off_undo(&mut self) {
+        if let (Some(top), Some(last)) = (self.undo.last(), self.log.last())
+            && *top == last.seq
+        {
+            self.undo.pop();
+        }
+    }
+
     /// Whether `undo` would do something.
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()

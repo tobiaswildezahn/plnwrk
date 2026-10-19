@@ -75,6 +75,14 @@ pub enum StoreError {
         /// The file.
         path: String,
     },
+    /// The file changed on disk while it was being saved (another program wrote it although it
+    /// should have waited for the lock – e.g. on a network drive that ignores locks). Nothing
+    /// was written; saving again merges what is there now.
+    #[error("{path} changed while saving")]
+    ChangedMeanwhile {
+        /// The file.
+        path: String,
+    },
     /// Reading or writing the file on disk failed.
     #[error("file access failed: {reason}")]
     Io {

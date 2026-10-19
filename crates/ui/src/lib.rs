@@ -72,6 +72,24 @@ const LANGUAGE_KEY: &str = "plnwrk.language";
 const THEME_KEY: &str = "plnwrk.theme";
 /// Key of the stored choice whether the ribbon is collapsed.
 const RIBBON_KEY: &str = "plnwrk.ribbon";
+/// Who works in which file on this device (Phase 10a).
+const ACTORS_KEY: &str = "plnwrk.actors";
+/// A shared file saves itself this long after the last change (Phase 10a, Tobi: 1–2 s).
+const SHARED_SAVE_AFTER: f64 = 1.5;
+/// How often a shared file looks for what others saved.
+const SHARED_FETCH_EVERY: f64 = 3.0;
+
+/// The rhythm of a shared file: when the log last changed, when to fetch, when to try saving
+/// again after the file was busy.
+#[derive(Debug, Default, Clone, Copy)]
+struct SharedClock {
+    len: usize,
+    changed: f64,
+    next_fetch: f64,
+    retry_at: f64,
+    /// A refusal that would repeat every few seconds was said once already.
+    said: bool,
+}
 /// How many recent files are kept.
 const RECENT_MAX: usize = 8;
 
@@ -84,6 +102,8 @@ pub(crate) enum Then {
     ShowProject,
     /// The person it created is in charge in the open new-project dialog.
     OwnerOfNew,
+    /// The person it created is the one working here (asked "who are you?", Phase 10a).
+    MeOfNew,
 }
 
 /// Which form to empty after a command succeeded (on failure the input stays).
@@ -134,8 +154,10 @@ pub(crate) enum Intent {
     SaveThen(FileAction),
     /// Carry out the action and drop unsaved changes.
     Discard(FileAction),
-    /// Set who is working.
+    /// Set who is working (and, for a file on disk, remember it on this device: Phase 10a).
     Actor(Option<PersonId>),
+    /// "Only I use this file": not shared, nobody asked again on this device.
+    OnlyMe,
     /// Protect the file with this passphrase (and save).
     Protect(SecretString),
     /// Remove the protection (and save).
@@ -218,6 +240,8 @@ pub struct PlnwrkApp {
     /// What waits for the answer to a question about a milestone (closing, saving, opening,
     /// exporting): carried out once it is answered, either way.
     after_answer: Option<Intent>,
+    /// The rhythm of a shared file (Phase 10a).
+    shared: SharedClock,
 }
 
 impl std::fmt::Debug for PlnwrkApp {
@@ -275,6 +299,7 @@ impl PlnwrkApp {
             confirmed: false,
             last_done: false,
             after_answer: None,
+            shared: SharedClock::default(),
         }
     }
 
@@ -291,6 +316,9 @@ impl PlnwrkApp {
         }
         if let Some(theme) = storage.get_string(THEME_KEY).and_then(|s| theme_from(&s)) {
             self.state.theme = theme;
+        }
+        if let Some(text) = storage.get_string(ACTORS_KEY) {
+            self.state.actors = serde_json::from_str(&text).unwrap_or_default();
         }
         self.state.ribbon_collapsed = match storage.get_string(RIBBON_KEY).as_deref() {
             Some("collapsed") => Some(true),
@@ -668,6 +696,12 @@ impl PlnwrkApp {
             ui.ctx().request_discard("dialog closed");
         }
         self.autosave_tick(ui.ctx());
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.doc.as_ref().is_some_and(|d| d.shared) {
+            self.shared_at(ui.ctx().input(|i| i.time));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(500));
+        }
         let unsaved = self.has_unsaved_changes();
         if unsaved != self.leave_warning {
             self.host.set_leave_warning(unsaved);
@@ -867,6 +901,14 @@ impl PlnwrkApp {
             Intent::Actor(person) => {
                 if let Some(doc) = &mut self.doc {
                     doc.session.set_actor(person);
+                    remember_me(&mut self.state, doc, person);
+                }
+            }
+            Intent::OnlyMe => {
+                self.state.close_dialog();
+                if let Some(doc) = &mut self.doc {
+                    doc.session.set_actor(None);
+                    remember_me(&mut self.state, doc, None);
                 }
             }
             Intent::Protect(secret) => {
@@ -1046,6 +1088,13 @@ impl PlnwrkApp {
                 {
                     form.owner = Some(*id);
                     form.new_person = None;
+                }
+                if let (Then::MeOfNew, Some(EntityKey::Person(id))) =
+                    (then, outcome.created.first())
+                {
+                    doc.session.set_actor(Some(*id));
+                    remember_me(&mut self.state, doc, Some(*id));
+                    self.state.close_dialog();
                 }
                 // Made from the list: lit up for a moment where it landed.
                 if matches!(clear, Some(Clear::NewTask | Clear::NewSubtask))
@@ -1402,6 +1451,7 @@ impl PlnwrkApp {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
                 self.replace(doc);
+                self.ask_who();
                 if let Some(copy) = copy {
                     self.state.recovered.retain(|p| !same_place(p, &copy));
                     self.autosave.adopt(copy);
@@ -1418,6 +1468,145 @@ impl PlnwrkApp {
             .say(Message::error(text::store_error(&StoreError::Io {
                 reason: text::t().browser_files_later.to_owned(),
             })));
+    }
+
+    /// After opening a file with people (Phase 10a): who works here, as remembered on this
+    /// device – or asked once. Says too if an older plnwrk holds the file.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ask_who(&mut self) {
+        self.shared = SharedClock::default();
+        let Some(doc) = &mut self.doc else { return };
+        if self.state.browser || doc.path().is_none() {
+            return;
+        }
+        if doc.held_elsewhere {
+            self.state.say(Message::info(text::t().held_elsewhere));
+        }
+        if doc.session.workspace().people().next().is_none() {
+            return;
+        }
+        let Some(identity) = doc.identity() else {
+            return;
+        };
+        let remembered = self.state.actors.get(&identity).cloned();
+        let person = remembered
+            .as_deref()
+            .and_then(|id| id.parse::<PersonId>().ok())
+            .filter(|id| doc.session.workspace().person(*id).is_some());
+        match (remembered.as_deref(), person) {
+            (Some(""), _) => {}
+            (_, Some(person)) => {
+                doc.session.set_actor(Some(person));
+                doc.shared = true;
+            }
+            _ => self.state.open_dialog(Dialog::WhoAmI {
+                name: String::new(),
+            }),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn ask_who(&mut self) {}
+
+    /// The rhythm of a shared file at `now` (seconds, as egui counts): own work is saved a
+    /// moment after the last change; with nothing unsaved and no question open, what others
+    /// saved is fetched every few seconds (Phase 10a).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn shared_at(&mut self, now: f64) {
+        let Some(doc) = &self.doc else { return };
+        if !doc.shared {
+            return;
+        }
+        let len = doc.log_len();
+        if len != self.shared.len {
+            self.shared.len = len;
+            self.shared.changed = now;
+        }
+        let quiet = self.state.dialog.is_none();
+        if quiet
+            && doc.is_dirty()
+            && now - self.shared.changed >= SHARED_SAVE_AFTER
+            && now >= self.shared.retry_at
+        {
+            self.save_shared(now);
+        } else if quiet && now >= self.shared.next_fetch && !self.has_unsaved_changes() {
+            self.shared.next_fetch = now + SHARED_FETCH_EVERY;
+            self.fetch_shared();
+        }
+    }
+
+    /// Saves a shared file by itself: quietly, unless something was merged or refused.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_shared(&mut self, now: f64) {
+        let Some(doc) = &mut self.doc else { return };
+        match doc.save(note_conflicts) {
+            Ok(merged) => {
+                self.shared.said = false;
+                self.shared.len = doc.log_len();
+                let lost = merged.as_ref().is_some_and(|m| !lost_said(m).is_empty());
+                if !lost {
+                    self.autosave.saved();
+                }
+                if let Some(said) = merged.as_ref().and_then(|m| merged_message(doc, m)) {
+                    self.state.say(said);
+                }
+            }
+            // Someone else is saving, or the drive ignored the lock: again in a moment.
+            Err(StoreError::InUse { .. } | StoreError::ChangedMeanwhile { .. }) => {
+                self.shared.retry_at = now + 2.0;
+            }
+            Err(error) => {
+                self.shared.retry_at = now + 30.0;
+                if !self.shared.said {
+                    self.shared.said = true;
+                    self.state.say(Message::error(text::store_error(&error)));
+                }
+            }
+        }
+    }
+
+    /// Takes what others saved in the shared file. Inputs without a source of their own that
+    /// hold nothing typed are closed first: they would show the old value as if typed.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fetch_shared(&mut self) {
+        if self.inline_pending().is_none() {
+            self.state.forms.inline = None;
+        }
+        if !self.milestone_edit_pending() {
+            self.state.forms.milestone_edit = None;
+        }
+        let Some(doc) = &mut self.doc else { return };
+        match doc.fetch() {
+            Ok(Some(merged)) => {
+                self.shared.len = doc.log_len();
+                if !merged.foreign.is_empty() {
+                    let from = authors(doc.session.workspace(), &merged.foreign);
+                    self.state
+                        .say(Message::info(text::fetched(merged.foreign.len(), &from)));
+                }
+                // What was chosen may be gone now.
+                let ws = doc.session.workspace();
+                if self.state.selected.is_some_and(|id| ws.task(id).is_none()) {
+                    self.state.select(None);
+                }
+                if let View::Project(id) = self.state.view
+                    && ws.project(id).is_none()
+                {
+                    self.state.view = View::Overview;
+                }
+            }
+            Ok(None) => {}
+            Err(StoreError::PassphraseRequired | StoreError::WrongPassphrase) => {
+                if !self.shared.said {
+                    self.shared.said = true;
+                    self.state.say(Message::error(text::store_error(
+                        &StoreError::PassphraseRequired,
+                    )));
+                }
+            }
+            // Read while being written, a network hiccup: next time.
+            Err(_) => {}
+        }
     }
 
     /// Saves (asking for a place if needed or wanted; in the browser: downloads). Returns
@@ -1476,17 +1665,25 @@ impl PlnwrkApp {
             let Some(path) = self.host.pick_save(&name) else {
                 return false;
             };
-            doc.save_as(&path)
+            doc.save_as(&path, note_conflicts)
         } else {
-            doc.save()
+            doc.save(note_conflicts)
         };
         match result {
-            Ok(()) => {
+            Ok(merged) => {
                 if let Some(path) = doc.path() {
                     self.state.remember(path.to_path_buf(), RECENT_MAX);
                 }
-                self.autosave.saved();
-                self.state.say(Message::info(text::t().saved));
+                let lost = merged.as_ref().is_some_and(|m| !lost_said(m).is_empty());
+                // Something of the own work could not be taken: its recovery copy stays.
+                if !lost {
+                    self.autosave.saved();
+                }
+                let said = merged
+                    .as_ref()
+                    .and_then(|m| merged_message(doc, m))
+                    .unwrap_or_else(|| Message::info(text::t().saved));
+                self.state.say(said);
                 true
             }
             Err(error) => {
@@ -1572,6 +1769,9 @@ impl eframe::App for PlnwrkApp {
             let value = if collapsed { "collapsed" } else { "expanded" };
             storage.set_string(RIBBON_KEY, value.to_owned());
         }
+        if let Ok(text) = serde_json::to_string(&self.state.actors) {
+            storage.set_string(ACTORS_KEY, text);
+        }
     }
 }
 
@@ -1587,4 +1787,98 @@ pub(crate) fn along_of(params: &Value) -> usize {
         .get("moves")
         .and_then(Value::as_array)
         .map_or(0, |moves| moves.len().saturating_sub(1))
+}
+
+/// Notes every conflict of a merge on its task as a comment (Phase 10a): the person whose value
+/// gave way sees it there. Not an undo step of the one saving.
+#[cfg(not(target_arch = "wasm32"))]
+fn note_conflicts(session: &mut plnwrk_engine::Session, merged: &doc::Merged) {
+    let ws = session.workspace().clone();
+    let name = |id: Option<plnwrk_core::PersonId>| {
+        id.and_then(|id| ws.person(id))
+            .map_or_else(|| text::someone().to_owned(), |p| p.name.clone())
+    };
+    let me = name(session.actor());
+    for conflict in &merged.conflicts {
+        let plnwrk_core::EntityKey::Task(task) = conflict.entity else {
+            continue;
+        };
+        let body = text::conflict_comment(
+            &text::fields_shown(&conflict.theirs),
+            &name(conflict.by),
+            &text::fields_shown(&conflict.ours),
+            &me,
+        );
+        let body: String = body.chars().take(plnwrk_core::text::BODY_MAX).collect();
+        let params = serde_json::json!({"task": task.to_string(), "body": body});
+        if session.run("comment.add", &params, Origin::Script).is_ok() {
+            session.keep_off_undo();
+        }
+    }
+}
+
+/// Who made `changes`, by name (several joined); "someone else" for changes without a person.
+fn authors(ws: &plnwrk_core::Workspace, changes: &[plnwrk_engine::Change]) -> String {
+    let mut names: Vec<String> = Vec::new();
+    for change in changes {
+        let name = change
+            .actor
+            .and_then(|id| ws.person(id))
+            .map_or_else(|| text::someone().to_owned(), |p| p.name.clone());
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names.join(", ")
+}
+
+/// The own changes a merge could not take, as people read them (a format upgrade that the file
+/// already had is no loss).
+fn lost_said(merged: &doc::Merged) -> Vec<String> {
+    merged
+        .lost
+        .iter()
+        .filter(|l| l.command != "workspace.upgrade")
+        .map(|l| match &l.text {
+            Some(text) => format!("„{text}“"),
+            None => l.command.clone(),
+        })
+        .collect()
+}
+
+/// Remembers on this device who works in the open file (Phase 10a) – under the file's identity,
+/// so it holds when the file is renamed or the drive has another letter – and shares the file
+/// (saves itself, fetches others' work) when a person was chosen for a file on disk.
+fn remember_me(state: &mut state::State, doc: &mut OpenDoc, person: Option<PersonId>) {
+    let Some(identity) = doc.identity() else {
+        return;
+    };
+    if doc.path().is_none() || state.browser {
+        return;
+    }
+    state
+        .actors
+        .insert(identity, person.map(|p| p.to_string()).unwrap_or_default());
+    doc.shared = person.is_some();
+}
+
+/// What a merge has to say: others' changes taken, conflicts, own changes not taken. `None`
+/// when nothing of others came in and nothing was lost.
+#[cfg(not(target_arch = "wasm32"))]
+fn merged_message(doc: &OpenDoc, merged: &doc::Merged) -> Option<Message> {
+    let lost = lost_said(merged);
+    if merged.foreign.is_empty() && lost.is_empty() {
+        return None;
+    }
+    let said = text::merged_saved(
+        merged.foreign.len(),
+        &authors(doc.session.workspace(), &merged.foreign),
+        merged.conflicts.len(),
+        &lost,
+    );
+    Some(if lost.is_empty() {
+        Message::info(said)
+    } else {
+        Message::error(said)
+    })
 }

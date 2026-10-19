@@ -15,6 +15,7 @@ use crate::{PlnwrkApp, text};
 mod nachreview;
 mod paths;
 mod review9g;
+mod shared;
 
 fn harness(app: PlnwrkApp) -> Harness<'static, PlnwrkApp> {
     // Short steps, like real frames: two clicks a few steps apart count as a double click.
@@ -1031,7 +1032,11 @@ fn encrypted_files_ask_for_the_passphrase_and_again_when_it_is_wrong() {
     harness.run();
     let app = harness.state();
     assert!(app.doc().is_some_and(crate::OpenDoc::encrypted));
-    assert!(app.state.dialog.is_none());
+    // The sample has people: who works here is asked once (Phase 10a), nothing else.
+    assert!(matches!(
+        app.state.dialog,
+        None | Some(crate::state::Dialog::WhoAmI { .. })
+    ));
 }
 
 #[test]

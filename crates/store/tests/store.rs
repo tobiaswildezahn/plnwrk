@@ -215,6 +215,34 @@ mod store {
         );
     }
 
+    /// Phase 10a (W7): a writer that ignored the lock is noticed right before replacing – the
+    /// file is left as that writer wrote it, and saving can merge next time.
+    #[test]
+    fn a_file_changed_since_reading_is_not_replaced() {
+        use plnwrk_store::file;
+        let dir = std::env::temp_dir().join(format!("plnwrk-store-stamp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("gemeinsam.plnwrk");
+        std::fs::write(&path, b"erste Fassung").unwrap();
+        let seen = file::stamp(&path);
+        std::fs::write(&path, b"jemand anderes, laenger").unwrap();
+        let refused = file::replace_if_unchanged(&path, b"meine Fassung", seen);
+        assert!(
+            matches!(refused, Err(StoreError::ChangedMeanwhile { .. })),
+            "{refused:?}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"jemand anderes, laenger");
+        // Unchanged since reading: replaced.
+        let seen = file::stamp(&path);
+        file::replace_if_unchanged(&path, b"meine Fassung", seen).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"meine Fassung");
+        // Not there when read, not there now: written.
+        let new = dir.join("neu.plnwrk");
+        file::replace_if_unchanged(&new, b"neu", None).unwrap();
+        assert_eq!(std::fs::read(&new).unwrap(), b"neu");
+    }
+
     fn pass(text: &str) -> SecretString {
         SecretString::from(text.to_owned())
     }

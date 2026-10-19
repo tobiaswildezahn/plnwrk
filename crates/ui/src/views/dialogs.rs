@@ -262,6 +262,40 @@ pub fn show(ctx: &egui::Context, doc: Option<&OpenDoc>, state: &mut State, out: 
                         }
                     });
                 }
+                Dialog::WhoAmI { name } => {
+                    ui.heading(text::t().who_am_i_title);
+                    ui.label(text::t().who_am_i_question);
+                    ui.add_space(space::S);
+                    for (id, person) in &people {
+                        if w::button(ui, Kind::Secondary, person).clicked() {
+                            out.push(Intent::Actor(Some(*id)));
+                            out.push(Intent::CloseDialog);
+                        }
+                    }
+                    ui.add_space(space::S);
+                    ui.horizontal(|ui| {
+                        let field = ui.add(
+                            egui::TextEdit::singleline(name)
+                                .id_salt("who-am-i-new")
+                                .hint_text(text::t().new_person)
+                                .desired_width(200.0),
+                        );
+                        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        let add = w::button(ui, Kind::Secondary, text::t().add_person).clicked();
+                        if (add || entered) && !name.trim().is_empty() {
+                            out.push(Intent::Run {
+                                command: "person.create",
+                                params: json!({"name": name.trim()}),
+                                then: Then::MeOfNew,
+                                clear: None,
+                            });
+                        }
+                    });
+                    ui.add_space(space::S);
+                    if w::button(ui, Kind::Quiet, text::t().only_me).clicked() {
+                        out.push(Intent::OnlyMe);
+                    }
+                }
                 Dialog::DeleteAllStoredCopies => {
                     ui.heading(format!("{}?", text::t().delete_all_copies));
                     ui.label(text::t().delete_all_copies_question);

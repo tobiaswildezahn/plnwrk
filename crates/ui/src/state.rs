@@ -172,6 +172,9 @@ pub enum Dialog {
     DeleteAllStoredCopies,
     /// The command palette: what is typed and the highlighted line.
     Palette { query: String, selected: usize },
+    /// Who works here? Asked once per device for a file with people (Phase 10a); `name` is a
+    /// person being added.
+    WhoAmI { name: String },
 }
 
 /// What the last action has to say: a refusal or a note.
@@ -588,6 +591,9 @@ pub struct State {
     pub theme: egui::ThemePreference,
     /// The field for a new task takes the cursor in the next frame.
     pub focus_new_task: bool,
+    /// Who works in which file on this device (Phase 10a): the file's identity → the person's
+    /// id, or empty for "only I use this file". Kept in the app's settings.
+    pub actors: std::collections::BTreeMap<String, String>,
     /// The title in the details takes the cursor in the next frame (a task chosen in the
     /// palette: the keyboard goes on there, not from the top of the window).
     pub focus_details: bool,
